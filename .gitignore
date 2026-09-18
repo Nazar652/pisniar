@@ -2,3 +2,21 @@
 .venv
 .claude
 
+# environment / secrets
+.env
+.env.*
+!.env.example
+
+# python caches
+__pycache__/
+*.py[cod]
+*.pyo
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+
+# logs
+*.log

@@ -1,0 +1,51 @@
+# Picked up automatically alongside compose.yaml. Dev-only concerns: bind
+# mounts for hot reload, host ports (debugging only, loopback-only per the
+# approved assumption — never published on 0.0.0.0), and console logging.
+#
+# WATCHFILES_FORCE_POLLING=1: inotify does not propagate through a Windows
+# bind mount into the Linux VM, so mtime-polling is the only hot-reload mode
+# that actually works here — without it, file changes on the host would
+# silently never trigger a restart.
+
+services:
+  migrate:
+    build:
+      target: bot-dev
+    volumes:
+      - ./src:/app/src
+      - ./alembic:/app/alembic
+      - ./alembic.ini:/app/alembic.ini
+    environment:
+      ENVIRONMENT: dev
+
+  bot:
+    build:
+      target: bot-dev
+    volumes:
+      - ./src:/app/src
+      - ./alembic:/app/alembic
+      - ./alembic.ini:/app/alembic.ini
+    environment:
+      ENVIRONMENT: dev
+      WATCHFILES_FORCE_POLLING: "1"
+    ports:
+      - "127.0.0.1:18080:8080"
+
+  worker:
+    build:
+      target: worker-dev
+    volumes:
+      - ./src:/app/src
+      - ./alembic:/app/alembic
+      - ./alembic.ini:/app/alembic.ini
+    environment:
+      ENVIRONMENT: dev
+      WATCHFILES_FORCE_POLLING: "1"
+
+  postgres:
+    ports:
+      - "127.0.0.1:55432:5432"
+
+  redis:
+    ports:
+      - "127.0.0.1:56379:6379"

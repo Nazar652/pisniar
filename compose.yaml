@@ -1,0 +1,106 @@
+name: pisniar
+
+# DATABASE_URL / REDIS_URL are not secrets — they are the in-network DNS
+# names of the `postgres` / `redis` services, fixed by this file's own
+# topology. They are set here, not in `.env`: the user only fills in what
+# only they know (bot token, admin ids, alert chat id).
+x-app-environment: &app-environment
+  DATABASE_URL: postgresql+asyncpg://pisniar:pisniar@postgres:5432/pisniar
+  REDIS_URL: redis://redis:6379/0
+
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: pisniar
+      POSTGRES_PASSWORD: pisniar
+      POSTGRES_DB: pisniar
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pisniar -d pisniar"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # One-shot: applies migrations and exits. Not part of an image entrypoint,
+  # so there is no race between several containers trying to migrate at once.
+  migrate:
+    build:
+      context: .
+      target: bot
+    command: ["alembic", "upgrade", "head"]
+    env_file:
+      - .env
+    environment:
+      <<: *app-environment
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  bot:
+    build:
+      context: .
+      target: bot
+    env_file:
+      - .env
+    environment:
+      <<: *app-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8080/healthz', timeout=3)",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  worker:
+    build:
+      context: .
+      target: worker
+    env_file:
+      - .env
+    environment:
+      <<: *app-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      # `timeout` is generous on purpose: the command pays for a fresh
+      # Python/Celery process bootstrap (importing the full `pisniar.worker.tasks`
+      # dependency chain) on top of the 3s broker round-trip, and a tight
+      # timeout here was observed to fail spuriously ("Health check exceeded
+      # timeout") well before the worker was actually unhealthy.
+      test: ["CMD", "celery", "-A", "pisniar.worker.tasks", "inspect", "ping", "--timeout", "3"]
+      interval: 10s
+      timeout: 15s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  postgres-data:
