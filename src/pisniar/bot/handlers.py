@@ -38,9 +38,8 @@ async def handle_diag(
 ) -> None:
     """End-to-end diagnostic: create a track+post, dispatch a Celery task, reply.
 
-    Purely diagnostic dummy data — no track resolution, no real pipeline
-    logic. Temporary by design (assumption A7): drop this handler once step 2
-    has real handlers exercising the same path for real.
+    Dummy data, no real pipeline logic. Temporary (A7): drop once step 2 has
+    real handlers exercising the same path.
     """
     if message.from_user is None:
         return
@@ -63,11 +62,8 @@ async def handle_diag(
     bind_post_id(post_id)
     logger.info("diag_started", track_id=track_id, post_id=post_id)
 
-    # `send_task()` is a blocking, synchronous kombu call. Run it off the
-    # event loop: if Redis is unreachable, it can block for the whole retry
-    # window, and this is a single-loop process — a blocked event loop here
-    # also stalls uvicorn's `/healthz`, which can then fail its own
-    # healthcheck and take down an otherwise-healthy `bot` container.
+    # `send_task()` blocks synchronously; off-loop, or an unreachable Redis stalls
+    # this single-loop process's event loop and takes uvicorn's `/healthz` down with it (D-23).
     try:
         async_result = await asyncio.to_thread(
             celery_client.send_task, PING_TASK_NAME, kwargs={"post_id": post_id}

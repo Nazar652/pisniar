@@ -1,18 +1,7 @@
 """Structured logging: one channel, JSON or console, chosen by `log_format`.
 
-Every log line — whether it comes from `structlog.get_logger()` or from a
-plain stdlib `logging.getLogger()` call inside aiogram, uvicorn, SQLAlchemy,
-or Celery — goes through the same `structlog.stdlib.ProcessorFormatter`
-pipeline and the same redaction processor before it reaches stdout. This is
-the point of the `foreign_pre_chain=shared_processors` wiring below: without
-it, third-party stdlib log records would bypass `make_redact_secrets_processor`
-entirely and the bot token could leak through, say, an aiohttp or uvicorn
-access log line.
-
-Correlation ids (`post_id`, `update_id`, `celery_task_id`) are bound via
-`structlog.contextvars` so every log line emitted while handling one update,
-one Celery task, or one post travels with the same id without threading it
-through every function call.
+`structlog` and stdlib `logging` (aiogram/uvicorn/SQLAlchemy/Celery) share one
+pipeline and redaction; correlation ids travel via `structlog.contextvars`.
 """
 
 from __future__ import annotations
@@ -27,27 +16,15 @@ import structlog.typing
 
 REDACTED_PLACEHOLDER = "***REDACTED***"
 
-# Narrower than `structlog.types.Processor` (which also allows a processor to
-# return a final rendered `str | bytes | bytearray | tuple[Any, ...]`, for
-# terminal renderers): this processor always both takes and returns an event
-# dict, and callers benefit from that precision — see `tests/unit/test_logging.py`.
+# Narrower than `structlog.types.Processor`: always takes/returns an event
+# dict, never a rendered `str`/`bytes`/`tuple` — see `test_logging.py`.
 EventDictProcessor = Callable[[Any, str, MutableMapping[str, Any]], MutableMapping[str, Any]]
 
 
 def make_redact_secrets_processor(secrets: Iterable[str]) -> EventDictProcessor:
-    """Build a structlog processor that replaces `secrets` in string values.
-
-    Recurses into `dict`/`list`/`tuple` values (not just top-level string
-    fields) — an event dict logged with `error=exc` or a nested `context={...}`
-    payload must not smuggle a secret past this processor just because it
-    isn't a bare string at the top level. Values of an unrecognized type
-    (e.g. an `Exception` instance passed as `error=exc`) are redacted via
-    their `str()` too: `JSONRenderer` falls back to `repr()` for anything it
-    doesn't know how to serialize natively, so a secret embedded in, say, an
-    exception's message would otherwise reach the final output untouched.
-    `bool`/`int`/`float`/`None` are left as themselves — stringifying those
-    would break their JSON typing for no redaction benefit, since a secret
-    (always a string) cannot be a substring of a number or a boolean.
+    """Replace `secrets` in event dict values, recursing into dict/list/tuple
+    and `str()`-ing unrecognized types (e.g. `error=exc`) first. Leaves
+    bool/int/float/None alone — a secret can't be a substring of a number.
     """
     known_secrets = [secret for secret in secrets if secret]
 
@@ -91,10 +68,8 @@ def configure_logging(
     log_level: str = "INFO",
     secrets: Iterable[str] = (),
 ) -> None:
-    """Configure structlog and stdlib `logging` as one unified pipeline.
-
-    `log_format == "json"` renders one JSON object per line (machine-readable,
-    the docker/prod default); `"console"` renders a human-friendly format for
+    """Configure structlog + stdlib `logging` as one pipeline. `"json"`
+    (docker/prod default) renders one object per line; `"console"` is for
     local development.
     """
     level = logging.getLevelNamesMapping()[log_level.upper()]
@@ -125,10 +100,8 @@ def configure_logging(
         cache_logger_on_first_use=True,
     )
 
-    # `foreign_pre_chain` runs the very same `shared_processors` — redaction
-    # included — on log records that came from plain stdlib `logging` calls
-    # (aiogram, uvicorn, SQLAlchemy, Celery), so both sources end up on one
-    # channel with one format and one redaction pass.
+    # foreign_pre_chain: runs shared_processors (redaction included) on
+    # stdlib `logging` records too, so both sources share one format/pass.
     formatter = structlog.stdlib.ProcessorFormatter(
         processor=renderer,
         foreign_pre_chain=shared_processors,
@@ -142,13 +115,8 @@ def configure_logging(
 
 
 def get_logger(*args: Any, **kwargs: Any) -> structlog.typing.FilteringBoundLogger:
-    """Typed wrapper around `structlog.get_logger()`.
-
-    Upstream, `get_logger()` returns `Any` — the actual logger class depends
-    on whatever `wrapper_class` `configure_logging()` installed at runtime,
-    which structlog cannot know statically. `configure_logging()` always
-    installs `make_filtering_bound_logger()`, so the cast here reflects a
-    guarantee this module itself makes, not a blind assertion.
+    """Typed wrapper: upstream `get_logger()` returns `Any`, but
+    `configure_logging()` always installs `make_filtering_bound_logger()`.
     """
     return cast(structlog.typing.FilteringBoundLogger, structlog.get_logger(*args, **kwargs))
 

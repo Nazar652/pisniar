@@ -1,12 +1,6 @@
-"""Celery app wiring.
-
-`build_celery_app()` is a pure function parametrized on `redis_url`, on
-purpose: `pisniar.bot.handlers` builds a lightweight producer-only client
-from it to call `send_task()` by name, without importing `pisniar.worker.tasks`
-(no task implementations, no worker-side DB engine) — the two processes stay
-decoupled. `pisniar.worker.tasks` builds the one "real" instance that tasks
-are registered against and that the Celery CLI (`celery -A pisniar.worker.tasks`)
-loads.
+"""Celery app wiring. `build_celery_app()` is pure/parametrized so
+`bot.handlers` can build a producer-only client without importing
+`worker.tasks` — the two processes stay decoupled.
 """
 
 from __future__ import annotations
@@ -28,14 +22,8 @@ def build_celery_app(redis_url: str, *, name: str = "pisniar") -> Celery:
         result_serializer="json",
         result_backend=None,
         broker_connection_retry_on_startup=True,
-        # `pisniar.worker.tasks.configure_logging()` runs at *import* time —
-        # before the Celery worker's own bootstrap. Celery's default
-        # (`worker_hijack_root_logger=True`) tears down every root logger
-        # handler and reconfigures logging itself during that later
-        # bootstrap step (`celery/app/log.py`: `root.handlers = []`, then
-        # its own setup), which would silently throw away the
-        # `ProcessorFormatter` handler `configure_logging()` just installed
-        # — no JSON, no secret redaction, for the entire `worker` process.
+        # Without this, Celery's own bootstrap wipes the root logger
+        # handler configure_logging() installed at import time.
         worker_hijack_root_logger=False,
         worker_redirect_stdouts=False,
     )

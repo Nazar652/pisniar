@@ -1,10 +1,6 @@
-"""ORM models for `track` and `post` — the step 1 schema (D-4: minimum for step 2).
-
-`audio_asset`, `lyric`, `render` are intentionally absent; they arrive in
-their own migrations once step 4 actually needs them. `post_status_history`
-is intentionally absent too (D-9) — transition history lives in structured
-logs (`post_id` bound via `pisniar.logging`), not in a table, until/unless
-that stops being enough.
+"""ORM models for `track` and `post` — the step 1 schema (D-4: minimum for
+step 2). `audio_asset`/`lyric`/`render`/`post_status_history` intentionally
+absent (D-4, D-9) — see decision-log.md.
 """
 
 from __future__ import annotations
@@ -29,16 +25,9 @@ _VALID_POST_STATUSES_SQL_LIST = ", ".join(f"'{value}'" for value in VALID_POST_S
 
 
 class PostStatusType(TypeDecorator[PostStatus]):
-    """Round-trips `PostStatus` through the `status` `TEXT` column.
-
-    The column itself stays plain `TEXT` + a named `CHECK` (contract D-6: no
-    native Postgres enum — `ALTER TYPE ... ADD VALUE` doesn't play well with
-    Alembic downgrades, and the set of statuses will keep growing). This
-    decorator is what makes `Mapped[PostStatus]` an honest annotation instead
-    of a decorative one: without it, a `Post` loaded from the database has
-    `post.status` as a plain `str`, and `post.status is PostStatus.PUBLISHED`
-    (the comparison `pisniar.db.states.set_post_status` uses) is always
-    `False` — a straight path to a duplicate publish on step 3.
+    """Round-trips `PostStatus` through the `status` TEXT column (D-6: no
+    native enum). Without it, `post.status` loads as plain `str` and
+    `post.status is PostStatus.X` is always False — see decision-log.md.
     """
 
     impl = Text
@@ -94,34 +83,16 @@ class Track(Base):
     odesli_raw: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     odesli_fetched_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
 
-    # `passive_deletes="all"`: without it, SQLAlchemy "helpfully" issues
-    # `UPDATE post SET track_id = NULL` before deleting a `Track` with
-    # referencing posts, which never lets `ON DELETE RESTRICT` fire at all —
-    # the delete then fails on `track_id`'s `NOT NULL` instead, pointing at
-    # the wrong constraint. `track_id` stays `NOT NULL`: that's the guard
-    # that turns silent data corruption into a loud error in the first place.
-    #
-    # The same flag also disables all ORM-side cascade behaviour for this
-    # relationship, including on the *in-Python* collection: today nothing
-    # in this codebase calls `track.posts.remove(post)`, but if something
-    # ever does, `passive_deletes="all"` means SQLAlchemy will not null out
-    # or otherwise touch that post's `track_id` for you — removing an item
-    # from `track.posts` becomes a silent no-op at the database level.
+    # passive_deletes="all": without it, SQLAlchemy nulls track_id before
+    # delete, so ON DELETE RESTRICT never fires. See decision-log.md.
     posts: Mapped[list[Post]] = relationship(back_populates="track", passive_deletes="all")
 
 
 class Post(Base):
-    """A single channel post draft/pipeline instance for one `Track`.
+    """One channel post per `Track`, several allowed (no `UNIQUE (track_id)`).
 
-    Several posts may reference the same track (no `UNIQUE (track_id)`, per
-    the approved assumptions) — e.g. re-posting the same track later with a
-    different fragment or caption.
-
-    `fragment_start_ms` / `fragment_end_ms` are absolute milliseconds from the
-    start of the *full* track (D-5), not from the fragment itself. At render
-    time: `ass_t = lyric.start_ms - post.fragment_start_ms`. This keeps a
-    manually-synced lyric timing valid even if the fragment boundaries are
-    edited afterwards.
+    `fragment_*_ms` are absolute ms from the start of the *full* track (D-5):
+    `ass_t = lyric.start_ms - post.fragment_start_ms` at render time.
     """
 
     __tablename__ = "post"
@@ -130,13 +101,8 @@ class Post(Base):
             f"status IN ({_VALID_POST_STATUSES_SQL_LIST})",
             name="status_valid",
         ),
-        # Three-way: `(NULL, NULL)` (no fragment chosen yet) is valid and
-        # deliberate. Everything else must be a real, well-formed fragment —
-        # `num_nonnulls(...) <> 1` rejects a one-sided bound (`(5000, NULL)`),
-        # and `fragment_start_ms >= 0` rejects a negative start, which would
-        # otherwise pass silently and shift every lyric line forward per D-5's
-        # `ass_t = lyric.start_ms - fragment_start_ms` — an error that is
-        # invisible until someone watches the rendered video.
+        # (NULL, NULL) is valid (no fragment yet); num_nonnulls<>1 rejects a
+        # one-sided bound; start>=0 rejects a negative shift per D-5.
         CheckConstraint(
             "num_nonnulls(fragment_start_ms, fragment_end_ms) <> 1 "
             "AND (fragment_start_ms IS NULL OR fragment_start_ms >= 0) "
@@ -144,11 +110,7 @@ class Post(Base):
             name="fragment_bounds_valid",
         ),
         CheckConstraint("jsonb_typeof(genres) = 'array'", name="genres_is_array"),
-        # Same one-sided-pair problem as the fragment bounds above, applied
-        # to the channel reference: without this, `(NULL, 42)` passes both
-        # the partial unique index below (its predicate only fires once
-        # *both* columns are non-NULL) and any NOT NULL check, silently
-        # leaving a post with half a channel reference.
+        # Same one-sided-pair problem as the fragment bounds above.
         CheckConstraint(
             "num_nonnulls(channel_chat_id, channel_message_id) <> 1",
             name="channel_ref_complete",

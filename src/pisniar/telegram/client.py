@@ -1,9 +1,7 @@
 """Construction of the aiogram `Bot` client shared by `bot` and `worker`.
 
 Both processes are independent Telegram API clients — there is no `bot ↔
-worker` edge. `worker` builds its own `Bot` instance (see
-`pisniar.telegram.notifier`) purely to send alerts; it never talks to the
-`bot` process directly.
+worker` edge; `worker` builds its own `Bot` only to send alerts.
 """
 
 from __future__ import annotations

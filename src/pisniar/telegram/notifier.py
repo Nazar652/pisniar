@@ -1,8 +1,7 @@
 """Alert notifier: sends operational alerts to a private admin chat.
 
-A delivery failure here must never break the caller's business logic (a
-failed alert about a failure must not itself raise) — every exception is
-caught, logged, and swallowed.
+A delivery failure here must never break the caller's business logic —
+every exception is caught, logged, and swallowed.
 """
 
 from __future__ import annotations

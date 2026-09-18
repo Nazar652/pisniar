@@ -12,9 +12,8 @@ from sqlalchemy.engine import make_url
 class Settings(BaseSettings):
     """Configuration loaded from environment variables / `.env`.
 
-    All values that must never reach logs or the container image are typed
-    as `SecretStr`; see `pisniar.logging` for the additional redaction
-    processor that scrubs the raw secret value out of any log event too.
+    Values that must never reach logs are typed `SecretStr`; see
+    `pisniar.logging` for the redaction processor that scrubs them from log events too.
     """
 
     model_config = SettingsConfigDict(
@@ -24,21 +23,14 @@ class Settings(BaseSettings):
     )
 
     environment: Literal["dev", "docker"] = "dev"
-    # Independent of `environment` on purpose (contract subitem 1.3 had this
-    # as its own `APP__LOG_FORMAT` knob): "docker" doesn't always mean "read
-    # JSON logs" — a developer running `make up` still wants console output
-    # while `environment` legitimately stays "dev" for other behaviour.
-    # Named `LOG_FORMAT`, not `APP__LOG_FORMAT`: nothing else in this flat
-    # config uses an `APP__` prefix, so adding one for a single field would
-    # be inconsistent rather than a real nested-settings namespace.
+    # Independent of `environment` on purpose (D-23): "docker" doesn't always mean
+    # "read JSON logs" — `make up` still wants console output while `environment` stays "dev".
     log_format: Literal["json", "console"] = "json"
     log_level: str = "INFO"
 
     bot_token: SecretStr
-    # `NoDecode`: pydantic-settings otherwise JSON-decodes any "complex"
-    # (list/dict) field read from an environment variable before validators
-    # ever run, so a plain "111,222" from `.env` blows up as invalid JSON
-    # before `split_admin_ids` below gets a chance to parse it.
+    # `NoDecode`: without it, pydantic-settings JSON-decodes "111,222" before
+    # `split_admin_ids` below ever runs, and that blows up as invalid JSON (D-23).
     admin_ids: Annotated[list[int], NoDecode] = Field(min_length=1)
     alert_chat_id: int
 

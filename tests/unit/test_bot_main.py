@@ -1,9 +1,7 @@
-"""`build_dispatcher()`: the admin allowlist middleware must be registered
-as an *outer* middleware on `dispatcher.update` — anything else (e.g.
-`dispatcher.message.middleware`) leaves every non-`message` update type
-unchecked, and would not be caught by `tests/unit/test_middlewares.py`
-alone, since that file only exercises `AdminAllowlistMiddleware` directly
-without touching how `bot/main.py` actually wires it up.
+"""`build_dispatcher()`: the admin allowlist must land on
+`dispatcher.update.outer_middleware`, not e.g. `dispatcher.message.middleware`
+— `test_middlewares.py` only exercises the middleware directly, not this
+wiring.
 """
 
 from __future__ import annotations
@@ -21,13 +19,8 @@ ADMIN_ID = 111111111
 
 @pytest.fixture(scope="module")
 def dispatcher() -> Iterator[Dispatcher]:
-    # Module-scoped, not one per test: `pisniar.bot.handlers.router` is a
-    # module-level singleton (the idiomatic aiogram pattern), and aiogram's
-    # `Router` can only ever be attached to one `Dispatcher` for its
-    # lifetime — a second `build_dispatcher()` call in the same process
-    # raises `RuntimeError: Router is already attached`. Every test here
-    # only inspects the dispatcher, never mutates or consumes it, so sharing
-    # one instance is safe.
+    # Module-scoped: the handlers router is a singleton aiogram only lets
+    # attach once. Tests only inspect the dispatcher, so sharing is safe.
     yield build_dispatcher(frozenset({ADMIN_ID}))
 
 
@@ -43,10 +36,8 @@ def test_admin_allowlist_is_registered_as_an_outer_update_middleware(
 def test_admin_allowlist_is_not_registered_on_a_single_observer_instead(
     dispatcher: Dispatcher,
 ) -> None:
-    """The regression this guards against: swapping the outer-middleware
-    registration for a per-observer one (e.g. `dispatcher.message.middleware`)
-    would leave `callback_query`/`inline_query`/`my_chat_member`/... updates
-    unchecked while looking identical for `message` updates."""
+    """Guards the swap-to-per-observer regression: would leave
+    `callback_query`/etc. unchecked while `message` tests stay green."""
     message_inner_middlewares = list(dispatcher.message.middleware)
     assert not any(
         isinstance(middleware, AdminAllowlistMiddleware) for middleware in message_inner_middlewares

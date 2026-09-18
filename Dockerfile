@@ -1,17 +1,7 @@
 # syntax=docker/dockerfile:1.7
-#
-# One multi-stage Dockerfile builds every target this project needs — a
-# formal deviation from the letter of "two Dockerfiles" (one per service),
-# same result: the shared dependency layer is built once, not twice.
-#
-# `bot` / `worker` bake source in and run standalone (used by `compose.yaml`).
-# `bot-dev` / `worker-dev` install the `dev` dependency group (for
-# `watchfiles`, the hot-reload wrapper) and expect source to be bind-mounted
-# at runtime instead — see `compose.override.yml`.
-#
-# System packages for ffmpeg/fonts (step 4) land in `worker`'s own final
-# stage, after everything it shares with `bot` — so adding them later
-# invalidates neither `uv sync` nor the `bot` image.
+# One multi-stage file builds every target: `bot`/`worker` bake source in;
+# `bot-dev`/`worker-dev` bind-mount it instead (compose.override.yml). ffmpeg/fonts
+# (step 4) land only in worker's final stage, so adding them invalidates nothing shared.
 
 FROM python:3.13-slim AS base
 
@@ -57,13 +47,9 @@ USER app
 
 
 # ---- dev: only dependencies baked in; source is bind-mounted at runtime --
-#
-# `uv sync` here only installs third-party dependencies (`--no-install-
-# project`, deliberately, for cache-friendliness — see `deps-dev` above), so
-# `pisniar` itself is never installed into the venv the way it is in
-# `source-prod`. PYTHONPATH stands in for that: `/app/src` does not exist
-# yet at build time, but it does by the time Python actually runs, once
-# compose.override.yml's bind mount has populated it.
+
+# `pisniar` itself isn't installed (only third-party deps); PYTHONPATH stands
+# in until compose.override.yml's bind mount populates /app/src at runtime (D-23).
 
 FROM base AS source-dev
 
@@ -89,10 +75,8 @@ CMD ["watchfiles", "--filter", "python", "python -m pisniar.bot.main", "/app/src
 # ---- worker ------------------------------------------------------------
 
 FROM source-prod AS worker
-# `source-prod` already switched to `USER app`; apt-get needs root back, and
-# must hand it off again afterward — uncommenting this block as-is on step 4
-# stays non-root at runtime. Getting this order wrong is exactly the
-# `Permission denied` step 1 is trying to avoid triggering later.
+# apt-get needs root back; hand it off again after, or runtime stays root (D-23).
+
 # USER root
 # RUN apt-get update && apt-get install -y --no-install-recommends \
 #     ffmpeg fonts-noto-core && rm -rf /var/lib/apt/lists/*

@@ -1,11 +1,6 @@
-"""`worker_hijack_root_logger=False` (+ `worker_redirect_stdouts=False`):
-without it, Celery's own logging bootstrap (`celery.app.log.Logging`) wipes
-every root logger handler during worker startup — including the
-`ProcessorFormatter` handler `configure_logging()` installs at import time in
-`pisniar.worker.tasks`, taking JSON output and secret redaction down with it
-for the entire `worker` process. `pisniar.worker.tasks` module import runs
-`configure_logging()` before Celery's own bootstrap has a chance to run, so
-this is a real ordering hazard, not a hypothetical one.
+"""`worker_hijack_root_logger=False`: without it, Celery's own bootstrap
+(`celery.app.log.Logging`) wipes the root handler `configure_logging()`
+installed at import time — taking JSON output and redaction down with it.
 """
 
 from __future__ import annotations
@@ -33,12 +28,8 @@ def test_celery_logging_bootstrap_does_not_wipe_our_handler(
     our_handler = root_logger.handlers[0]
 
     app = build_celery_app("redis://localhost:6379/0")
-    # `Logging._setup` is a *class*-level flag Celery sets after the first
-    # successful bootstrap in this process — reset it so this test exercises
-    # the real path regardless of what ran before it in the same suite.
-    # `setattr`/`getattr`, not a direct attribute reference: `_setup` is a
-    # genuine but unstubbed Celery internal (not in `celery-types`), and a
-    # direct `Logging._setup = ...` is an `unresolved-attribute` under `ty`.
+    # Reset Celery's class-level bootstrap flag; setattr (not `Logging.
+    # _setup = `) since it's an unstubbed internal, unresolved under ty.
     setattr(Logging, "_setup", False)  # noqa: B010
     try:
         Logging(app).setup_logging_subsystem(loglevel="INFO")

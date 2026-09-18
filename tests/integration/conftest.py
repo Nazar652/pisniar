@@ -1,22 +1,7 @@
-"""Integration test fixtures.
-
-Two separate databases, on purpose:
-
-- `pisniar_test` (`test_database_url`/`migrated_test_database_url`/
-  `db_session`): shared across the constraint tests in `test_constraints.py`,
-  migrated once per session and never torn down mid-run.
-- `pisniar_test_migrations` (`migrations_test_database_url`): a disposable,
-  per-test database dedicated to `test_migrations.py`'s destructive
-  `upgrade`/`downgrade`/`upgrade` cycle and its own `alembic check`. If a
-  mid-cycle step failed (downgrade succeeds, the re-upgrade doesn't) on the
-  *shared* database, `pisniar_test`'s session-scoped fixture would already be
-  cached and every other integration test in the same run would then fail
-  with a cascading `UndefinedTable`, for a reason that has nothing to do with
-  what each of those tests actually checks.
-
-Neither database is `pisniar`, the one the live `bot`/`worker` containers in
-the same compose stack use — these tests must never be able to pull the
-schema out from under a running app.
+"""Integration test fixtures. Two databases: `pisniar_test` (shared, migrated
+once per session) for `test_constraints.py`, `pisniar_test_migrations`
+(disposable, per-test) for `test_migrations.py`'s destructive cycle — never
+`pisniar`, which the live `bot`/`worker` containers use.
 """
 
 from __future__ import annotations
@@ -40,29 +25,21 @@ TEST_DATABASE_NAME = "pisniar_test"
 
 
 def migrations_test_database_name() -> str:
-    # `pytest-xdist` is not a dependency today, so this is latent, not
-    # active — but a constant name would mean two workers under `pytest -n`
-    # racing to create/drop the same database out from under each other.
-    # `PYTEST_XDIST_WORKER` (e.g. "gw0") is set by xdist itself; "gw0" is
-    # this fixture's own stand-in for "no xdist, act like worker 0".
+    # Latent (no xdist dep today): a constant name would race under
+    # `pytest -n`. "gw0" stands in for "no xdist" when unset.
     worker_id = os.environ.get("PYTEST_XDIST_WORKER", "gw0")
     return f"pisniar_test_migrations_{worker_id}"
 
 
 def with_database_name(database_url: str, database_name: str) -> str:
-    """`database_url` with its database name replaced by `database_name`.
-
-    Uses SQLAlchemy's own `make_url()`/`URL.set()` rather than manual string
-    splitting (e.g. `rpartition("/")`), which would silently drop any query
-    parameters a DSN might carry (`?sslmode=...`, etc.).
-    """
+    """`database_url` with its database swapped, via `make_url()` (not
+    string splitting, which would drop query params)."""
     return make_url(database_url).set(database=database_name).render_as_string(hide_password=False)
 
 
 def to_asyncpg_maintenance_dsn(database_url: str) -> str:
-    # asyncpg does not understand SQLAlchemy's "+asyncpg" driver suffix, and
-    # a `CREATE`/`DROP DATABASE` needs a connection to some *other* existing
-    # database first — "postgres" always exists on a fresh server.
+    # asyncpg needs a plain DSN, and CREATE/DROP DATABASE needs some
+    # *other* database first — "postgres" always exists.
     maintenance_url = make_url(database_url).set(drivername="postgresql", database="postgres")
     return maintenance_url.render_as_string(hide_password=False)
 
@@ -88,18 +65,15 @@ async def test_database_url() -> str:
 @pytest_asyncio.fixture
 async def migrations_test_database_url() -> AsyncIterator[str]:
     """A disposable database, created before the test and force-dropped
-    after — see the module docstring for why `test_migrations.py` gets its
-    own instead of sharing `pisniar_test`.
-    """
+    after — see module docstring."""
     settings = get_settings()
     maintenance_dsn = to_asyncpg_maintenance_dsn(settings.database_url)
     database_name = migrations_test_database_name()
 
     connection = await asyncpg.connect(maintenance_dsn)
     try:
-        # `IF EXISTS ... WITH (FORCE)` first: a previous run that crashed
-        # mid-test could have left this database behind with the prior
-        # test's connections still attached.
+        # IF EXISTS...FORCE first: a crashed prior run may have left this
+        # database behind with its connections still attached.
         await connection.execute(f"DROP DATABASE IF EXISTS {database_name} WITH (FORCE)")
         await connection.execute(f"CREATE DATABASE {database_name}")
     finally:
@@ -117,9 +91,7 @@ async def migrations_test_database_url() -> AsyncIterator[str]:
 
 @pytest.fixture(scope="session")
 def run_alembic() -> Callable[..., subprocess.CompletedProcess[str]]:
-    """A thin wrapper around the real `alembic` CLI — the same one V4/V11
-    invoke — pointed at `database_url` via the `DATABASE_URL` env var, which
-    `alembic/env.py` already knows how to read."""
+    """Wraps the real `alembic` CLI (same one V4/V11 use), via `DATABASE_URL`."""
 
     def run(*args: str, database_url: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
@@ -145,10 +117,8 @@ def migrated_test_database_url(
 
 @pytest_asyncio.fixture
 async def db_session(migrated_test_database_url: str) -> AsyncIterator[AsyncSession]:
-    """One session per test, rolled back at the end regardless of outcome —
-    including when the test's own assertion is that an operation raised
-    `IntegrityError`, since that only aborts the statement, not the fixture's
-    cleanup."""
+    """One session per test, rolled back after — even on an expected
+    `IntegrityError`, which only aborts the statement."""
     engine = build_engine(migrated_test_database_url)
     session_factory: async_sessionmaker[AsyncSession] = build_session_factory(engine)
     async with session_factory() as session:

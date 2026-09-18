@@ -1,8 +1,7 @@
-"""The `_N_`-suffixed naming convention tokens (`column_0_N_label`,
-`column_0_N_name`) render identically to their non-`_N_` counterparts for
-every *single*-column constraint in the current schema — this pins that
-down, so a future switch back (or a genuinely multi-column constraint that
-changes a name) is a conscious, visible diff here."""
+"""`_N_`-suffixed naming tokens render identically to non-`_N_` ones for
+every single-column constraint today — pins that down so a future rename
+is a conscious diff here.
+"""
 
 from __future__ import annotations
 
@@ -12,10 +11,7 @@ from sqlalchemy import Table
 
 from pisniar.db.models import Post, Track
 
-# `Track.__table__`/`Post.__table__` are typed as the more general
-# `FromClause` by SQLAlchemy's declarative stubs, but a mapped class with its
-# own table always has a genuine `Table` at runtime — this cast reflects
-# that guarantee rather than asserting something unverified.
+# Typed as FromClause by the stubs, but always a real Table at runtime.
 TRACK_TABLE = cast(Table, Track.__table__)
 POST_TABLE = cast(Table, Post.__table__)
 

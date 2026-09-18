@@ -1,10 +1,7 @@
 """FastAPI app: `/healthz` (liveness) and `/readyz` (readiness).
 
-`/healthz` never touches Postgres or Redis — it must answer 200 even while
-they are down, so the process is never killed by its own liveness probe.
-`/readyz` checks both and returns 503 on failure without leaking the DSN,
-host, port, or exception details in the response body (security review area:
-no infrastructure fingerprinting for an unauthenticated caller).
+`/healthz` never touches Postgres/Redis, so it isn't killed by its own probe.
+`/readyz` checks both, returns 503 without leaking DSN/host/exception details.
 """
 
 from __future__ import annotations

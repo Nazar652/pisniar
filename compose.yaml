@@ -1,13 +1,7 @@
 name: pisniar
 
-# DATABASE_URL / REDIS_URL are not secrets — they are the in-network DNS
-# names of the `postgres` / `redis` services, fixed by this file's own
-# topology. They are set here, not in `.env`: the user only fills in what
-# only they know (bot token, admin ids, alert chat id).
-# dev-only credentials: fine for a local compose network with no external
-# port exposed on the base file (compose.override.yml only binds to
-# 127.0.0.1), deliberately not hardened further (no generated password, no
-# digest pinning, no cap_drop/no-new-privileges) before a real deployment.
+# DATABASE_URL/REDIS_URL aren't secrets — fixed service DNS names, set here
+# not in `.env`. Dev-only credentials, intentionally not hardened yet (D-23).
 x-app-environment: &app-environment
   DATABASE_URL: postgresql+asyncpg://pisniar:pisniar@postgres:5432/pisniar
   REDIS_URL: redis://redis:6379/0
@@ -42,9 +36,8 @@ services:
       context: .
       target: bot
     command: ["alembic", "upgrade", "head"]
-    # No `env_file: .env` here on purpose: `alembic/env.py` reads only
-    # `DATABASE_URL`, which the anchor below already provides — this service
-    # has no business seeing the bot token, admin ids, or alert chat id.
+    # No `env_file: .env`: `alembic/env.py` only needs `DATABASE_URL`, which
+    # the anchor above already provides — no business seeing the rest (D-23).
     environment:
       <<: *app-environment
     restart: "no"
@@ -96,11 +89,8 @@ services:
       migrate:
         condition: service_completed_successfully
     healthcheck:
-      # `timeout` is generous on purpose: the command pays for a fresh
-      # Python/Celery process bootstrap (importing the full `pisniar.worker.tasks`
-      # dependency chain) on top of the 3s broker round-trip, and a tight
-      # timeout here was observed to fail spuriously ("Health check exceeded
-      # timeout") well before the worker was actually unhealthy.
+      # `timeout` is generous: a fresh Celery bootstrap plus the 3s broker
+      # round-trip was observed to fail spuriously under a tighter one (D-23).
       test: ["CMD", "celery", "-A", "pisniar.worker.tasks", "inspect", "ping", "--timeout", "3"]
       interval: 10s
       timeout: 15s

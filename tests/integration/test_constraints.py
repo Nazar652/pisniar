@@ -130,9 +130,7 @@ async def test_track_deletion_is_restricted_while_a_post_references_it(
     db_session.add(Post(track_id=track.id, created_by_user_id=1))
     await db_session.flush()
 
-    # Raw SQL, not `session.delete(track)`: this asserts the *database*
-    # constraint directly, independent of how the ORM relationship happens
-    # to be configured (`passive_deletes="all"` on `Track.posts` is what
-    # makes the ORM path hit this same constraint too — see `db/models.py`).
+    # Raw SQL, not `session.delete(track)`: asserts the database constraint
+    # directly, independent of the ORM's `passive_deletes` configuration (D-23).
     with pytest.raises(IntegrityError, match="fk_post_track_id_track"):
         await db_session.execute(text("DELETE FROM track WHERE id = :id"), {"id": track.id})

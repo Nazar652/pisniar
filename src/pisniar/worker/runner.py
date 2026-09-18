@@ -1,10 +1,6 @@
-"""Bridge between Celery's synchronous task protocol and async application code.
-
-asyncpg connections cannot cross event loops, and Celery tasks are plain
-synchronous callables — so each task creates its own event loop via
-`asyncio.run()`. Combined with a `NullPool` engine built fresh per task (see
-`pisniar.db.session.build_engine(..., use_null_pool=True)`) this gives every
-task its own connection, opened and closed within the task's own loop.
+"""Bridges Celery's sync task protocol to async code: each task gets its own
+event loop, paired with a fresh `NullPool` engine (`db.session.build_engine`)
+since asyncpg connections can't cross loops.
 """
 
 from __future__ import annotations

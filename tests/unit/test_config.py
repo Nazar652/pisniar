@@ -12,11 +12,8 @@ import pytest
 
 from pisniar.config import Settings
 
-# `conftest.py` sets fallback values for these via `os.environ.setdefault()`
-# so the rest of the app can be imported at all; the "missing field" tests
-# below need to see them genuinely absent, so they remove them from the real
-# OS environment for their duration — `_env_file=None` alone only disables
-# the dotenv source, not the environment source.
+# conftest.py sets fallbacks for these; "missing field" tests need them
+# genuinely absent, so this fixture removes them from real OS environ.
 REQUIRED_ENV_VARS = ("BOT_TOKEN", "ADMIN_IDS", "ALERT_CHAT_ID", "DATABASE_URL")
 
 

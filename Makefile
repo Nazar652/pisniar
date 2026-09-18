@@ -37,12 +37,8 @@ typecheck: ## ty check, strict rules from pyproject.toml (V5)
 test: ## unit tests only, no DB (V6)
 	uv run pytest -m "not integration" -q
 
-# `-k`/keep-going: `make check` on its own still stops at the first failing
-# prerequisite (sequential prerequisites behave like `&&`, not `;`). Run
-# `make -k check` to see every failure from one invocation instead of fixing
-# them one round-trip at a time. `-k` is a flag on the whole `make` invocation,
-# not something `check`'s own prerequisite list can turn on — `verify` below
-# depends on `check` but does not run it with `-k` for you.
+# `check`'s prerequisites stop at the first failure (like `&&`); run
+# `make -k check` (a make-invocation flag, not something `verify` sets for you) to see all of them.
 check: sync lock-check fmt-check lint typecheck test ## sync + lock-check + fmt-check + lint + typecheck + test (V1-V6); use `make -k check` to see every failure in one go
 
 ## --- docker (compose.yaml + compose.override.yml pick up .env automatically) ---

@@ -50,13 +50,8 @@ def test_archived_is_terminal() -> None:
 
 
 def test_every_status_can_reach_archived_directly_or_not() -> None:
-    # Not every status has a direct edge to ARCHIVED — DOWNLOADED does not
-    # (it always passes through EDITING/RENDERING/FAILED first) — this
-    # documents that fact rather than asserting it, so a future change to
-    # the table is a conscious edit here too. RESOLVING/DOWNLOADING/
-    # RENDERING/PUBLISHING all gained a direct edge (alongside a self-edge)
-    # so a stuck in-progress post always has a manual way out through
-    # `set_post_status()` — see the comment on `ALLOWED_TRANSITIONS`.
+    # Documents which statuses have a direct edge to ARCHIVED (DOWNLOADED does
+    # not) so a change to the table is a conscious edit here too (D-23).
     statuses_with_direct_archive_edge = {
         status for status, allowed in ALLOWED_TRANSITIONS.items() if PostStatus.ARCHIVED in allowed
     }

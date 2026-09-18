@@ -95,11 +95,8 @@ def upgrade() -> None:
             server_default=sa.text("'[]'::jsonb"),
             nullable=False,
         ),
-        # Absolute milliseconds from the start of the *full* track (D-5), not
-        # from the fragment itself. At render time:
-        # ass_t = lyric.start_ms - post.fragment_start_ms. This keeps a
-        # manually-synced lyric timing valid even if the fragment boundaries
-        # are edited afterwards.
+        # Absolute ms from the start of the full track (D-5), not the fragment
+        # — re-editing the fragment bounds doesn't invalidate a synced lyric.
         sa.Column("fragment_start_ms", sa.BigInteger(), nullable=True),
         sa.Column("fragment_end_ms", sa.BigInteger(), nullable=True),
         sa.Column("channel_chat_id", sa.BigInteger(), nullable=True),
@@ -113,12 +110,8 @@ def upgrade() -> None:
             "'archived')",
             name=op.f("ck_post_status_valid"),
         ),
-        # Three-way: `(NULL, NULL)` (no fragment chosen yet) is valid and
-        # deliberate. `num_nonnulls(...) <> 1` rejects a one-sided bound
-        # (`(5000, NULL)`), and `fragment_start_ms >= 0` rejects a negative
-        # start, which would otherwise pass silently and shift every lyric
-        # line forward per D-5's `ass_t = lyric.start_ms - fragment_start_ms`
-        # — an error invisible until someone watches the rendered video.
+        # `(NULL, NULL)` is valid (no fragment chosen yet); rejects a one-sided
+        # bound and a negative start, both of which would silently shift every lyric line (D-5).
         sa.CheckConstraint(
             "num_nonnulls(fragment_start_ms, fragment_end_ms) <> 1 "
             "AND (fragment_start_ms IS NULL OR fragment_start_ms >= 0) "
@@ -126,9 +119,8 @@ def upgrade() -> None:
             name=op.f("ck_post_fragment_bounds_valid"),
         ),
         sa.CheckConstraint("jsonb_typeof(genres) = 'array'", name=op.f("ck_post_genres_is_array")),
-        # Same one-sided-pair problem as the fragment bounds above, applied
-        # to the channel reference: without this, `(NULL, 42)` passes both
-        # the partial unique index below and any NOT NULL check.
+        # Same one-sided-pair problem as the fragment bounds: without this,
+        # `(NULL, 42)` passes both the partial unique index below and any NOT NULL check.
         sa.CheckConstraint(
             "num_nonnulls(channel_chat_id, channel_message_id) <> 1",
             name=op.f("ck_post_channel_ref_complete"),
@@ -140,9 +132,8 @@ def upgrade() -> None:
     )
     op.create_index(op.f("ix_post_status"), "post", ["status"], unique=False)
     op.create_index(op.f("ix_post_track_id"), "post", ["track_id"], unique=False)
-    # Partial unique index: guards against a duplicate channel post (step 3)
-    # once both `channel_chat_id` and `channel_message_id` are set; several
-    # posts with either still NULL (not yet published) do not conflict.
+    # Partial: guards against a duplicate channel post once both id columns
+    # are set; posts with either still NULL (not yet published) don't conflict.
     op.create_index(
         "uq_post_channel_message",
         "post",

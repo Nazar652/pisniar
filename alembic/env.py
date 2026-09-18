@@ -22,46 +22,28 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
-# Alembic intentionally does not go through pisniar.config.Settings here:
-# migrations only need a database URL, not the bot token / admin ids / etc.
-# that the rest of the app requires. DATABASE_URL from the environment always
-# wins over the placeholder in alembic.ini — and is required, not optional:
-# failing fast here beats a confusing NoSuchModuleError from trying to
-# connect to the literal "driver://user:pass@localhost/dbname" placeholder.
+# Not pisniar.config.Settings: migrations only need a DSN. Required, not
+# optional — fail fast instead of a confusing NoSuchModuleError.
 database_url = os.environ.get("DATABASE_URL")
 if not database_url:
     raise RuntimeError(
         "DATABASE_URL is not set. alembic/env.py reads it directly from the "
         "environment (not pisniar.config.Settings) and has no real default."
     )
-# `configparser` (which backs alembic.ini) interpolates "%" in option values;
-# a DSN with a literal "%" (e.g. a URL-encoded password) would otherwise
-# raise a confusing InterpolationSyntaxError deep inside ConfigParser.
+# configparser interpolates "%"; escape it or a "%"-bearing DSN breaks.
 config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
 
 
 def run_migrations_offline() -> None:
-    """Run migrations in 'offline' mode.
-
-    This configures the context with just a URL
-    and not an Engine, though an Engine is acceptable
-    here as well.  By skipping the Engine creation
-    we don't even need a DBAPI to be available.
-
-    Calls to context.execute() here emit the given string to the
-    script output.
-
-    """
+    """Render SQL to stdout without a live DB connection."""
     url = config.get_main_option("sqlalchemy.url")
     context.configure(
         url=url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
-        # `compare_type` is Alembic's own default already; `compare_server_default`
-        # defaults to False and would silently never catch a `server_default`
-        # drift between the models and the database — `alembic check` (V11) is
-        # supposed to be a real guarantee, not a partial one.
+        # compare_server_default defaults to False; without it, alembic
+        # check (V11) never catches a server_default drift.
         compare_type=True,
         compare_server_default=True,
     )
@@ -71,16 +53,8 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection: Connection) -> None:
-    # `context.configure()` must run — and the migration transaction must be
-    # opened via `context.begin_transaction()` — before any `execute()` on
-    # this connection. SQLAlchemy 2.0 autobegins a transaction on the first
-    # `execute()`; if that happens before `configure()`, Alembic's
-    # `_in_external_transaction` check (it inspects `connection.in_transaction()`
-    # in its constructor) concludes some *external* caller owns the
-    # transaction and quietly no-ops its own commit. The DDL still runs, but
-    # `async with connectable.connect()` then closes without ever committing
-    # it — a silent rollback of the whole migration, `alembic_version` row
-    # included, while `alembic upgrade head` itself still exits 0.
+    # configure() must run before any execute() on this connection, or Alembic
+    # thinks an external caller owns the transaction and silently skips its commit (D-23).
     context.configure(
         connection=connection,
         target_metadata=target_metadata,
@@ -89,23 +63,15 @@ def do_run_migrations(connection: Connection) -> None:
     )
 
     with context.begin_transaction():
-        # `SET LOCAL`, not `SET`: scoped to this transaction, not leaked into
-        # the rest of the session (irrelevant here with a fresh NullPool
-        # connection, but `SET LOCAL` is the correct tool for "this
-        # migration's timeout" regardless). A migration that can't take its
-        # lock should fail fast and say so, rather than hang and eventually
-        # take the whole service down with it.
+        # SET LOCAL, scoped to this transaction: a migration that can't
+        # take its lock fails fast instead of hanging the whole service.
         connection.execute(text("SET LOCAL lock_timeout = '5s'"))
         connection.execute(text("SET LOCAL statement_timeout = '60s'"))
         context.run_migrations()
 
 
 async def run_async_migrations() -> None:
-    """In this scenario we need to create an Engine
-    and associate a connection with the context.
-
-    """
-
+    """Open one NullPool connection and run migrations through it."""
     connectable = async_engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",

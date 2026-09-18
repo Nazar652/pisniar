@@ -1,10 +1,7 @@
 """Admin allowlist — the single barrier between this bot and all of Telegram.
 
-Registered as an *outer* middleware on `dp.update`, so it runs for every
-update type before any handler is even looked up. A non-admin update is
-dropped silently (no reply at all, per the approved assumption) and logged
-at WARNING. Get the registration order wrong and the bot is open to the
-whole internet — see the security review notes in the task contract.
+Outer middleware on `dp.update`, runs before any handler is looked up. Wrong
+registration order opens the bot to the whole internet.
 """
 
 from __future__ import annotations

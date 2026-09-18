@@ -1,9 +1,6 @@
-"""Celery task implementations — the Celery CLI entrypoint.
-
-Run as `celery -A pisniar.worker.tasks worker ...`. Importing this module
-reads and validates the full environment (`pisniar.config.Settings`), unlike
-`pisniar.worker.celery_app`, which stays safe to import anywhere (including
-from `pisniar.bot`, which never imports this module).
+"""Celery task implementations — the `celery -A pisniar.worker.tasks worker`
+entrypoint. Importing this reads/validates `Settings`, unlike
+`worker.celery_app`, which `bot` (never this module) imports instead.
 """
 
 from __future__ import annotations
@@ -39,10 +36,8 @@ celery_app = build_celery_app(settings.redis_url)
 logger = get_logger(__name__)
 
 
-# Clears correlation ids around every task, not just `ping` — a worker
-# process is long-lived and reuses its own contextvars across tasks, so
-# without this a later task could inherit a stale `post_id` from whichever
-# task ran before it on the same worker thread.
+# Clears correlation ids around every task, not just `ping` — a stale
+# post_id would otherwise leak from one task into the next.
 @task_prerun.connect
 def _clear_context_before_task(**kwargs: Any) -> None:
     clear_context()
