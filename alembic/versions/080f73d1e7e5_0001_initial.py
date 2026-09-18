@@ -61,6 +61,13 @@ def upgrade() -> None:
         ),
         sa.Column("odesli_raw", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column("odesli_fetched_at", postgresql.TIMESTAMP(timezone=True), nullable=True),
+        sa.CheckConstraint(
+            "jsonb_typeof(artists) = 'array'", name=op.f("ck_track_artists_is_array")
+        ),
+        sa.CheckConstraint(
+            "jsonb_typeof(platform_links) = 'object'",
+            name=op.f("ck_track_platform_links_is_object"),
+        ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_track")),
         sa.UniqueConstraint("source_url_normalized", name=op.f("uq_track_source_url_normalized")),
     )
@@ -106,12 +113,25 @@ def upgrade() -> None:
             "'archived')",
             name=op.f("ck_post_status_valid"),
         ),
-        # NULL semantics: a Postgres CHECK only fires when both sides are
-        # non-NULL, so a post with an unset fragment (both NULL) or with only
-        # one bound set passes this constraint; the "both set" invariant is
-        # not modeled here, since draft posts legitimately have neither yet.
+        # Three-way: `(NULL, NULL)` (no fragment chosen yet) is valid and
+        # deliberate. `num_nonnulls(...) <> 1` rejects a one-sided bound
+        # (`(5000, NULL)`), and `fragment_start_ms >= 0` rejects a negative
+        # start, which would otherwise pass silently and shift every lyric
+        # line forward per D-5's `ass_t = lyric.start_ms - fragment_start_ms`
+        # — an error invisible until someone watches the rendered video.
         sa.CheckConstraint(
-            "fragment_end_ms > fragment_start_ms", name=op.f("ck_post_fragment_bounds_valid")
+            "num_nonnulls(fragment_start_ms, fragment_end_ms) <> 1 "
+            "AND (fragment_start_ms IS NULL OR fragment_start_ms >= 0) "
+            "AND (fragment_end_ms IS NULL OR fragment_end_ms > fragment_start_ms)",
+            name=op.f("ck_post_fragment_bounds_valid"),
+        ),
+        sa.CheckConstraint("jsonb_typeof(genres) = 'array'", name=op.f("ck_post_genres_is_array")),
+        # Same one-sided-pair problem as the fragment bounds above, applied
+        # to the channel reference: without this, `(NULL, 42)` passes both
+        # the partial unique index below and any NOT NULL check.
+        sa.CheckConstraint(
+            "num_nonnulls(channel_chat_id, channel_message_id) <> 1",
+            name=op.f("ck_post_channel_ref_complete"),
         ),
         sa.ForeignKeyConstraint(
             ["track_id"], ["track.id"], name=op.f("fk_post_track_id_track"), ondelete="RESTRICT"
@@ -121,14 +141,14 @@ def upgrade() -> None:
     op.create_index(op.f("ix_post_status"), "post", ["status"], unique=False)
     op.create_index(op.f("ix_post_track_id"), "post", ["track_id"], unique=False)
     # Partial unique index: guards against a duplicate channel post (step 3)
-    # once `channel_message_id` is set; several posts with it still NULL
-    # (not yet published) do not conflict with each other.
+    # once both `channel_chat_id` and `channel_message_id` are set; several
+    # posts with either still NULL (not yet published) do not conflict.
     op.create_index(
         "uq_post_channel_message",
         "post",
         ["channel_chat_id", "channel_message_id"],
         unique=True,
-        postgresql_where=sa.text("channel_message_id IS NOT NULL"),
+        postgresql_where=sa.text("channel_chat_id IS NOT NULL AND channel_message_id IS NOT NULL"),
     )
 
 
@@ -137,7 +157,7 @@ def downgrade() -> None:
     op.drop_index(
         "uq_post_channel_message",
         table_name="post",
-        postgresql_where=sa.text("channel_message_id IS NOT NULL"),
+        postgresql_where=sa.text("channel_chat_id IS NOT NULL AND channel_message_id IS NOT NULL"),
     )
     op.drop_index(op.f("ix_post_track_id"), table_name="post")
     op.drop_index(op.f("ix_post_status"), table_name="post")

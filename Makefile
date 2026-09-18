@@ -1,15 +1,13 @@
-# GNU Make on Windows looks for sh.exe on PATH and uses it automatically if
-# found (Git for Windows ships one); pinning SHELL here makes that explicit
-# instead of leaving it to autodetection, and keeps every recipe below to a
-# single plain command line with no bash-only syntax ([[ ]], arrays, source),
-# so it still works unmodified if Make ever does fall back to cmd.exe.
+# Hard prerequisite, not a soft preference: `sh` (Git Bash on Windows) must
+# be on PATH. `help` below is built on `grep`/`sed`/`sort`, and pinning SHELL
+# here turns a silent, confusing failure under cmd.exe into an explicit one.
 SHELL := sh
 
 COMPOSE := docker compose
 
 .DEFAULT_GOAL := help
 
-.PHONY: help sync lock fmt fmt-check lint typecheck test check \
+.PHONY: help sync lock-check fmt fmt-check lint typecheck test check \
 	build up down ps logs restart clean test-int migrate revision downgrade \
 	alembic-check psql shell verify
 
@@ -18,11 +16,11 @@ help: ## Show this list of targets
 
 ## --- local (host, no Docker; DATABASE_URL/REDIS_URL not needed here) ---
 
-sync: ## uv sync
-	uv sync
+sync: ## uv sync --frozen (V1)
+	uv sync --frozen
 
-lock: ## uv lock
-	uv lock
+lock-check: ## uv lock --check (V2)
+	uv lock --check
 
 fmt: ## ruff format (writes)
 	uv run ruff format .
@@ -39,7 +37,13 @@ typecheck: ## ty check, strict rules from pyproject.toml (V5)
 test: ## unit tests only, no DB (V6)
 	uv run pytest -m "not integration" -q
 
-check: fmt-check lint typecheck test ## fmt-check + lint + typecheck + test (V3-V6 in one)
+# `-k`/keep-going: `make check` on its own still stops at the first failing
+# prerequisite (sequential prerequisites behave like `&&`, not `;`). Run
+# `make -k check` to see every failure from one invocation instead of fixing
+# them one round-trip at a time. `-k` is a flag on the whole `make` invocation,
+# not something `check`'s own prerequisite list can turn on — `verify` below
+# depends on `check` but does not run it with `-k` for you.
+check: sync lock-check fmt-check lint typecheck test ## sync + lock-check + fmt-check + lint + typecheck + test (V1-V6); use `make -k check` to see every failure in one go
 
 ## --- docker (compose.yaml + compose.override.yml pick up .env automatically) ---
 

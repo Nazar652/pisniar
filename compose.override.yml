@@ -6,6 +6,9 @@
 # bind mount into the Linux VM, so mtime-polling is the only hot-reload mode
 # that actually works here — without it, file changes on the host would
 # silently never trigger a restart.
+#
+# LOG_FORMAT is set independently of ENVIRONMENT (see pisniar/config.py):
+# `make up` should read as console output for a human, not JSON.
 
 services:
   migrate:
@@ -17,6 +20,7 @@ services:
       - ./alembic.ini:/app/alembic.ini
     environment:
       ENVIRONMENT: dev
+      LOG_FORMAT: console
 
   bot:
     build:
@@ -25,8 +29,13 @@ services:
       - ./src:/app/src
       - ./alembic:/app/alembic
       - ./alembic.ini:/app/alembic.ini
+      # Dev-only: the `source-prod` Dockerfile stage never `COPY tests` in,
+      # so `make test-int` only works against this bind mount, through this
+      # service.
+      - ./tests:/app/tests
     environment:
       ENVIRONMENT: dev
+      LOG_FORMAT: console
       WATCHFILES_FORCE_POLLING: "1"
     ports:
       - "127.0.0.1:18080:8080"
@@ -40,6 +49,7 @@ services:
       - ./alembic.ini:/app/alembic.ini
     environment:
       ENVIRONMENT: dev
+      LOG_FORMAT: console
       WATCHFILES_FORCE_POLLING: "1"
 
   postgres:

@@ -6,6 +6,7 @@ from typing import Annotated, Literal
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+from sqlalchemy.engine import make_url
 
 
 class Settings(BaseSettings):
@@ -23,6 +24,14 @@ class Settings(BaseSettings):
     )
 
     environment: Literal["dev", "docker"] = "dev"
+    # Independent of `environment` on purpose (contract subitem 1.3 had this
+    # as its own `APP__LOG_FORMAT` knob): "docker" doesn't always mean "read
+    # JSON logs" — a developer running `make up` still wants console output
+    # while `environment` legitimately stays "dev" for other behaviour.
+    # Named `LOG_FORMAT`, not `APP__LOG_FORMAT`: nothing else in this flat
+    # config uses an `APP__` prefix, so adding one for a single field would
+    # be inconsistent rather than a real nested-settings namespace.
+    log_format: Literal["json", "console"] = "json"
     log_level: str = "INFO"
 
     bot_token: SecretStr
@@ -66,3 +75,16 @@ def get_settings() -> Settings:
     `monkeypatch.setenv`, and process startup only calls this once anyway.
     """
     return Settings()
+
+
+def redaction_secrets(settings: Settings) -> list[str]:
+    """Every raw value that must never appear in a log line — including a
+    traceback. `/readyz`'s Postgres check logs with `exc_info=True`, and an
+    asyncpg connection error can embed the DSN (password included) in its
+    message, so the bot token alone is not enough here.
+    """
+    secrets = [settings.bot_token.get_secret_value()]
+    password = make_url(settings.database_url).password
+    if password:
+        secrets.append(password)
+    return secrets

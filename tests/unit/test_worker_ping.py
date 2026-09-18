@@ -64,6 +64,38 @@ def test_ping_task_executes_synchronously_checks_db_and_sends_alert(
     assert "123" in message_arg
 
 
+def test_ping_task_succeeds_even_when_the_alert_fails_to_deliver(
+    eager_celery_app: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`send_alert` returning `False` (its documented failure mode — see
+    `tests/unit/test_notifier.py`) must not fail the task itself: an alert
+    about a diagnostic is not the diagnostic."""
+    fake_session = AsyncMock()
+
+    @asynccontextmanager
+    async def fake_session_context() -> AsyncIterator[AsyncMock]:
+        yield fake_session
+
+    fake_engine = MagicMock()
+    fake_engine.dispose = AsyncMock()
+    fake_bot = MagicMock()
+    fake_bot.session.close = AsyncMock()
+
+    monkeypatch.setattr(worker_tasks, "build_engine", MagicMock(return_value=fake_engine))
+    monkeypatch.setattr(
+        worker_tasks,
+        "build_session_factory",
+        MagicMock(return_value=MagicMock(side_effect=fake_session_context)),
+    )
+    monkeypatch.setattr(worker_tasks, "build_bot", MagicMock(return_value=fake_bot))
+    monkeypatch.setattr(worker_tasks, "send_alert", AsyncMock(return_value=False))
+
+    result = worker_tasks.ping.delay(post_id=123)
+
+    assert result.successful(), result.result
+    fake_engine.dispose.assert_awaited_once()
+
+
 def test_ping_task_without_post_id_still_executes(
     eager_celery_app: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:

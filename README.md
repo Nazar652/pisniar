@@ -17,6 +17,9 @@ channel publishing exists yet.
 - `uv` (dependency/venv manager) and GNU Make on the host — both optional
   for pure Docker workflows, but needed for `make check` (lint/type/unit
   tests, which run faster on the host than inside a Windows bind mount).
+  On Windows, the Makefile hard-requires `sh` on PATH (`SHELL := sh`) —
+  Git for Windows (Git Bash) already provides this if `uv`/Make themselves
+  are usable from the same shell.
 - A Telegram bot token, two admin `user_id`s, and a chat id for alerts — see
   [Configuration](#configuration).
 
@@ -38,9 +41,13 @@ make ps      # confirm everything is healthy
 ```
 
 `compose.override.yml` is picked up automatically and adds, for local
-development only: bind-mounting `src/`/`alembic/` into the containers with a
-`watchfiles`-based hot-reload wrapper, and publishing `postgres`/`redis`/the
-bot's health API on `127.0.0.1` only (never on `0.0.0.0`).
+development only: bind-mounting `src/`/`alembic/`/`tests/` into the
+containers with a `watchfiles`-based hot-reload wrapper, publishing
+`postgres`/`redis`/the bot's health API on `127.0.0.1` only (never on
+`0.0.0.0`), and switching logs to a human-readable console format
+(`LOG_FORMAT=console`, independent of `ENVIRONMENT`). To see the real JSON
+output the docker/prod configuration produces (e.g. to check M11), run
+without the override: `docker compose -f compose.yaml up -d --wait`.
 
 Stop everything: `make down`. Stop and also drop the Postgres volume (a
 clean-slate restart): `make clean`.
@@ -49,8 +56,13 @@ clean-slate restart): `make clean`.
 
 Run `make help` for the full list. The ones you will use most:
 
+Plain `make check` still stops at the first failing step (sequential
+prerequisites behave like `&&`). Run `make -k check` to see every failure —
+lint, type, and test — from one invocation instead of fixing them one
+round-trip at a time.
+
 ```
-make check        # ruff format --check + ruff check + ty check + unit tests (host, no Docker)
+make check        # sync + lock-check + fmt-check + lint + typecheck + test (host, no Docker); use `make -k check` to see every failure at once
 make test-int      # full test suite (unit + integration) inside the bot container
 make migrate       # alembic upgrade head
 make revision m="add lyric table"   # alembic revision --autogenerate

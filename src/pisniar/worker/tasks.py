@@ -10,11 +10,18 @@ from __future__ import annotations
 
 from typing import Any
 
+from celery.signals import task_postrun, task_prerun
 from sqlalchemy import text
 
-from pisniar.config import get_settings
+from pisniar.config import get_settings, redaction_secrets
 from pisniar.db.session import build_engine, build_session_factory
-from pisniar.logging import bind_celery_task_id, bind_post_id, configure_logging, get_logger
+from pisniar.logging import (
+    bind_celery_task_id,
+    bind_post_id,
+    clear_context,
+    configure_logging,
+    get_logger,
+)
 from pisniar.telegram.client import build_bot
 from pisniar.telegram.notifier import send_alert
 from pisniar.worker.celery_app import PING_TASK_NAME, build_celery_app
@@ -22,14 +29,28 @@ from pisniar.worker.runner import run_async
 
 settings = get_settings()
 configure_logging(
-    environment=settings.environment,
+    log_format=settings.log_format,
     log_level=settings.log_level,
-    secrets=[settings.bot_token.get_secret_value()],
+    secrets=redaction_secrets(settings),
 )
 
 celery_app = build_celery_app(settings.redis_url)
 
 logger = get_logger(__name__)
+
+
+# Clears correlation ids around every task, not just `ping` — a worker
+# process is long-lived and reuses its own contextvars across tasks, so
+# without this a later task could inherit a stale `post_id` from whichever
+# task ran before it on the same worker thread.
+@task_prerun.connect
+def _clear_context_before_task(**kwargs: Any) -> None:
+    clear_context()
+
+
+@task_postrun.connect
+def _clear_context_after_task(**kwargs: Any) -> None:
+    clear_context()
 
 
 @celery_app.task(name=PING_TASK_NAME, bind=True)

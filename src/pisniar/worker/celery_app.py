@@ -28,5 +28,15 @@ def build_celery_app(redis_url: str, *, name: str = "pisniar") -> Celery:
         result_serializer="json",
         result_backend=None,
         broker_connection_retry_on_startup=True,
+        # `pisniar.worker.tasks.configure_logging()` runs at *import* time —
+        # before the Celery worker's own bootstrap. Celery's default
+        # (`worker_hijack_root_logger=True`) tears down every root logger
+        # handler and reconfigures logging itself during that later
+        # bootstrap step (`celery/app/log.py`: `root.handlers = []`, then
+        # its own setup), which would silently throw away the
+        # `ProcessorFormatter` handler `configure_logging()` just installed
+        # — no JSON, no secret redaction, for the entire `worker` process.
+        worker_hijack_root_logger=False,
+        worker_redirect_stdouts=False,
     )
     return app

@@ -33,6 +33,7 @@ def build_settings(
     alert_chat_id: str = "111",
     database_url: str = "postgresql+asyncpg://pisniar:pisniar@postgres:5432/pisniar",
     environment: Literal["dev", "docker"] = "dev",
+    log_format: Literal["json", "console"] = "json",
 ) -> Settings:
     return Settings(
         _env_file=None,
@@ -41,6 +42,7 @@ def build_settings(
         alert_chat_id=alert_chat_id,
         database_url=database_url,
         environment=environment,
+        log_format=log_format,
     )
 
 
@@ -95,3 +97,29 @@ def test_environment_docker_sets_is_docker() -> None:
     settings = build_settings(environment="docker")
 
     assert settings.is_docker is True
+
+
+def test_log_format_is_independent_of_environment() -> None:
+    """`LOG_FORMAT` must not be coupled to `ENVIRONMENT` — M11 (JSON logs in
+    the docker/prod path) and the console output `make up` gives a developer
+    both rely on that independence being real, not just the code's default
+    happening to agree with what each path wants."""
+    dev_with_json = build_settings(environment="dev", log_format="json")
+    assert dev_with_json.environment == "dev"
+    assert dev_with_json.log_format == "json"
+
+    docker_with_console = build_settings(environment="docker", log_format="console")
+    assert docker_with_console.environment == "docker"
+    assert docker_with_console.log_format == "console"
+
+
+def test_log_format_defaults_to_json() -> None:
+    settings = Settings(
+        _env_file=None,
+        bot_token="000000000:fake",
+        admin_ids="111,222",
+        alert_chat_id="111",
+        database_url="postgresql+asyncpg://pisniar:pisniar@postgres:5432/pisniar",
+    )
+
+    assert settings.log_format == "json"

@@ -89,11 +89,19 @@ CMD ["watchfiles", "--filter", "python", "python -m pisniar.bot.main", "/app/src
 # ---- worker ------------------------------------------------------------
 
 FROM source-prod AS worker
+# `source-prod` already switched to `USER app`; apt-get needs root back, and
+# must hand it off again afterward — uncommenting this block as-is on step 4
+# stays non-root at runtime. Getting this order wrong is exactly the
+# `Permission denied` step 1 is trying to avoid triggering later.
+# USER root
 # RUN apt-get update && apt-get install -y --no-install-recommends \
 #     ffmpeg fonts-noto-core && rm -rf /var/lib/apt/lists/*
+# USER app
 CMD ["celery", "-A", "pisniar.worker.tasks", "worker", "--loglevel=INFO"]
 
 FROM source-dev AS worker-dev
+# USER root
 # RUN apt-get update && apt-get install -y --no-install-recommends \
 #     ffmpeg fonts-noto-core && rm -rf /var/lib/apt/lists/*
+# USER app
 CMD ["watchfiles", "--filter", "python", "celery -A pisniar.worker.tasks worker --loglevel=INFO", "/app/src"]

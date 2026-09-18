@@ -588,7 +588,7 @@ dev = [
     { name = "pytest", specifier = ">=8.3,<9" },
     { name = "pytest-asyncio", specifier = ">=0.24,<1" },
     { name = "ruff", specifier = ">=0.7,<1" },
-    { name = "ty", specifier = ">=0.0.82" },
+    { name = "ty", specifier = ">=0.0.82,<0.1" },
     { name = "watchfiles", specifier = ">=0.24,<1" },
 ]
 

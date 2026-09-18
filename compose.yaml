@@ -4,6 +4,10 @@ name: pisniar
 # names of the `postgres` / `redis` services, fixed by this file's own
 # topology. They are set here, not in `.env`: the user only fills in what
 # only they know (bot token, admin ids, alert chat id).
+# dev-only credentials: fine for a local compose network with no external
+# port exposed on the base file (compose.override.yml only binds to
+# 127.0.0.1), deliberately not hardened further (no generated password, no
+# digest pinning, no cap_drop/no-new-privileges) before a real deployment.
 x-app-environment: &app-environment
   DATABASE_URL: postgresql+asyncpg://pisniar:pisniar@postgres:5432/pisniar
   REDIS_URL: redis://redis:6379/0
@@ -13,7 +17,7 @@ services:
     image: postgres:17
     environment:
       POSTGRES_USER: pisniar
-      POSTGRES_PASSWORD: pisniar
+      POSTGRES_PASSWORD: pisniar # dev-only credentials
       POSTGRES_DB: pisniar
     volumes:
       - postgres-data:/var/lib/postgresql/data
@@ -38,8 +42,9 @@ services:
       context: .
       target: bot
     command: ["alembic", "upgrade", "head"]
-    env_file:
-      - .env
+    # No `env_file: .env` here on purpose: `alembic/env.py` reads only
+    # `DATABASE_URL`, which the anchor below already provides — this service
+    # has no business seeing the bot token, admin ids, or alert chat id.
     environment:
       <<: *app-environment
     restart: "no"

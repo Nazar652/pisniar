@@ -21,7 +21,7 @@ command, Celery) — no track-resolution or rendering logic yet.
 Canonical commands are `make` targets (`make help` lists all of them).
 
 ```
-make check       # ruff format --check + ruff check + ty check + unit tests
+make check       # uv sync --frozen + uv lock --check + ruff format --check + ruff check + ty check + unit tests
 make up           # docker compose up -d --wait
 make ps            # docker compose ps
 make test-int      # full test suite (unit + integration) inside the bot container
@@ -56,6 +56,11 @@ suggest or introduce either.
 - Every timestamp column is `TIMESTAMPTZ` in UTC.
 - Lyric timecodes are absolute from the start of the full track, not the
   fragment. At render time: `ass_t = lyric.start_ms - post.fragment_start_ms`.
+- `updated_at` is maintained by an ORM-level `onupdate`, not a database
+  trigger. Any future migration that updates rows in place (`op.execute("UPDATE ...")`,
+  a raw `text("UPDATE ...")`) bypasses the ORM and must set
+  `updated_at = now()` itself in that same statement — otherwise the row's
+  `updated_at` goes stale with no way to fix it after the fact.
 
 ## Where things stand
 

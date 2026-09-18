@@ -11,7 +11,11 @@ Docker, `.env` is already loaded into the real process environment by
 configured environment is used instead, which is what `V12` needs.
 """
 
+import logging
 import os
+from collections.abc import Iterator
+
+import pytest
 
 os.environ.setdefault("ENVIRONMENT", "dev")
 os.environ.setdefault("LOG_LEVEL", "INFO")
@@ -22,3 +26,22 @@ os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://pisniar:pisniar@post
 os.environ.setdefault("REDIS_URL", "redis://redis:6379/0")
 os.environ.setdefault("HTTP_HOST", "0.0.0.0")
 os.environ.setdefault("HTTP_PORT", "8080")
+
+
+@pytest.fixture
+def preserve_root_logging_state() -> Iterator[None]:
+    """`configure_logging()` replaces `logging.getLogger().handlers`
+    wholesale and does not restore whatever was there before — fine in a
+    real process (it runs once, at startup), but a test that calls it must
+    put the root logger back the way it found it, or every test that runs
+    afterward in the same process inherits whatever handler/level the test
+    left behind.
+    """
+    root_logger = logging.getLogger()
+    original_handlers = list(root_logger.handlers)
+    original_level = root_logger.level
+    try:
+        yield
+    finally:
+        root_logger.handlers = original_handlers
+        root_logger.setLevel(original_level)

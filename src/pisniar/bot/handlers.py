@@ -6,6 +6,7 @@ everything else out by the time a handler runs.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 
 from aiogram import Router
@@ -62,7 +63,22 @@ async def handle_diag(
     bind_post_id(post_id)
     logger.info("diag_started", track_id=track_id, post_id=post_id)
 
-    async_result = celery_client.send_task(PING_TASK_NAME, kwargs={"post_id": post_id})
+    # `send_task()` is a blocking, synchronous kombu call. Run it off the
+    # event loop: if Redis is unreachable, it can block for the whole retry
+    # window, and this is a single-loop process — a blocked event loop here
+    # also stalls uvicorn's `/healthz`, which can then fail its own
+    # healthcheck and take down an otherwise-healthy `bot` container.
+    try:
+        async_result = await asyncio.to_thread(
+            celery_client.send_task, PING_TASK_NAME, kwargs={"post_id": post_id}
+        )
+    except Exception:
+        logger.exception("diag_task_dispatch_failed", track_id=track_id, post_id=post_id)
+        await message.answer(
+            f"diag: track_id={track_id}, post_id={post_id} were created, but dispatching "
+            "the diagnostic task failed. The post is saved; check the worker/broker logs."
+        )
+        return
 
     await message.answer(
         f"diag started\ntrack_id={track_id}\npost_id={post_id}\ncelery_task_id={async_result.id}"
