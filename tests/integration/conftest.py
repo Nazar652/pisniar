@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from pisniar.config import get_settings
 from pisniar.db.session import build_engine, build_session_factory
+from pisniar.resolve.cache import SourceCache
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TEST_DATABASE_NAME = "pisniar_test"
@@ -126,4 +127,13 @@ async def db_session(migrated_test_database_url: str) -> AsyncIterator[AsyncSess
             yield session
         finally:
             await session.rollback()
+    await engine.dispose()
+
+
+@pytest_asyncio.fixture
+async def source_cache(migrated_test_database_url: str) -> AsyncIterator[SourceCache]:
+    """A real `SourceCache` on the test database — it opens and commits its
+    own sessions, so it deliberately shares nothing with `db_session`."""
+    engine = build_engine(migrated_test_database_url)
+    yield SourceCache(session_factory=build_session_factory(engine))
     await engine.dispose()

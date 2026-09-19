@@ -8,6 +8,12 @@ from __future__ import annotations
 from celery import Celery
 
 PING_TASK_NAME = "pisniar.worker.ping"
+RESOLVE_POST_TASK_NAME = "pisniar.worker.resolve_post"
+
+# A full resolve is ~20s of throttled HTTP; these are the ceiling that stops
+# one wedged socket from owning the single worker slot forever (F-15).
+TASK_SOFT_TIME_LIMIT_SECONDS = 300
+TASK_TIME_LIMIT_SECONDS = 360
 
 
 def build_celery_app(redis_url: str, *, name: str = "pisniar") -> Celery:
@@ -15,6 +21,8 @@ def build_celery_app(redis_url: str, *, name: str = "pisniar") -> Celery:
     app.conf.update(
         task_acks_late=True,
         worker_prefetch_multiplier=1,
+        task_soft_time_limit=TASK_SOFT_TIME_LIMIT_SECONDS,
+        task_time_limit=TASK_TIME_LIMIT_SECONDS,
         timezone="UTC",
         enable_utc=True,
         task_serializer="json",

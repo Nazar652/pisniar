@@ -5,11 +5,11 @@ link's metadata, prepare a post, render a karaoke-style video fragment,
 publish. See `AGENTS.md` for a terse, code-facing map of the stack and the
 architectural boundaries that are easy to break without knowing them.
 
-This repository is currently at **step 1**: the infrastructure skeleton
-(typed config, structured logging, the async DB layer with the first
-migration, an admin-only aiogram bot with a `/diag` diagnostic command,
-health checks, and a Celery worker). No track resolution, rendering, or
-channel publishing exists yet.
+This repository is at **step 2**: an admin sends a link, the bot classifies
+it, the worker resolves it across six external sources (song.link, Spotify,
+Deezer, iTunes, `ytmusicapi`, MusicBrainz) with an ISRC-first matching
+discipline, builds an HTML caption, and delivers a draft back with `/retry`
+on failure. Rendering and channel publishing (steps 3-4) are next.
 
 ## Prerequisites
 
@@ -20,14 +20,17 @@ channel publishing exists yet.
   On Windows, the Makefile hard-requires `sh` on PATH (`SHELL := sh`) —
   Git for Windows (Git Bash) already provides this if `uv`/Make themselves
   are usable from the same shell.
-- A Telegram bot token, two admin `user_id`s, and a chat id for alerts — see
+- A Telegram bot token, two admin `user_id`s, and a chat id for alerts, plus
+  a Spotify Web API client id/secret (Client Credentials flow) — see
   [Configuration](#configuration).
 
 ## Configuration
 
-Copy `.env.example` to `.env` and fill in the values only you know (bot
-token, admin ids, alert chat id). **Never commit `.env`** — it is
-git-ignored. `DATABASE_URL` / `REDIS_URL` are deliberately not in
+Copy `.env.example` to `.env` and fill in the values only you know: bot
+token, admin ids, alert chat id, `SPOTIFY_CLIENT_ID`/`SPOTIFY_CLIENT_SECRET`.
+`ITUNES_COUNTRY` defaults to `UA`; `MUSICBRAINZ_CONTACT` is optional — the
+`musicbrainz` source stays disabled without it. **Never commit `.env`** — it
+is git-ignored. `DATABASE_URL` / `REDIS_URL` are deliberately not in
 `.env.example`: they are the in-network DNS names of the `postgres` /
 `redis` compose services, fixed in `compose.yaml`, not something you fill in.
 
@@ -83,21 +86,25 @@ With a real `.env` in place and the stack up (`make up`):
 
 1. `/start` from an admin user → a reply. From anyone else → no reply at
    all, and a `WARN`-level `update_rejected_non_admin` log line from `bot`.
-2. `/diag` from an admin → creates a `track` + `post` row, dispatches a
-   Celery `ping` task, replies with `post_id`/`celery_task_id`; the `worker`
-   log and the `bot` log both carry the same `post_id`; the worker sends its
-   own alert to the configured chat.
-3. `curl http://127.0.0.1:18080/healthz` → `200`, even if Postgres is down.
-4. `curl http://127.0.0.1:18080/readyz` → `200` normally, `503` with a
+2. Send a real track link (e.g. an `open.spotify.com/track/...` URL) from
+   an admin → a receipt with `post_id`; a draft with an HTML caption
+   arrives back within seconds; `platform_links`/`isrc` land on the `track`
+   row (`make psql`).
+3. Send an album/artist/playlist link → a Ukrainian rejection reply, no
+   `track`/`post` row created.
+4. Force a `post` into `failed` (e.g. stop `postgres` mid-resolve) →
+   `/retry <post_id>` re-dispatches it; a second draft is not duplicated.
+5. `curl http://127.0.0.1:18080/healthz` → `200`, even if Postgres is down.
+6. `curl http://127.0.0.1:18080/readyz` → `200` normally, `503` with a
    generic `{"status": "unavailable"}` body (no DSN, host, or stack trace)
    if Postgres or Redis is stopped.
-5. Edit a `.py` file under `src/` while the stack is up → `bot`/`worker`
+7. Edit a `.py` file under `src/` while the stack is up → `bot`/`worker`
    restart on their own within a few seconds (`WATCHFILES_FORCE_POLLING=1`
    is required on Windows bind mounts; without it, hot reload silently does
    not work).
-6. `UPDATE post SET status = 'nonsense';` via `make psql` → rejected by the
+8. `UPDATE post SET status = 'nonsense';` via `make psql` → rejected by the
    `ck_post_status_valid` CHECK constraint.
-7. `docker compose logs | grep <the real bot token>` → empty output. Do this
+9. `docker compose logs | grep <the real bot token>` → empty output. Do this
    by hand; never script a check that echoes the token itself.
-8. `git status` stays clean of `.env` and any `__pycache__`/cache
-   directories — both are git-ignored.
+10. `git status` stays clean of `.env` and any `__pycache__`/cache
+    directories — both are git-ignored.

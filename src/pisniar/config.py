@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     # source stays disabled without a contact, per MusicBrainz's own policy.
     musicbrainz_contact: str | None = None
     itunes_country: str = "UA"
+    # D-40: both a hit and a `{"found": false}` go stale after an hour, so
+    # `/retry` can actually recover a release song.link had not indexed yet.
+    source_fetch_ttl_seconds: int = 3600
 
     @field_validator("admin_ids", mode="before")
     @classmethod

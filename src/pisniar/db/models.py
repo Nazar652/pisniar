@@ -76,9 +76,12 @@ class Track(Base):
     source_url: Mapped[str] = mapped_column(Text, nullable=False)
     source_url_normalized: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
 
-    isrc: Mapped[str | None] = mapped_column(Text)
+    # Indexed for the D-41 duplicate warning: the same recording reaching
+    # us through a second platform's URL is otherwise invisible.
+    isrc: Mapped[str | None] = mapped_column(Text, index=True)
     title: Mapped[str | None] = mapped_column(Text)
-    # form: [{"name": str, "hashtag": str}, ...]
+    # form: [{"name": str, "hashtag": str | None, "spotify_id": str | None}];
+    # `hashtag` stays null until a human overrides it (D-29).
     artists: Mapped[list[object]] = mapped_column(
         JSONB, nullable=False, server_default=text("'[]'::jsonb")
     )
@@ -209,6 +212,8 @@ class SourceFetch(Base):
     source: Mapped[str] = mapped_column(Text, nullable=False)
     request_key: Mapped[str] = mapped_column(Text, nullable=False)
     payload: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
+    # Written from the clock at fetch time, not `now()` (F-23), and indexed
+    # for the TTL read plus the sweeper that will reap stale rows (D-40).
     fetched_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=False, server_default=text("now()")
+        TIMESTAMP(timezone=True), nullable=False, server_default=text("now()"), index=True
     )

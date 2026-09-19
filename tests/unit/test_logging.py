@@ -12,9 +12,11 @@ import structlog.testing
 
 from pisniar.logging import (
     REDACTED_PLACEHOLDER,
+    clear_runtime_secrets,
     configure_logging,
     get_logger,
     make_redact_secrets_processor,
+    register_runtime_secret,
 )
 
 
@@ -129,3 +131,30 @@ def test_configure_logging_redacts_secrets_from_stdlib_logging_too(
     assert REDACTED_PLACEHOLDER in output
     parsed = json.loads(output)
     assert parsed["level"] == "warning"
+
+
+def test_a_secret_registered_after_startup_is_redacted_too() -> None:
+    """F-20: the Spotify access token only exists once the resolver runs,
+    long after `configure_logging()` was handed the static secret list."""
+    processor = make_redact_secrets_processor(["configured-secret"])
+    register_runtime_secret("spotify_access_token", "runtime-token-xyz")
+    try:
+        event = processor(None, "info", {"event": "boom", "error": "Bearer runtime-token-xyz"})
+    finally:
+        clear_runtime_secrets()
+
+    assert "runtime-token-xyz" not in event["error"]
+    assert REDACTED_PLACEHOLDER in event["error"]
+
+
+def test_runtime_secret_registration_replaces_the_previous_value() -> None:
+    """Keyed by name so hourly token rotation cannot grow the set forever."""
+    processor = make_redact_secrets_processor([])
+    register_runtime_secret("spotify_access_token", "old-token")
+    register_runtime_secret("spotify_access_token", "new-token")
+    try:
+        event = processor(None, "info", {"event": "boom", "error": "old-token new-token"})
+    finally:
+        clear_runtime_secrets()
+
+    assert event["error"] == f"old-token {REDACTED_PLACEHOLDER}"

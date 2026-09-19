@@ -16,6 +16,22 @@ import structlog.typing
 
 REDACTED_PLACEHOLDER = "***REDACTED***"
 
+# Secrets that only exist after startup, so `configure_logging()` could not
+# have been given them — keyed by name, so a rotation replaces, not grows.
+_runtime_secrets: dict[str, str] = {}
+
+
+def register_runtime_secret(name: str, value: str) -> None:
+    """Add a secret obtained at runtime (the Spotify access token) to the
+    redaction set — an httpx error carries the `Authorization` header."""
+    if value:
+        _runtime_secrets[name] = value
+
+
+def clear_runtime_secrets() -> None:
+    _runtime_secrets.clear()
+
+
 # Narrower than `structlog.types.Processor`: always takes/returns an event
 # dict, never a rendered `str`/`bytes`/`tuple` — see `test_logging.py`.
 EventDictProcessor = Callable[[Any, str, MutableMapping[str, Any]], MutableMapping[str, Any]]
@@ -26,18 +42,19 @@ def make_redact_secrets_processor(secrets: Iterable[str]) -> EventDictProcessor:
     and `str()`-ing unrecognized types (e.g. `error=exc`) first. Leaves
     bool/int/float/None alone — a secret can't be a substring of a number.
     """
-    known_secrets = [secret for secret in secrets if secret]
+    configured_secrets = [secret for secret in secrets if secret]
+
+    def all_secrets() -> list[str]:
+        return [*configured_secrets, *_runtime_secrets.values()]
 
     def redact_string(value: str) -> str:
         redacted = value
-        for secret in known_secrets:
+        for secret in all_secrets():
             if secret in redacted:
                 redacted = redacted.replace(secret, REDACTED_PLACEHOLDER)
         return redacted
 
     def redact_value(value: object) -> object:
-        if not known_secrets:
-            return value
         if isinstance(value, str):
             return redact_string(value)
         if isinstance(value, dict):
@@ -53,7 +70,7 @@ def make_redact_secrets_processor(secrets: Iterable[str]) -> EventDictProcessor:
     def redact_secrets(
         logger: Any, method_name: str, event_dict: MutableMapping[str, Any]
     ) -> MutableMapping[str, Any]:
-        if not known_secrets:
+        if not all_secrets():
             return event_dict
         for key, value in list(event_dict.items()):
             event_dict[key] = redact_value(value)

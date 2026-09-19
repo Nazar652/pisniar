@@ -15,6 +15,27 @@ from urllib.parse import parse_qs, urlsplit, urlunsplit
 INTL_PREFIX_RE = re.compile(r"^/intl-[a-z]{2}(-[a-z0-9]+)?(?=/)", re.IGNORECASE)
 LANG_PREFIX_RE = re.compile(r"^/[a-z]{2}(?=/)", re.IGNORECASE)
 
+ALLOWED_URL_SCHEMES = frozenset({"http", "https"})
+
+# A btree entry tops out near 2704 bytes, and `source_url_normalized` is
+# UNIQUE — going over raises ProgramLimitExceededError, not IntegrityError.
+MAX_NORMALIZED_URL_BYTES = 2000
+
+
+def is_safe_url(url: str) -> bool:
+    """Only `http`/`https`. Canonical for the whole project: the resolver
+    checks candidates with it on the way in, `post.sanitize.is_safe_href`
+    re-checks at render time as the last line of defense."""
+    try:
+        scheme = urlsplit(url).scheme.lower()
+    except ValueError:
+        return False
+    return scheme in ALLOWED_URL_SCHEMES
+
+
+def is_within_length_limit(url: str) -> bool:
+    return len(url.encode("utf-8")) <= MAX_NORMALIZED_URL_BYTES
+
 
 class UrlKind(StrEnum):
     TRACK = "track"

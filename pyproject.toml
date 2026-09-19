@@ -41,7 +41,12 @@ select = [
     "C4",
     "RUF",
 ]
-ignore = []
+# RUF001 (ambiguous Cyrillic/Latin look-alikes in string literals) is off:
+# this project is Ukrainian-language, and the rule fires on nearly every
+# sentence, so it stopped carrying signal (user decision). RUF002/RUF003
+# (same check for docstrings/comments) stay on — they catch real mixed-script
+# typos, e.g. a stray Latin letter inside Cyrillic prose.
+ignore = ["RUF001"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["pisniar"]
