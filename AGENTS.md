@@ -50,6 +50,12 @@ suggest or introduce either.
 - `pisniar/resolve/` (six source adapters + ISRC-first matching/merge) and
   `pisniar/post/` (caption/hashtags/sanitize/render) never import `bot/` or
   `worker/` — they are pure libraries the worker orchestrates.
+- The one edge back the other way is `post.sanitize`, which `resolve/` may
+  import (`musicbrainz` logs a source-supplied URL through it) — and it is
+  the **only** `post/` module allowed there. That works because
+  `post.sanitize` is a leaf: it imports `pisniar.resolve.urls` and the
+  stdlib, nothing else. Keep it one, and keep it a leaf — a second import
+  or a heavier dependency turns `resolve/` <-> `post/` into a cycle.
 - A post's status changes **only** through `set_post_status()`
   (`pisniar.db.states`). Never assign `post.status = ...` directly — it skips
   transition validation and the `last_error` bookkeeping that function owns.
@@ -57,14 +63,33 @@ suggest or introduce either.
   `deliver_draft()` runs *before* `set_post_status(RESOLVED)` and the commit.
   There is deliberately no `RESOLVED -> FAILED` edge; a delivery failure
   happens while the post is still `RESOLVING`, which can legally fail.
+- A Celery dispatch failure moves the post straight to `FAILED` (D-53):
+  it was committed as `RESOLVING` before `send_task`, and the bot's own
+  "спробуйте /retry" advice was then refused by `/retry` itself.
 - The `RESOLVING -> RESOLVING` self-edge exists for Celery redelivery only.
   Manual `/retry` from `RESOLVING` is refused in `bot.handlers` (D-43) —
   unless `post.updated_at` is older than `TASK_TIME_LIMIT_SECONDS`, which
   means the worker died mid-task and nothing else can free the post (R2-2).
-- The worker locks `post` `FOR UPDATE` but `track` `FOR NO KEY UPDATE`:
-  `INSERT INTO post` takes `FOR KEY SHARE` on its parent track, and the
-  stronger lock froze the bot for the whole resolve (R2-3). Its engine also
-  carries a connection-level `lock_timeout`, so contention fails fast.
+  That branch restamps `updated_at` by hand: the self-edge changes no column,
+  so the ORM `onupdate` never fires and the post would stay stale (R3-4).
+- The worker locks `post` `FOR UPDATE` for the whole task — that read-then-
+  write pair is the delivery idempotency guard — but the `track` lock
+  (`FOR NO KEY UPDATE`) lives in a **separate short transaction of its own**
+  (`_persist_track_in_own_transaction`): lock, write, commit, nothing else.
+  `INSERT INTO post` takes `FOR KEY SHARE` on its parent track, so the
+  stronger lock froze the bot for the whole resolve (R2-3); holding the
+  weaker one across the network part made the second post of the same track
+  time out deterministically (D-54); and leaving `deliver_draft` inside that
+  window kept it open for up to aiogram's 60-second timeout, which is the
+  same failure again. The main transaction re-reads the track without a lock
+  afterwards. Both the worker and the bot engines carry a connection-level
+  `lock_timeout` (`db.session`), so every lock acquisition can raise and each
+  one is wrapped.
+- Every terminal branch of `resolve_post` alerts the admin **whether or not
+  the database write succeeded** — Telegram does not depend on Postgres, and
+  a restart of it is a documented manual-acceptance step here. `_fail_post`
+  (R3-1) and `_clean_up_non_track` both report what they could not write
+  instead of raising past their own alert.
 - A Telegram alert delivery failure (`pisniar.telegram.notifier.send_alert`)
   never raises into business logic and never causes a Celery task retry.
   Draft delivery (`pisniar.telegram.draft.deliver_draft`) is the opposite on
@@ -75,6 +100,28 @@ suggest or introduce either.
 
 ## Resolver conventions (`pisniar/resolve/`)
 
+- Every adapter call goes through `registry.isolated_source_call()`: one
+  source raising must not fail a post the other five could fill (D-55). The
+  failure lands in `ResolvedTrack.source_failures`, which the worker alerts
+  the admin about — isolation is only acceptable while the loss is audible.
+  One entry per source: `deezer:album` is fetched twice (year/release type
+  in the ISRC fan-out, genres in `service.resolve_genres`).
+- Isolation covers the **source**, never the infrastructure underneath it:
+  `SQLAlchemyError` is re-raised, because `SourceCache` talks to Postgres
+  inside every one of these calls and a dead database would otherwise be
+  read as "all six sources failed" — an empty resolve, on the branch whose
+  own error handling then has nothing left to report through.
+- **The asymmetry around `songlink.fetch` is deliberate.** The *primary*
+  call in `service.resolve_track()` stays outside `isolated_source_call` —
+  it produces the resolve's entry entity, and without it there is nothing
+  for the other sources to key on, so failing loudly is the honest outcome.
+  The *bridged* call (`_bridge_youtube_to_spotify`, after the ISRC fan-out)
+  is isolated: by then the track is already filled, and raising threw all
+  of it away.
+- A `user_input` link (the clip the admin submitted) is written into the
+  result before any network call, so it never counts as proof that a source
+  answered, and a resolve without `title` is never delivered as a draft —
+  both used to turn a completely failed resolve into a `RESOLVED` post (R3-2).
 - **ISRC-first**: a link found via a direct ISRC lookup (Deezer
   `/track/isrc:`, Spotify `q=isrc:`, MusicBrainz) never goes through
   `matching.is_match()` — the identifier is the proof. A link found via

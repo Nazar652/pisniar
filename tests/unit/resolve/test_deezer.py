@@ -155,3 +155,20 @@ def test_album_result_from_not_found_payload() -> None:
 
     assert result.found is False
     assert result.genre_ids == []
+
+
+@pytest.mark.parametrize(
+    "error_body",
+    [
+        {"error": {"type": "Exception", "message": "Quota limit exceeded", "code": 800}},
+        {"error": {"type": "DataException", "message": "no data", "code": 4}},
+    ],
+)
+def test_only_both_marks_together_count_as_the_documented_miss(
+    error_body: dict[str, object],
+) -> None:
+    """S3-5: the live miss carries `DataException` *and* `800` together, so
+    either mark alone is an unverified combination — caching it as "not
+    found" would blank the row for a whole TTL."""
+    with pytest.raises(deezer.DeezerApiError):
+        deezer._is_not_found_body(error_body)

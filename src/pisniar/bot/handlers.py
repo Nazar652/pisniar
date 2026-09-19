@@ -21,6 +21,7 @@ from pisniar.db.models import Post, Track
 from pisniar.db.session import session_scope
 from pisniar.db.states import IllegalStatusTransitionError, PostStatus, set_post_status
 from pisniar.logging import bind_post_id, get_logger
+from pisniar.resolve.types import USER_INPUT_SOURCE
 from pisniar.resolve.urls import (
     MAX_NORMALIZED_URL_BYTES,
     ClassifiedUrl,
@@ -33,6 +34,8 @@ from pisniar.worker.celery_app import RESOLVE_POST_TASK_NAME, TASK_TIME_LIMIT_SE
 logger = get_logger(__name__)
 
 router = Router(name="commands")
+
+DISPATCH_FAILED_ERROR = "не вдалося поставити задачу в чергу"
 
 NOT_TRACK_REASON_UA = {
     "album": "альбом",
@@ -79,13 +82,18 @@ async def handle_retry(
             await message.answer(f"Пост {post_id} не знайдено.")
             return
 
-        if post.status is PostStatus.RESOLVING and not _resolving_has_gone_stale(post):
-            # The self-edge exists for Celery redelivery, not as a button:
-            # a second task would race the first into two drafts (D-43/F-9).
-            await message.answer(
-                f"Пост {post_id} уже обробляється. Зачекайте на чернетку або на помилку."
-            )
-            return
+        if post.status is PostStatus.RESOLVING:
+            if not _resolving_has_gone_stale(post):
+                # The self-edge exists for Celery redelivery, not as a button:
+                # a second task would race the first into two drafts (D-43/F-9).
+                await message.answer(
+                    f"Пост {post_id} уже обробляється. Зачекайте на чернетку або на помилку."
+                )
+                return
+
+            # The self-edge changes no column, so the ORM `onupdate` never
+            # fires and every later /retry would pass this guard too (R3-4).
+            post.updated_at = datetime.now(UTC)
 
         try:
             set_post_status(post, PostStatus.RESOLVING)
@@ -97,6 +105,7 @@ async def handle_retry(
 
     bind_post_id(post_id)
     if not await _dispatch_resolve_task(celery_client, post_id):
+        await _mark_dispatch_failure(session_factory, post_id)
         await message.answer("Не вдалося поставити задачу в чергу. Спробуйте ще раз.")
         return
 
@@ -153,31 +162,44 @@ async def handle_link(
         logger.info("link_rejected", reason="unknown", raw_text_length=len(raw_url))
         return
 
-    async with session_scope(session_factory) as session:
-        track, track_existed = await _get_or_create_track(session, raw_url, classified)
+    post_id: int | None = None
+    track_existed = False
+    failure_answer: str | None = None
 
-        post = Post(track_id=track.id, created_by_user_id=message.from_user.id)
-        session.add(post)
+    async with session_scope(session_factory) as session:
         try:
+            track, track_existed = await _get_or_create_track(session, raw_url, classified)
+
+            post = Post(track_id=track.id, created_by_user_id=message.from_user.id)
+            session.add(post)
             await session.flush()
         except IntegrityError:
             # The worker's cleanup deleted this track between the SELECT and
             # this INSERT; unhandled, aiogram answers the admin nothing (R2-13).
             await session.rollback()
-            logger.warning("link_post_insert_lost_its_track", track_id=track.id)
-            post_id = None
+            logger.warning("link_post_insert_lost_its_track")
+            failure_answer = "Трек саме прибрали з бази. Надішліть посилання ще раз."
+        except DBAPIError:
+            # `lock_timeout` lives on the bot engine too now, so an acquisition
+            # here can raise a plain `DBAPIError` — the clause above catches
+            # only its `IntegrityError` subclass, and the admin got silence.
+            await session.rollback()
+            logger.exception("link_database_error")
+            failure_answer = "База даних зараз недоступна або зайнята. Надішліть посилання ще раз."
         else:
             set_post_status(post, PostStatus.RESOLVING)
             post_id = post.id
 
-    if post_id is None:
-        await message.answer("Трек саме прибрали з бази. Надішліть посилання ще раз.")
+    if failure_answer is not None:
+        await message.answer(failure_answer)
         return
+    assert post_id is not None
 
     bind_post_id(post_id)
     logger.info("link_received", post_id=post_id, track_existed=track_existed)
 
     if not await _dispatch_resolve_task(celery_client, post_id):
+        await _mark_dispatch_failure(session_factory, post_id)
         await message.answer(
             f"Пост {post_id} створено, але не вдалося поставити задачу в чергу. "
             f"Спробуйте /retry {post_id}."
@@ -211,12 +233,18 @@ async def _get_or_create_track(
     if existing is not None:
         return existing, True
 
+    # `DBAPIError` is deliberately not caught here — the caller turns it into
+    # an answer to the admin, and this function has no message of its own.
     track = Track(source_url=raw_url, source_url_normalized=classified.normalized_url)
     if classified.platform == "youtube":
         # Seeded immediately, not just at resolve time — a user-supplied
         # clip must survive even if resolution never completes.
         track.platform_links = {
-            "youtube": {"url": classified.normalized_url, "source": "user_input", "match": "manual"}
+            "youtube": {
+                "url": classified.normalized_url,
+                "source": USER_INPUT_SOURCE,
+                "match": "manual",
+            }
         }
     session.add(track)
     try:
@@ -230,6 +258,24 @@ async def _get_or_create_track(
             return existing, True
         raise
     return track, False
+
+
+async def _mark_dispatch_failure(
+    session_factory: async_sessionmaker[AsyncSession], post_id: int
+) -> None:
+    """D-53: the post is already committed as `RESOLVING`, so leaving it
+    there makes the bot's own "спробуйте /retry" advice false for the next
+    `TASK_TIME_LIMIT_SECONDS` — no task exists to move it on.
+    """
+    try:
+        async with session_scope(session_factory) as session:
+            post = await session.get(Post, post_id, with_for_update=True)
+            if post is None or post.status is not PostStatus.RESOLVING:
+                return
+
+            set_post_status(post, PostStatus.FAILED, error=DISPATCH_FAILED_ERROR)
+    except Exception:
+        logger.exception("dispatch_failure_status_write_failed", post_id=post_id)
 
 
 async def _dispatch_resolve_task(celery_client: Celery, post_id: int) -> bool:

@@ -37,6 +37,18 @@ def clear_runtime_secrets() -> None:
 EventDictProcessor = Callable[[Any, str, MutableMapping[str, Any]], MutableMapping[str, Any]]
 
 
+def redact_secrets_in_text(value: str, secrets: Iterable[str] = ()) -> str:
+    """Redaction as a plain function, usable outside the log pipeline: an
+    error message also reaches the admin through `send_alert` and
+    `post.last_error`, neither of which passes a processor (S3-3).
+    """
+    redacted = value
+    for secret in [*[secret for secret in secrets if secret], *_runtime_secrets.values()]:
+        if secret in redacted:
+            redacted = redacted.replace(secret, REDACTED_PLACEHOLDER)
+    return redacted
+
+
 def make_redact_secrets_processor(secrets: Iterable[str]) -> EventDictProcessor:
     """Replace `secrets` in event dict values, recursing into dict/list/tuple
     and `str()`-ing unrecognized types (e.g. `error=exc`) first. Leaves
@@ -51,11 +63,7 @@ def make_redact_secrets_processor(secrets: Iterable[str]) -> EventDictProcessor:
         return [*configured_secrets, *runtime_secrets]
 
     def redact_string(value: str) -> str:
-        redacted = value
-        for secret in all_secrets():
-            if secret in redacted:
-                redacted = redacted.replace(secret, REDACTED_PLACEHOLDER)
-        return redacted
+        return redact_secrets_in_text(value, configured_secrets)
 
     def redact_value(value: object) -> object:
         if isinstance(value, str):

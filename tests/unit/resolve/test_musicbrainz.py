@@ -3,7 +3,10 @@ platform_links mapping — via `httpx.MockTransport`, trimmed real shape."""
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
 import httpx
+import pytest
 
 from pisniar.resolve.cache import SourceCache
 from pisniar.resolve.sources import musicbrainz
@@ -92,3 +95,18 @@ def test_a_broken_url_rel_is_skipped_instead_of_failing_the_whole_recording() ->
         "spotify": "https://open.spotify.com/track/ok",
         "deezer": "https://www.deezer.com/track/ok",
     }
+
+
+def test_an_unparsable_url_rel_is_logged_without_its_control_characters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """S3-7: a control character is exactly what gets a url-rel here, and
+    the raw value went straight into the log line."""
+    logger_mock = MagicMock()
+    monkeypatch.setattr(musicbrainz, "logger", logger_mock)
+
+    assert musicbrainz._host_or_none("https://exa\tmple‮.com/x") is None
+
+    logged_url = logger_mock.warning.call_args.kwargs["url"]
+    assert "\t" not in logged_url
+    assert "‮" not in logged_url

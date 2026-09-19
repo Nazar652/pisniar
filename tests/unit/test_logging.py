@@ -16,6 +16,7 @@ from pisniar.logging import (
     configure_logging,
     get_logger,
     make_redact_secrets_processor,
+    redact_secrets_in_text,
     register_runtime_secret,
 )
 
@@ -158,3 +159,24 @@ def test_runtime_secret_registration_replaces_the_previous_value() -> None:
         clear_runtime_secrets()
 
     assert event["error"] == f"old-token {REDACTED_PLACEHOLDER}"
+
+
+def test_redact_secrets_in_text_scrubs_configured_and_runtime_secrets() -> None:
+    """S3-3: `send_alert` and `post.last_error` are sinks no log processor
+    ever sees, so the redaction has to exist as a plain function too."""
+    register_runtime_secret("spotify_token", "runtime-token-value")
+    try:
+        redacted = redact_secrets_in_text(
+            "asyncpg: password=db-password failed, Authorization: runtime-token-value",
+            ["db-password"],
+        )
+    finally:
+        clear_runtime_secrets()
+
+    assert "db-password" not in redacted
+    assert "runtime-token-value" not in redacted
+    assert redacted.count(REDACTED_PLACEHOLDER) == 2
+
+
+def test_redact_secrets_in_text_leaves_an_innocent_message_alone() -> None:
+    assert redact_secrets_in_text("нічого таємного", ["db-password"]) == "нічого таємного"

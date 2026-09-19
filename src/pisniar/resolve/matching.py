@@ -30,6 +30,7 @@ _WHITESPACE_RE = re.compile(r"\s+")
 _ARTIST_SEPARATOR_RE = re.compile(r",|&|/| x | vs\.? | with ", re.IGNORECASE)
 _ISRC_RE = re.compile(r"^[A-Z]{2}[A-Z0-9]{3}\d{7}$")
 _SPOTIFY_ID_RE = re.compile(r"^[0-9A-Za-z]{22}$")
+_YOUTUBE_VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
 
 
 def is_valid_isrc(value: str | None) -> bool:
@@ -43,6 +44,12 @@ def is_valid_spotify_id(value: str | None) -> bool:
     """22 base62 characters. Same reason as `is_valid_isrc`: the value is
     source-supplied and goes straight into a URL path (R2-15/R2-16)."""
     return value is not None and _SPOTIFY_ID_RE.match(value) is not None
+
+
+def is_valid_youtube_video_id(value: str | None) -> bool:
+    """11 URL-safe base64 characters. Same reason as the two above: the id
+    comes from a source and goes into a URL — and into `yt-dlp` at step 4."""
+    return value is not None and _YOUTUBE_VIDEO_ID_RE.match(value) is not None
 
 
 def strip_diacritics(value: str) -> str:

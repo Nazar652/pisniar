@@ -9,6 +9,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock
 
 import pytest
+from sqlalchemy.exc import OperationalError
 
 from pisniar.resolve import registry
 from pisniar.resolve.cache import SourceCache
@@ -261,3 +262,127 @@ async def test_resolve_by_isrc_skips_album_fetch_without_an_album_id(
 
     fetch_album_mock.assert_not_called()
     assert track.deezer_album_id is None
+
+
+@pytest.mark.parametrize(
+    ("release_date", "expected_year"),
+    [("1993-02-22", 1993), ("2025", 2025), ("0000-00-00", None), ("N/A", None), (None, None)],
+)
+def test_release_year_treats_a_non_numeric_or_zero_date_as_unknown(
+    release_date: str | None, expected_year: int | None
+) -> None:
+    """S3-4: Deezer answers `"0000-00-00"`, and `int("0000")` is a `0` that
+    `merge_field` writes straight over a correct stored year."""
+    assert registry._release_year(release_date) == expected_year
+
+
+async def test_a_failing_source_no_longer_takes_the_other_sources_with_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D-55: one Deezer quota error used to fail the whole post, even though
+    Spotify would have answered — recorded as a failure the admin hears about."""
+    monkeypatch.setattr(
+        registry.deezer, "fetch_by_isrc", AsyncMock(side_effect=RuntimeError("quota exceeded"))
+    )
+    monkeypatch.setattr(
+        registry.spotify,
+        "search_by_isrc",
+        AsyncMock(
+            return_value=SpotifyTrackResult(found=True, url="https://open.spotify.com/track/ok")
+        ),
+    )
+    monkeypatch.setattr(
+        registry.musicbrainz,
+        "fetch_by_isrc",
+        AsyncMock(return_value=MusicBrainzRecordingResult(found=False)),
+    )
+
+    track = ResolvedTrack()
+    await registry.resolve_by_isrc(make_context(), "GBAYE9200070", track)
+
+    assert track.platform_links["spotify"].url == "https://open.spotify.com/track/ok"
+    assert any("quota exceeded" in failure for failure in track.source_failures)
+
+
+async def test_a_failing_name_search_source_does_not_stop_the_others(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    matched_candidate = TrackCandidate(
+        platform="youtubeMusic",
+        url="https://music.youtube.com/watch?v=n4bPzdIs_nc",
+        source="ytmusic",
+        artist_name="Burned Time Machine",
+        title="Покаяння",
+        duration_ms=225000,
+    )
+    monkeypatch.setattr(
+        registry.deezer, "search_by_name", AsyncMock(side_effect=RuntimeError("deezer down"))
+    )
+    monkeypatch.setattr(registry.itunes, "search_by_name", AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        registry.ytmusic, "search_by_name", AsyncMock(return_value=[matched_candidate])
+    )
+
+    track = ResolvedTrack()
+    await registry.resolve_by_name_with_matching(
+        make_context(), "Burned Time Machine", "Покаяння", 224000, track
+    )
+
+    assert track.platform_links["youtubeMusic"].url == matched_candidate.url
+    assert any("deezer down" in failure for failure in track.source_failures)
+
+
+async def test_a_ytmusic_candidate_with_an_unusable_video_id_derives_no_youtube_link(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """S3-6: `videoId` is source-supplied and goes into a URL — and into
+    `yt-dlp` at step 4 — so it is validated like the ISRC next to it."""
+    matched_candidate = TrackCandidate(
+        platform="youtubeMusic",
+        url="https://music.youtube.com/watch?v=../../watch",
+        source="ytmusic",
+        artist_name="Burned Time Machine",
+        title="Покаяння",
+        duration_ms=225000,
+    )
+    monkeypatch.setattr(registry.deezer, "search_by_name", AsyncMock(return_value=[]))
+    monkeypatch.setattr(registry.itunes, "search_by_name", AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        registry.ytmusic, "search_by_name", AsyncMock(return_value=[matched_candidate])
+    )
+
+    track = ResolvedTrack()
+    await registry.resolve_by_name_with_matching(
+        make_context(), "Burned Time Machine", "Покаяння", 224000, track
+    )
+
+    assert "youtube" not in track.platform_links
+
+
+async def test_a_database_failure_inside_a_source_call_is_not_a_source_failure() -> None:
+    """P1: `SourceCache` opens a Postgres session inside every one of these
+    calls, so swallowing `SQLAlchemyError` turned one dead database into six
+    failed sources — an empty resolve whose own handler then never ran."""
+    track = ResolvedTrack()
+
+    async def cache_is_down() -> None:
+        raise OperationalError("SELECT 1", {}, Exception("connection refused"))
+
+    with pytest.raises(OperationalError):
+        await registry.isolated_source_call(track, "deezer:isrc", cache_is_down(), None)
+
+    assert track.source_failures == []
+
+
+async def test_a_source_that_fails_twice_is_listed_to_the_admin_once() -> None:
+    """`deezer:album` is fetched twice — year/release type here, genres in
+    `service.resolve_genres` — so one quota error was reported twice."""
+    track = ResolvedTrack()
+
+    async def quota_exceeded() -> None:
+        raise RuntimeError("quota limit exceeded")
+
+    await registry.isolated_source_call(track, "deezer:album", quota_exceeded(), None)
+    await registry.isolated_source_call(track, "deezer:album", quota_exceeded(), None)
+
+    assert track.source_failures == ["deezer:album: quota limit exceeded"]

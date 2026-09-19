@@ -9,9 +9,20 @@ from __future__ import annotations
 from pisniar.logging import get_logger
 from pisniar.resolve import matching, merge
 from pisniar.resolve.genres import deezer_genre_name
-from pisniar.resolve.registry import ResolveContext, resolve_by_isrc, resolve_by_name_with_matching
+from pisniar.resolve.registry import (
+    ResolveContext,
+    isolated_source_call,
+    resolve_by_isrc,
+    resolve_by_name_with_matching,
+)
 from pisniar.resolve.sources import deezer, songlink, spotify
-from pisniar.resolve.types import GenreInfo, MatchClass, PlatformLink, ResolvedTrack
+from pisniar.resolve.types import (
+    USER_INPUT_SOURCE,
+    GenreInfo,
+    MatchClass,
+    PlatformLink,
+    ResolvedTrack,
+)
 from pisniar.resolve.urls import ClassifiedUrl
 
 logger = get_logger(__name__)
@@ -24,10 +35,12 @@ async def resolve_track(context: ResolveContext, classified_input: ClassifiedUrl
         # The clip the admin sent stays exactly as given — never overwritten
         # by an automatically found `videoId` (contract addendum, rule 1/4).
         link = PlatformLink(
-            url=classified_input.normalized_url, source="user_input", match=MatchClass.MANUAL
+            url=classified_input.normalized_url, source=USER_INPUT_SOURCE, match=MatchClass.MANUAL
         )
         merge.merge_platform_link(track, "youtube", link)
 
+    # Deliberately not isolated: this is the resolve's entry entity, and
+    # without it there is nothing for the other sources to be keyed on.
     songlink_result = await songlink.fetch(
         context.http_client, context.cache, classified_input.normalized_url
     )
@@ -59,8 +72,11 @@ async def resolve_genres(context: ResolveContext, track: ResolvedTrack) -> list[
     if track.deezer_album_id is None:
         return []
 
-    album_result = await deezer.fetch_album(
-        context.http_client, context.cache, track.deezer_album_id
+    album_result = await isolated_source_call(
+        track,
+        "deezer:album",
+        deezer.fetch_album(context.http_client, context.cache, track.deezer_album_id),
+        deezer.DeezerAlbumResult(found=False),
     )
     if not album_result.found:
         return []
@@ -79,13 +95,18 @@ async def _bridge_youtube_to_spotify(context: ResolveContext, track: ResolvedTra
     name; once matched, its own ISRC drives the exact-ISRC fan-out."""
     reference_artist = ", ".join(artist.name for artist in track.artists)
     assert track.title is not None
-    candidates = await spotify.search_by_name(
-        context.http_client,
-        context.cache,
-        reference_artist,
-        track.title,
-        context.spotify_client_id,
-        context.spotify_client_secret,
+    candidates = await isolated_source_call(
+        track,
+        "spotify:bridge",
+        spotify.search_by_name(
+            context.http_client,
+            context.cache,
+            reference_artist,
+            track.title,
+            context.spotify_client_id,
+            context.spotify_client_secret,
+        ),
+        [],
     )
 
     for candidate in candidates:
@@ -102,8 +123,13 @@ async def _bridge_youtube_to_spotify(context: ResolveContext, track: ResolvedTra
             if candidate.url:
                 # song.link on the *bridged* Spotify URL gives the same
                 # streaming cluster a direct Spotify input would (D-27).
-                bridged_result = await songlink.fetch(
-                    context.http_client, context.cache, candidate.url
+                # Isolated, unlike the primary fetch: by here the ISRC fan-out
+                # has already filled the track, and raising threw it away.
+                bridged_result = await isolated_source_call(
+                    track,
+                    "songlink:bridge",
+                    songlink.fetch(context.http_client, context.cache, candidate.url),
+                    songlink.SonglinkResult(found=False),
                 )
                 _apply_songlink_result(track, bridged_result)
             return
@@ -129,8 +155,10 @@ def _apply_songlink_result(track: ResolvedTrack, result: songlink.SonglinkResult
         merge.merge_artists(track, [result.artist_name], source_tag)
     merge.merge_cover_url(track, result.cover_url, source_tag)
 
-    if track.duration_ms is None:
-        track.duration_ms = result.duration_ms
+    if matching.known_duration(track.duration_ms) is None:
+        # `0` is song.link's YouTube answer for "unknown", and assigning it
+        # raw used to lock the duration check off for the whole resolve.
+        track.duration_ms = matching.known_duration(result.duration_ms)
     if result.album_id_spotify and track.album_id_spotify is None:
         track.album_id_spotify = result.album_id_spotify
 

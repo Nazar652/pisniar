@@ -5,9 +5,12 @@ pass `matching.is_match()` or the candidate is dropped with a warning.
 
 from __future__ import annotations
 
+from collections.abc import Coroutine
 from dataclasses import dataclass
+from typing import Any
 
 import httpx
+from sqlalchemy.exc import SQLAlchemyError
 
 from pisniar.logging import get_logger
 from pisniar.resolve import matching, merge
@@ -29,30 +32,82 @@ class ResolveContext:
     musicbrainz_contact: str | None
 
 
+async def isolated_source_call[ResultT](
+    track: ResolvedTrack,
+    source: str,
+    call: Coroutine[Any, Any, ResultT],
+    empty_result: ResultT,
+) -> ResultT:
+    """D-55: one adapter raising used to fail the whole post, even though
+    the other five had answered. The failure is recorded on the track so
+    the admin still hears about it — a quiet loss is the worse trade."""
+    try:
+        return await call
+    except SQLAlchemyError:
+        # `SourceCache` talks to Postgres inside every one of these calls, so
+        # swallowing this turned a dead database into "all six sources failed"
+        # — an empty resolve whose own error handling then had nothing left to
+        # report through (R3-1 reopened). Infrastructure is not a source.
+        logger.exception("resolve_source_cache_failed", source=source)
+        raise
+    except Exception as error:
+        logger.exception("resolve_source_failed", source=source)
+        _record_source_failure(track, source, error)
+        return empty_result
+
+
+def _record_source_failure(track: ResolvedTrack, source: str, error: Exception) -> None:
+    """One entry per source: `deezer:album` is fetched twice (year/type here,
+    genres in `service.resolve_genres`), and a quota error listed the same
+    source twice in the admin's alert."""
+    prefix = f"{source}: "
+    if any(failure.startswith(prefix) for failure in track.source_failures):
+        return
+    track.source_failures.append(f"{prefix}{error}")
+
+
 async def resolve_by_isrc(context: ResolveContext, isrc: str, track: ResolvedTrack) -> None:
     """Fan out to every ISRC-exact source. No `matching` call anywhere in
     this function — the identifier is the proof (accuracy-class test 1)."""
-    deezer_result = await deezer.fetch_by_isrc(context.http_client, context.cache, isrc)
+    deezer_result = await isolated_source_call(
+        track,
+        "deezer:isrc",
+        deezer.fetch_by_isrc(context.http_client, context.cache, isrc),
+        deezer.DeezerTrackResult(found=False),
+    )
     if deezer_result.found:
         _apply_deezer_track_result(track, deezer_result)
         if deezer_result.album_id is not None:
-            album_result = await deezer.fetch_album(
-                context.http_client, context.cache, deezer_result.album_id
+            album_result = await isolated_source_call(
+                track,
+                "deezer:album",
+                deezer.fetch_album(context.http_client, context.cache, deezer_result.album_id),
+                deezer.DeezerAlbumResult(found=False),
             )
             _apply_deezer_album_result(track, deezer_result.album_id, album_result)
 
-    spotify_result = await spotify.search_by_isrc(
-        context.http_client,
-        context.cache,
-        isrc,
-        context.spotify_client_id,
-        context.spotify_client_secret,
+    spotify_result = await isolated_source_call(
+        track,
+        "spotify:isrc",
+        spotify.search_by_isrc(
+            context.http_client,
+            context.cache,
+            isrc,
+            context.spotify_client_id,
+            context.spotify_client_secret,
+        ),
+        spotify.SpotifyTrackResult(found=False),
     )
     if spotify_result.found:
         _apply_spotify_track_result(track, spotify_result)
 
-    musicbrainz_result = await musicbrainz.fetch_by_isrc(
-        context.http_client, context.cache, isrc, context.musicbrainz_contact
+    musicbrainz_result = await isolated_source_call(
+        track,
+        "musicbrainz",
+        musicbrainz.fetch_by_isrc(
+            context.http_client, context.cache, isrc, context.musicbrainz_contact
+        ),
+        musicbrainz.MusicBrainzRecordingResult(found=False),
     )
     if musicbrainz_result.found:
         for platform, url in musicbrainz_result.platform_links.items():
@@ -75,21 +130,35 @@ async def resolve_by_name_with_matching(
     if "deezer" not in track.platform_links:
         # Fallback only used when the exact-ISRC lookup found nothing for
         # Deezer (accuracy-class test 4) — checked, not merely hoped for.
-        candidates = await deezer.search_by_name(context.http_client, context.cache, artist, title)
+        candidates = await isolated_source_call(
+            track,
+            "deezer:search",
+            deezer.search_by_name(context.http_client, context.cache, artist, title),
+            [],
+        )
         _match_and_merge(track, "deezer", candidates, artist, title, duration_ms, "deezer:search")
 
-    itunes_candidates = await itunes.search_by_name(
-        context.http_client, context.cache, artist, title, context.itunes_country
+    itunes_candidates = await isolated_source_call(
+        track,
+        "itunes",
+        itunes.search_by_name(
+            context.http_client, context.cache, artist, title, context.itunes_country
+        ),
+        [],
     )
     _match_and_merge(track, "appleMusic", itunes_candidates, artist, title, duration_ms, "itunes")
 
-    ytmusic_candidates = await ytmusic.search_by_name(context.cache, artist, title)
+    ytmusic_candidates = await isolated_source_call(
+        track, "ytmusic", ytmusic.search_by_name(context.cache, artist, title), []
+    )
     matched = _match_and_merge(
         track, "youtubeMusic", ytmusic_candidates, artist, title, duration_ms, "ytmusic"
     )
     if matched is not None:
         video_id = classify_url(matched.url).track_id
-        if video_id:
+        # Validated like the ISRC and the Spotify id next to it: this id is
+        # source-supplied and step 4 hands it to `yt-dlp` (S3-6).
+        if matching.is_valid_youtube_video_id(video_id):
             derived_youtube_url = f"https://www.youtube.com/watch?v={video_id}"
             merge.merge_platform_link(
                 track,
@@ -165,11 +234,23 @@ def _apply_deezer_album_result(
         return
 
     track.deezer_album_id = album_id
-    if result.release_date and len(result.release_date) >= 4:
-        merge.merge_year(track, int(result.release_date[:4]), "deezer")
+    merge.merge_year(track, _release_year(result.release_date), "deezer")
     if result.record_type:
         record_type = _DEEZER_RECORD_TYPE_NORMALIZATION.get(result.record_type, result.record_type)
         merge.merge_release_type(track, record_type, "deezer")
+
+
+def _release_year(release_date: str | None) -> int | None:
+    """Deezer answers `"0000-00-00"` for an unknown date, and `int("0000")`
+    is a `0` that `merge_field` happily writes over a stored year (S3-4)."""
+    if release_date is None or len(release_date) < 4:
+        return None
+
+    prefix = release_date[:4]
+    if not (prefix.isascii() and prefix.isdigit()):
+        # `isascii` too: "²⁰²³".isdigit() is True, but `int()` raises on it.
+        return None
+    return int(prefix) or None
 
 
 def _apply_spotify_track_result(track: ResolvedTrack, result: spotify.SpotifyTrackResult) -> None:

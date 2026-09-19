@@ -12,6 +12,7 @@ from pisniar.resolve.matching import (
     is_match,
     is_valid_isrc,
     is_valid_spotify_id,
+    is_valid_youtube_video_id,
     known_duration,
     normalize_artist_set,
     normalize_text,
@@ -363,3 +364,27 @@ def test_is_valid_spotify_id_rejects_anything_that_could_reshape_a_url(
     """R2-15/R2-16: the id goes into `/v1/tracks/<id>` and into an `href`;
     a space alone is a Telegram 400 on the whole post."""
     assert is_valid_spotify_id(spotify_id) is False
+
+
+def test_is_valid_youtube_video_id_accepts_a_real_id() -> None:
+    assert is_valid_youtube_video_id("n4bPzdIs_nc") is True
+
+
+@pytest.mark.parametrize(
+    "video_id",
+    [
+        None,
+        "",
+        "n4bPzdIs_n",
+        "n4bPzdIs_ncx",
+        "n4bPzdIs nc",
+        "../../watch",
+        "n4bPzdIs_n%",
+    ],
+)
+def test_is_valid_youtube_video_id_rejects_anything_that_could_reshape_a_url(
+    video_id: str | None,
+) -> None:
+    """S3-6: the id is source-supplied, goes into a `watch?v=` URL now and
+    into `yt-dlp` at step 4 — the same reason the ISRC is validated."""
+    assert is_valid_youtube_video_id(video_id) is False

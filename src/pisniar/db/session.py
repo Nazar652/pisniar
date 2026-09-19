@@ -16,6 +16,10 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.pool import NullPool
 
+# Contention on a post/track row only ever means another resolve of the same
+# row; failing fast beats holding a worker slot or a bot handler (R2-3/R3-3).
+LOCK_TIMEOUT_MS = 5000
+
 
 def build_engine(
     database_url: str, *, use_null_pool: bool = False, lock_timeout_ms: int | None = None

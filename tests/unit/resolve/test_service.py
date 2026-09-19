@@ -13,7 +13,7 @@ from pisniar.resolve.cache import SourceCache
 from pisniar.resolve.registry import ResolveContext
 from pisniar.resolve.sources.deezer import DeezerAlbumResult
 from pisniar.resolve.sources.songlink import SonglinkResult
-from pisniar.resolve.types import MatchClass, ResolvedTrack, TrackCandidate
+from pisniar.resolve.types import MatchClass, PlatformLink, ResolvedTrack, TrackCandidate
 from pisniar.resolve.urls import classify_url
 
 
@@ -262,3 +262,73 @@ async def test_resolve_genres_returns_empty_when_album_not_found(
     genres = await service.resolve_genres(make_context(), track)
 
     assert genres == []
+
+
+def test_apply_songlink_result_replaces_a_zero_duration() -> None:
+    """R3-8: song.link's YouTube entity answers `duration: 0`, and `0` is
+    not `None` — so the real Spotify duration used to be thrown away and the
+    duration check stayed off for the whole resolve."""
+    track = ResolvedTrack(duration_ms=0)
+    result = SonglinkResult(found=True, provider="spotify", duration_ms=293133)
+
+    service._apply_songlink_result(track, result)
+
+    assert track.duration_ms == 293133
+
+
+def test_apply_songlink_result_never_writes_a_zero_duration() -> None:
+    track = ResolvedTrack()
+    result = SonglinkResult(found=True, provider="youtube", duration_ms=0)
+
+    service._apply_songlink_result(track, result)
+
+    assert track.duration_ms is None
+
+
+async def test_a_failing_bridged_songlink_keeps_what_the_isrc_fan_out_found(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D-55 completed: this second `songlink.fetch` was the only source call
+    left outside `isolated_source_call`, and raising here threw away an
+    already-complete ISRC fan-out. The primary fetch stays loud on purpose."""
+    youtube_entity_result = SonglinkResult(
+        found=True,
+        provider="youtube",
+        title="Purely Video Title",
+        artist_name="Burned Time Machine",
+        duration_ms=225000,
+    )
+
+    def fetch_side_effect(client: object, cache: object, url: str) -> SonglinkResult:
+        if url == "https://open.spotify.com/track/x":
+            raise RuntimeError("odesli quota exceeded")
+        return youtube_entity_result
+
+    monkeypatch.setattr(service.songlink, "fetch", AsyncMock(side_effect=fetch_side_effect))
+
+    matched_candidate = TrackCandidate(
+        platform="spotify",
+        url="https://open.spotify.com/track/x",
+        source="spotify",
+        artist_name="Burned Time Machine",
+        title="Purely Video Title",
+        duration_ms=224000,
+        isrc="BRIDGEDISRC01",
+    )
+    monkeypatch.setattr(
+        service.spotify, "search_by_name", AsyncMock(return_value=[matched_candidate])
+    )
+
+    async def fill_from_isrc(context: object, isrc: str, track: ResolvedTrack) -> None:
+        track.platform_links["deezer"] = PlatformLink(
+            url="https://www.deezer.com/track/1", source="deezer", match=MatchClass.EXACT_ISRC
+        )
+
+    monkeypatch.setattr(service, "resolve_by_isrc", AsyncMock(side_effect=fill_from_isrc))
+    monkeypatch.setattr(service, "resolve_by_name_with_matching", AsyncMock())
+
+    classified = classify_url("https://www.youtube.com/watch?v=someId")
+    track = await service.resolve_track(make_context(), classified)
+
+    assert track.platform_links["deezer"].url == "https://www.deezer.com/track/1"
+    assert any("odesli quota exceeded" in failure for failure in track.source_failures)

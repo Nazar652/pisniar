@@ -16,7 +16,7 @@ from pisniar.api.app import create_app
 from pisniar.bot.handlers import router as commands_router
 from pisniar.bot.middlewares import AdminAllowlistMiddleware
 from pisniar.config import get_settings, redaction_secrets
-from pisniar.db.session import build_engine, build_session_factory
+from pisniar.db.session import LOCK_TIMEOUT_MS, build_engine, build_session_factory
 from pisniar.logging import configure_logging, get_logger
 from pisniar.telegram.client import build_bot
 from pisniar.worker.celery_app import build_celery_app
@@ -46,7 +46,9 @@ async def run() -> None:
     )
 
     bot = build_bot(settings)
-    engine = build_engine(settings.database_url)
+    # R2-3 asked for the timeout "on application sessions", and only the
+    # worker got it: a blocked handler holds a QueuePool slot until /readyz.
+    engine = build_engine(settings.database_url, lock_timeout_ms=LOCK_TIMEOUT_MS)
     session_factory = build_session_factory(engine)
     celery_client = build_celery_app(settings.redis_url)
 

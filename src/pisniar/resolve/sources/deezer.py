@@ -65,7 +65,9 @@ def _is_not_found_body(data: object) -> bool:
     error = as_dict(body.get("error"))
     error_type = as_str(error.get("type"))
     error_code = as_int(error.get("code"))
-    if error_code in NOT_FOUND_ERROR_CODES or error_type in NOT_FOUND_ERROR_TYPES:
+    # `and`, not `or`: the live miss carries both marks together, so either
+    # one alone is an unverified combination we must not cache as a miss.
+    if error_code in NOT_FOUND_ERROR_CODES and error_type in NOT_FOUND_ERROR_TYPES:
         return True
 
     raise DeezerApiError(

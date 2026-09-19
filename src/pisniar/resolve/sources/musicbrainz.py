@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 import httpx
 
 from pisniar.logging import get_logger
+from pisniar.post.sanitize import sanitize_metadata_text
 from pisniar.resolve.cache import SourceCache, build_request_key
 from pisniar.resolve.http import Throttler
 from pisniar.resolve.json_utils import as_dict, as_list, as_str
@@ -101,5 +102,7 @@ def _host_or_none(url: str) -> str | None:
     try:
         return httpx.URL(url).host
     except (httpx.InvalidURL, ValueError):
-        logger.warning("musicbrainz_url_rel_unparsable", url=url)
+        # Sanitized: a control character in the url-rel is exactly what
+        # gets it here, and the raw value would go into the log line (S3-7).
+        logger.warning("musicbrainz_url_rel_unparsable", url=sanitize_metadata_text(url))
         return None

@@ -13,7 +13,13 @@ import pytest
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from pisniar.bot.handlers import _get_or_create_track, handle_link, handle_retry, handle_start
+from pisniar.bot.handlers import (
+    DISPATCH_FAILED_ERROR,
+    _get_or_create_track,
+    handle_link,
+    handle_retry,
+    handle_start,
+)
 from pisniar.db.models import Post, Track
 from pisniar.db.session import build_engine, build_session_factory
 from pisniar.db.states import PostStatus, set_post_status
@@ -369,4 +375,143 @@ async def test_handle_retry_answers_instead_of_blocking_when_the_row_is_locked(
         await holder.rollback()
 
     assert "обробляється воркером" in message.answer.await_args.args[0]
+    celery_client.send_task.assert_not_called()
+
+
+async def test_a_stale_retry_twice_in_a_row_dispatches_only_once(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """R3-4: `set_post_status(post, RESOLVING)` on a RESOLVING post changes
+    no column, so the ORM `onupdate` never fired and the post stayed stale
+    forever — every later /retry passed the guard and queued another task."""
+    marker_url = f"https://open.spotify.com/track/{uuid.uuid4().hex}"
+    async with session_factory() as session:
+        track = Track(source_url=marker_url, source_url_normalized=marker_url)
+        session.add(track)
+        await session.flush()
+        post = Post(track_id=track.id, created_by_user_id=111)
+        session.add(post)
+        await session.flush()
+        set_post_status(post, PostStatus.RESOLVING)
+        post_id = post.id
+        await session.commit()
+
+        await session.execute(
+            text("UPDATE post SET updated_at = now() - make_interval(secs => :age) WHERE id = :id"),
+            {"age": TASK_TIME_LIMIT_SECONDS + 60, "id": post_id},
+        )
+        await session.commit()
+
+    celery_client = MagicMock()
+    first_message = make_message(f"/retry {post_id}")
+    second_message = make_message(f"/retry {post_id}")
+
+    await handle_retry(first_message, session_factory, celery_client)
+    await handle_retry(second_message, session_factory, celery_client)
+
+    assert "Повторюю" in first_message.answer.await_args.args[0]
+    assert "уже обробляється" in second_message.answer.await_args.args[0]
+    celery_client.send_task.assert_called_once_with(
+        RESOLVE_POST_TASK_NAME, kwargs={"post_id": post_id}
+    )
+
+
+async def test_a_dispatch_failure_leaves_the_post_retryable(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """R3-5/D-53: the post was committed as RESOLVING before the dispatch, so
+    the advice the bot gives here ("спробуйте /retry") was refused by /retry
+    itself for the next 360 seconds — and no task existed to move it on."""
+    marker_url = f"https://open.spotify.com/track/{uuid.uuid4().hex}"
+    message = make_message(marker_url)
+    celery_client = MagicMock()
+    celery_client.send_task.side_effect = RuntimeError("broker down")
+
+    await handle_link(message, session_factory, celery_client)
+
+    assert "Спробуйте /retry" in message.answer.await_args.args[0]
+
+    async with session_factory() as session:
+        classified = classify_url(marker_url)
+        track = await session.scalar(
+            select(Track).where(Track.source_url_normalized == classified.normalized_url)
+        )
+        assert track is not None
+        post = await session.scalar(select(Post).where(Post.track_id == track.id))
+        assert post is not None
+        post_id = post.id
+        assert post.status is PostStatus.FAILED
+        assert post.last_error is not None
+
+    celery_client.send_task.side_effect = None
+    retry_message = make_message(f"/retry {post_id}")
+
+    await handle_retry(retry_message, session_factory, celery_client)
+
+    assert "Повторюю" in retry_message.answer.await_args.args[0]
+
+
+async def test_a_failed_retry_dispatch_does_not_strand_the_post_in_resolving(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """R3-5/D-53, the /retry half: the same commit-then-dispatch order, and
+    the same contradiction between "спробуйте ще раз" and what /retry then
+    answers."""
+    marker_url = f"https://open.spotify.com/track/{uuid.uuid4().hex}"
+    async with session_factory() as session:
+        track = Track(source_url=marker_url, source_url_normalized=marker_url)
+        session.add(track)
+        await session.flush()
+        post = Post(track_id=track.id, created_by_user_id=111)
+        session.add(post)
+        await session.flush()
+        set_post_status(post, PostStatus.RESOLVING)
+        set_post_status(post, PostStatus.FAILED, error="boom")
+        post_id = post.id
+        await session.commit()
+
+    message = make_message(f"/retry {post_id}")
+    celery_client = MagicMock()
+    celery_client.send_task.side_effect = RuntimeError("broker down")
+
+    await handle_retry(message, session_factory, celery_client)
+
+    assert "Не вдалося поставити задачу" in message.answer.await_args.args[0]
+
+    async with session_factory() as session:
+        reloaded_post = await session.get(Post, post_id)
+        assert reloaded_post is not None
+        assert reloaded_post.status is PostStatus.FAILED
+        assert reloaded_post.last_error == DISPATCH_FAILED_ERROR
+
+
+async def test_handle_link_answers_when_the_row_it_needs_is_locked(
+    migrated_test_database_url: str,
+) -> None:
+    """P3-5: `lock_timeout` now lives on the bot engine too, and `INSERT INTO
+    post` takes `FOR KEY SHARE` on its parent track — a plain `DBAPIError`
+    that `except IntegrityError` never covered, so the admin got silence."""
+    engine = build_engine(migrated_test_database_url, lock_timeout_ms=300)
+    factory = build_session_factory(engine)
+    marker_url = f"https://open.spotify.com/track/{uuid.uuid4().hex}"
+    message = make_message(marker_url)
+    celery_client = MagicMock()
+
+    try:
+        async with factory() as seed:
+            seed.add(Track(source_url=marker_url, source_url_normalized=marker_url))
+            await seed.commit()
+
+        async with factory() as holder:
+            await holder.execute(
+                select(Track.id).where(Track.source_url_normalized == marker_url).with_for_update()
+            )
+
+            await asyncio.wait_for(handle_link(message, factory, celery_client), timeout=30)
+
+            await holder.rollback()
+    finally:
+        await engine.dispose()
+
+    assert "База даних" in message.answer.await_args.args[0]
     celery_client.send_task.assert_not_called()

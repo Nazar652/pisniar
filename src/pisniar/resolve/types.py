@@ -7,6 +7,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 
+# The `source` the bot seeds a submitted YouTube clip with, before any
+# network call — checked by name in three places, so it lives here.
+USER_INPUT_SOURCE = "user_input"
+
 
 class MatchClass(StrEnum):
     """`EXACT_ISRC`/`MANUAL` carry no name-search risk; `AGGREGATOR` trusts
@@ -72,6 +76,9 @@ class ResolvedTrack:
     deezer_album_id: int | None = None
     platform_links: dict[str, PlatformLink] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
+    # Sources that raised instead of answering (D-55). Kept apart from
+    # `warnings` because the admin is alerted about these, not just logged.
+    source_failures: list[str] = field(default_factory=list)
 
     # Internal bookkeeping for `merge.py`'s priority rules — the highest
     # priority rank that has won each field/platform so far.
