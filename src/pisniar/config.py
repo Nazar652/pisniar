@@ -40,6 +40,13 @@ class Settings(BaseSettings):
     http_host: str = "0.0.0.0"
     http_port: int = 8080
 
+    spotify_client_id: str
+    spotify_client_secret: SecretStr
+    # Absent until the user adds it (D-30/gate 2.0.4): the `musicbrainz`
+    # source stays disabled without a contact, per MusicBrainz's own policy.
+    musicbrainz_contact: str | None = None
+    itunes_country: str = "UA"
+
     @field_validator("admin_ids", mode="before")
     @classmethod
     def split_admin_ids(cls, value: object) -> object:
@@ -75,7 +82,10 @@ def redaction_secrets(settings: Settings) -> list[str]:
     asyncpg connection error can embed the DSN (password included) in its
     message, so the bot token alone is not enough here.
     """
-    secrets = [settings.bot_token.get_secret_value()]
+    secrets = [
+        settings.bot_token.get_secret_value(),
+        settings.spotify_client_secret.get_secret_value(),
+    ]
     password = make_url(settings.database_url).password
     if password:
         secrets.append(password)

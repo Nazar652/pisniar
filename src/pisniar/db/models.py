@@ -1,6 +1,6 @@
-"""ORM models for `track` and `post` — the step 1 schema (D-4: minimum for
-step 2). `audio_asset`/`lyric`/`render`/`post_status_history` intentionally
-absent (D-4, D-9) — see decision-log.md.
+"""ORM models for `track`, `post`, and `source_fetch` (step 2 resolver cache).
+`audio_asset`/`lyric`/`render`/`post_status_history` intentionally absent
+(D-4, D-9) — see decision-log.md.
 """
 
 from __future__ import annotations
@@ -8,7 +8,16 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import BigInteger, CheckConstraint, ForeignKey, Index, SmallInteger, Text, text
+from sqlalchemy import (
+    BigInteger,
+    CheckConstraint,
+    ForeignKey,
+    Index,
+    SmallInteger,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.schema import Identity
@@ -80,8 +89,7 @@ class Track(Base):
     platform_links: Mapped[dict[str, object]] = mapped_column(
         JSONB, nullable=False, server_default=text("'{}'::jsonb")
     )
-    odesli_raw: Mapped[dict[str, object] | None] = mapped_column(JSONB)
-    odesli_fetched_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    resolved_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
 
     # passive_deletes="all": without it, SQLAlchemy nulls track_id before
     # delete, so ON DELETE RESTRICT never fires. See decision-log.md.
@@ -122,6 +130,19 @@ class Post(Base):
             unique=True,
             postgresql_where=text("channel_chat_id IS NOT NULL AND channel_message_id IS NOT NULL"),
         ),
+        # Same one-sided-pair problem, for the draft delivery (not channel
+        # publication): `draft_message_id IS NULL` is the send condition.
+        CheckConstraint(
+            "num_nonnulls(draft_chat_id, draft_message_id) <> 1",
+            name="draft_ref_complete",
+        ),
+        Index(
+            "uq_post_draft_message",
+            "draft_chat_id",
+            "draft_message_id",
+            unique=True,
+            postgresql_where=text("draft_chat_id IS NOT NULL AND draft_message_id IS NOT NULL"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
@@ -154,8 +175,40 @@ class Post(Base):
 
     channel_chat_id: Mapped[int | None] = mapped_column(BigInteger)
     channel_message_id: Mapped[int | None] = mapped_column(BigInteger)
+    # The admin chat the draft was delivered to; `draft_message_id IS NULL`
+    # is delivery's own idempotency guard (Celery redelivery, D-28).
+    draft_chat_id: Mapped[int | None] = mapped_column(BigInteger)
+    draft_message_id: Mapped[int | None] = mapped_column(BigInteger)
     published_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     last_error: Mapped[str | None] = mapped_column(Text)
     created_by_user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
     track: Mapped[Track] = relationship(back_populates="posts")
+
+
+class SourceFetch(Base):
+    """Cache of one external-source request, keyed by `(source, request_key)`
+    (contract p.1). `payload` holds `{"found": bool, "data": ... | None}` —
+    a negative result is cached too, so a retry never re-hits a miss.
+    """
+
+    __tablename__ = "source_fetch"
+    __table_args__ = (UniqueConstraint("source", "request_key"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=text("now()")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        server_default=text("now()"),
+        onupdate=text("now()"),
+    )
+
+    source: Mapped[str] = mapped_column(Text, nullable=False)
+    request_key: Mapped[str] = mapped_column(Text, nullable=False)
+    payload: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
+    fetched_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=text("now()")
+    )

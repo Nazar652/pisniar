@@ -19,6 +19,9 @@ os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://pisniar:pisniar@post
 os.environ.setdefault("REDIS_URL", "redis://redis:6379/0")
 os.environ.setdefault("HTTP_HOST", "0.0.0.0")
 os.environ.setdefault("HTTP_PORT", "8080")
+os.environ.setdefault("SPOTIFY_CLIENT_ID", "test-spotify-client-id")
+os.environ.setdefault("SPOTIFY_CLIENT_SECRET", "test-spotify-client-secret-not-real")
+os.environ.setdefault("ITUNES_COUNTRY", "UA")
 
 
 @pytest.fixture

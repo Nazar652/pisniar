@@ -11,7 +11,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pisniar.db.models import Post, Track
+from pisniar.db.models import Post, SourceFetch, Track
 
 pytestmark = pytest.mark.integration
 
@@ -120,6 +120,46 @@ async def test_channel_ref_check_rejects_a_one_sided_pair(db_session: AsyncSessi
 
     db_session.add(post)
     with pytest.raises(IntegrityError, match="ck_post_channel_ref_complete"):
+        await db_session.flush()
+
+
+async def test_partial_unique_index_rejects_duplicate_draft_message(
+    db_session: AsyncSession,
+) -> None:
+    track = await make_track(db_session)
+    db_session.add(
+        Post(track_id=track.id, created_by_user_id=1, draft_chat_id=1, draft_message_id=42)
+    )
+    await db_session.flush()
+
+    db_session.add(
+        Post(track_id=track.id, created_by_user_id=1, draft_chat_id=1, draft_message_id=42)
+    )
+    with pytest.raises(IntegrityError, match="uq_post_draft_message"):
+        await db_session.flush()
+
+
+async def test_draft_ref_check_rejects_a_one_sided_pair(db_session: AsyncSession) -> None:
+    """Same one-sided-pair hazard as `channel_ref_complete`, applied to the
+    draft delivery columns (idempotency guard for redelivery, D-28)."""
+    track = await make_track(db_session)
+    post = Post(track_id=track.id, created_by_user_id=1, draft_chat_id=1)
+
+    db_session.add(post)
+    with pytest.raises(IntegrityError, match="ck_post_draft_ref_complete"):
+        await db_session.flush()
+
+
+async def test_source_fetch_unique_constraint_rejects_duplicate_source_and_request_key(
+    db_session: AsyncSession,
+) -> None:
+    db_session.add(SourceFetch(source="deezer", request_key="isrc:ABC123", payload={"found": True}))
+    await db_session.flush()
+
+    db_session.add(
+        SourceFetch(source="deezer", request_key="isrc:ABC123", payload={"found": False})
+    )
+    with pytest.raises(IntegrityError, match="uq_source_fetch_source_request_key"):
         await db_session.flush()
 
 

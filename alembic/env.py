@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 # Import models so they register on Base.metadata before autogenerate runs.
 from pisniar.db.base import Base
-from pisniar.db.models import Post, Track  # noqa: F401
+from pisniar.db.models import Post, SourceFetch, Track  # noqa: F401
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
