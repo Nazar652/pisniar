@@ -11,7 +11,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import ColumnElement, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -49,6 +49,15 @@ def build_request_key(prefix: str, *parts: str, casefold: bool = True) -> str:
     head_budget = MAX_REQUEST_KEY_BYTES - len(digest) - 1
     head = key.encode("utf-8")[:head_budget].decode("utf-8", errors="ignore")
     return f"{head}#{digest}"
+
+
+def is_negative_payload(payload: dict[str, object]) -> bool:
+    """`{"found": false}` or an empty result list — a real answer, but the
+    weakest one this cache can hold."""
+    if payload.get("found") is False:
+        return True
+    results = payload.get("results")
+    return isinstance(results, list) and not results
 
 
 @dataclass(frozen=True)
@@ -104,8 +113,26 @@ class SourceCache:
             .on_conflict_do_update(
                 index_elements=[SourceFetch.source, SourceFetch.request_key],
                 set_={"payload": payload, "fetched_at": fetched_at, "updated_at": fetched_at},
+                where=self._negative_overwrite_allowed(fetched_at)
+                if is_negative_payload(payload)
+                else None,
             )
         )
         async with self.session_factory() as session:
             await session.execute(statement)
             await session.commit()
+
+    def _negative_overwrite_allowed(self, fetched_at: datetime) -> ColumnElement[bool]:
+        """A negative answer may replace a stale row or another negative one,
+        never a still-fresh positive: last-writer-wins let a single quota
+        error blank a whole release for the rest of the TTL (R2-5).
+
+        Three-valued on purpose — a positive payload has neither key, so both
+        comparisons are NULL and the `DO UPDATE` is skipped.
+        """
+        cutoff = fetched_at - timedelta(seconds=self.ttl_seconds)
+        return or_(
+            SourceFetch.fetched_at <= cutoff,
+            SourceFetch.payload["found"].astext == "false",
+            SourceFetch.payload["results"].astext == "[]",
+        )

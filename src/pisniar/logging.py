@@ -45,7 +45,10 @@ def make_redact_secrets_processor(secrets: Iterable[str]) -> EventDictProcessor:
     configured_secrets = [secret for secret in secrets if secret]
 
     def all_secrets() -> list[str]:
-        return [*configured_secrets, *_runtime_secrets.values()]
+        # Snapshot first: this runs from service threads too (`ytmusicapi`
+        # logs from `to_thread`) while registration mutates the dict.
+        runtime_secrets = list(_runtime_secrets.values())
+        return [*configured_secrets, *runtime_secrets]
 
     def redact_string(value: str) -> str:
         redacted = value

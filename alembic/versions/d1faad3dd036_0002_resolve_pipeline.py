@@ -5,6 +5,12 @@ whole resolver cache, and `odesli_raw`/`odesli_fetched_at` come back empty.
 Deployment order is always: stop `bot`/`worker` -> migrate (one-shot
 container) -> start the new image; no rolling window exists (F-28).
 
+Edited after it had already been applied: `ix_track_isrc` and the draft
+index were added to this revision, not to a follow-up. A database whose
+`alembic_version` was stamped before that edit will not get them from
+`upgrade head` — only `alembic check` notices, which is why `make migrate`
+now runs it (R2-18).
+
 Revision ID: d1faad3dd036
 Revises: 080f73d1e7e5
 Create Date: 2026-09-19 11:43:14.802516

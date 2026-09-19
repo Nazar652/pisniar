@@ -17,7 +17,7 @@ from pisniar.logging import get_logger, register_runtime_secret
 from pisniar.resolve.cache import SourceCache, build_request_key
 from pisniar.resolve.http import Throttler, parse_retry_after_seconds
 from pisniar.resolve.json_utils import as_dict, as_int, as_list, as_str
-from pisniar.resolve.matching import is_valid_isrc
+from pisniar.resolve.matching import is_valid_isrc, is_valid_spotify_id
 from pisniar.resolve.types import TrackCandidate
 
 logger = get_logger(__name__)
@@ -160,6 +160,11 @@ async def get_track(
     client_id: str,
     client_secret: str,
 ) -> SpotifyTrackResult:
+    if not is_valid_spotify_id(spotify_track_id):
+        # No caller today; the check goes in now so steps 3-5 cannot paste a
+        # source-supplied id straight into the path (R2-15).
+        return SpotifyTrackResult(found=False)
+
     cache_key = build_request_key("spotify:track:", spotify_track_id, casefold=False)
 
     async def do_fetch() -> dict[str, object]:

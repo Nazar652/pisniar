@@ -7,10 +7,15 @@ follows the four-tier `manual > exact_isrc > aggregator > confirmed` order.
 from __future__ import annotations
 
 from pisniar.logging import get_logger
+from pisniar.resolve.cache import normalize_key_part
 from pisniar.resolve.types import ArtistInfo, MatchClass, PlatformLink, ResolvedTrack
 from pisniar.resolve.urls import is_safe_url
 
 logger = get_logger(__name__)
+
+# Scalars a re-resolve may legitimately come back without — a source that
+# timed out means "unknown", never "the stored value is wrong" (R2-4).
+STORED_SCALAR_FIELDS = ("isrc", "title", "year", "release_type", "release_title", "cover_url")
 
 # Higher number wins. "songlink:spotify"/"songlink:youtube" are qualified —
 # the same adapter's metadata quality differs sharply by source entity.
@@ -90,29 +95,70 @@ def merge_stored_platform_links(track: ResolvedTrack, stored: dict[str, object])
             merge_platform_link(track, platform, link)
 
 
+def merge_stored_scalars(track: ResolvedTrack, stored: dict[str, object]) -> None:
+    """Keeps a stored scalar the fresh resolve came back without. Without
+    it one transient source failure nulls the ISRC, and the D-41 duplicate
+    warning for that track then never fires again (R2-4)."""
+    kept: list[str] = []
+    for field_name in STORED_SCALAR_FIELDS:
+        stored_value = stored.get(field_name)
+        if getattr(track, field_name) is None and stored_value is not None:
+            setattr(track, field_name, stored_value)
+            kept.append(field_name)
+
+    if kept:
+        logger.warning("stored_scalars_kept_after_empty_resolve", fields=kept)
+
+
 def merge_stored_artists(track: ResolvedTrack, stored: list[object]) -> None:
     """Carries the admin's `hashtag` override (the only one D-29 provides)
     and `spotify_id` across a re-resolve that came back without them."""
     overrides = {
-        name: entry
+        normalize_key_part(name): entry
         for entry in stored
         if isinstance(entry, dict) and (name := entry.get("name")) and isinstance(name, str)
     }
     if not track.artists:
-        track.artists = [
-            ArtistInfo(
-                name=name,
-                hashtag=_stored_str(entry.get("hashtag")),
-                spotify_id=_stored_str(entry.get("spotify_id")),
-            )
-            for name, entry in overrides.items()
-        ]
+        track.artists = _artists_from_stored(overrides)
+        return
+
+    matched_names = {
+        key for artist in track.artists if (key := normalize_key_part(artist.name)) in overrides
+    }
+    if not matched_names and _has_hashtag_override(overrides):
+        # Spotify lists artists separately, `songlink:spotify` joins them
+        # into one string — a key miss must not drop an override (R2-6).
+        logger.warning(
+            "stored_artists_kept_after_name_shape_change",
+            stored_names=sorted(overrides),
+            fresh_names=[artist.name for artist in track.artists],
+        )
+        track.warnings.append(
+            "артистів збережено зі старого резолву: свіжі імена не збіглися, "
+            "а в збережених є ручний хештег"
+        )
+        track.artists = _artists_from_stored(overrides)
         return
 
     track.artists = [
-        _artist_with_stored_overrides(artist, overrides.get(artist.name))
+        _artist_with_stored_overrides(artist, overrides.get(normalize_key_part(artist.name)))
         for artist in track.artists
     ]
+
+
+def _artists_from_stored(overrides: dict[str, dict[str, object]]) -> list[ArtistInfo]:
+    return [
+        ArtistInfo(
+            name=_stored_str(entry.get("name")) or "",
+            hashtag=_stored_str(entry.get("hashtag")),
+            spotify_id=_stored_str(entry.get("spotify_id")),
+        )
+        for entry in overrides.values()
+    ]
+
+
+def _has_hashtag_override(overrides: dict[str, dict[str, object]]) -> bool:
+    return any(_stored_str(entry.get("hashtag")) for entry in overrides.values())
 
 
 def _artist_with_stored_overrides(

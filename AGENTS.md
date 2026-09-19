@@ -58,7 +58,13 @@ suggest or introduce either.
   There is deliberately no `RESOLVED -> FAILED` edge; a delivery failure
   happens while the post is still `RESOLVING`, which can legally fail.
 - The `RESOLVING -> RESOLVING` self-edge exists for Celery redelivery only.
-  Manual `/retry` from `RESOLVING` is refused in `bot.handlers` (D-43).
+  Manual `/retry` from `RESOLVING` is refused in `bot.handlers` (D-43) —
+  unless `post.updated_at` is older than `TASK_TIME_LIMIT_SECONDS`, which
+  means the worker died mid-task and nothing else can free the post (R2-2).
+- The worker locks `post` `FOR UPDATE` but `track` `FOR NO KEY UPDATE`:
+  `INSERT INTO post` takes `FOR KEY SHARE` on its parent track, and the
+  stronger lock froze the bot for the whole resolve (R2-3). Its engine also
+  carries a connection-level `lock_timeout`, so contention fails fast.
 - A Telegram alert delivery failure (`pisniar.telegram.notifier.send_alert`)
   never raises into business logic and never causes a Celery task retry.
   Draft delivery (`pisniar.telegram.draft.deliver_draft`) is the opposite on
@@ -87,14 +93,21 @@ suggest or introduce either.
 - A re-resolve **merges into** the stored row, it does not overwrite it
   (`merge_stored_platform_links` / `merge_stored_artists`, D-42): a stored
   `manual` link and a non-empty `artists[].hashtag` always win, a platform
-  missing from the fresh result is kept, and a fresh result wins a tie.
+  missing from the fresh result is kept, and a fresh result wins a tie. The
+  same rule covers scalars (`merge_stored_scalars`, R2-4): an absent fresh
+  value never nulls a stored one. A re-resolve that comes back completely
+  empty fails the post instead of deleting a track that was resolved once
+  before (R2-1) — deletion is only for a track that never resolved.
 - `track.artists` = `[{"name", "hashtag", "spotify_id"}]`; `hashtag` is
   `null` until a human overrides it (`post.hashtags.default_hashtag()`
   computes the display default at caption-build time, it is not stored).
 - The `source_fetch` cache is written through `resolve.cache.SourceCache`,
   which opens **its own short session** per call — never the caller's
   business transaction. Rows go stale after `SOURCE_FETCH_TTL_SECONDS`
-  (1 hour, D-40) and are refreshed with `INSERT ... ON CONFLICT DO UPDATE`.
+  (1 hour, D-40) and are refreshed with `INSERT ... ON CONFLICT DO UPDATE`,
+  except that a negative payload may never overwrite a still-fresh positive
+  row (R2-5). A source error that is not a documented miss raises instead of
+  being cached at all — see `deezer.DeezerApiError`, `SonglinkParseError`.
 - `post.genres` = `[{"name", "hashtag", "source"}]`, sourced from Deezer
   album genres keyed by numeric id (`resolve.genres`) — never by the
   localized name string, which Deezer varies by request IP.

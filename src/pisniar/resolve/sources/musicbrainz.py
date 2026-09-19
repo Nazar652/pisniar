@@ -9,10 +9,13 @@ from dataclasses import dataclass, field
 
 import httpx
 
+from pisniar.logging import get_logger
 from pisniar.resolve.cache import SourceCache, build_request_key
 from pisniar.resolve.http import Throttler
 from pisniar.resolve.json_utils import as_dict, as_list, as_str
 from pisniar.resolve.matching import is_valid_isrc
+
+logger = get_logger(__name__)
 
 THROTTLE = Throttler(min_interval_seconds=1.0)
 SOURCE_NAME = "musicbrainz"
@@ -75,7 +78,9 @@ def _result_from_payload(payload: dict[str, object]) -> MusicBrainzRecordingResu
         url = as_str(as_dict(relation.get("url")).get("resource"))
         if url is None:
             continue
-        host = httpx.URL(url).host
+        host = _host_or_none(url)
+        if host is None:
+            continue
         platform = _URL_REL_HOST_TO_PLATFORM.get(host)
         if platform is not None:
             platform_links[platform] = url
@@ -85,3 +90,16 @@ def _result_from_payload(payload: dict[str, object]) -> MusicBrainzRecordingResu
         recording_id=as_str(data.get("id")),
         platform_links=platform_links,
     )
+
+
+def _host_or_none(url: str) -> str | None:
+    """`httpx.URL()` is not a tolerant parser and MusicBrainz is publicly
+    editable: one control character, bad IDNA host or broken IPv6 literal
+    in a single url-rel used to fail the whole post (R2-7). `ValueError`
+    covers idna's `InvalidCodepoint`, which httpx does not wrap.
+    """
+    try:
+        return httpx.URL(url).host
+    except (httpx.InvalidURL, ValueError):
+        logger.warning("musicbrainz_url_rel_unparsable", url=url)
+        return None

@@ -10,7 +10,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from pisniar.bot.handlers import _get_or_create_track, handle_link, handle_retry, handle_start
@@ -18,7 +18,7 @@ from pisniar.db.models import Post, Track
 from pisniar.db.session import build_engine, build_session_factory
 from pisniar.db.states import PostStatus, set_post_status
 from pisniar.resolve.urls import MAX_NORMALIZED_URL_BYTES, classify_url
-from pisniar.worker.celery_app import RESOLVE_POST_TASK_NAME
+from pisniar.worker.celery_app import RESOLVE_POST_TASK_NAME, TASK_TIME_LIMIT_SECONDS
 
 pytestmark = pytest.mark.integration
 
@@ -299,3 +299,74 @@ async def test_handle_link_refuses_an_over_long_url(
             )
         )
         assert created is None
+
+
+async def test_handle_retry_reopens_a_resolving_post_whose_worker_died(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """R2-2: D-43 closed `/retry` from `RESOLVING`, which was right for a
+    live task but left a post whose worker died with no exit at all — only
+    a manual `UPDATE` in psql, documented nowhere."""
+    marker_url = f"https://open.spotify.com/track/{uuid.uuid4().hex}"
+    async with session_factory() as session:
+        track = Track(source_url=marker_url, source_url_normalized=marker_url)
+        session.add(track)
+        await session.flush()
+        post = Post(track_id=track.id, created_by_user_id=111)
+        session.add(post)
+        await session.flush()
+        set_post_status(post, PostStatus.RESOLVING)
+        post_id = post.id
+        await session.commit()
+
+        # Straight SQL: `updated_at` is an ORM `onupdate`, so an attribute
+        # write here would just stamp it with `now()` again.
+        await session.execute(
+            text("UPDATE post SET updated_at = now() - make_interval(secs => :age) WHERE id = :id"),
+            {"age": TASK_TIME_LIMIT_SECONDS + 60, "id": post_id},
+        )
+        await session.commit()
+
+    message = make_message(f"/retry {post_id}")
+    celery_client = MagicMock()
+
+    await handle_retry(message, session_factory, celery_client)
+
+    assert "Повторюю" in message.answer.await_args.args[0]
+    celery_client.send_task.assert_called_once_with(
+        RESOLVE_POST_TASK_NAME, kwargs={"post_id": post_id}
+    )
+
+
+async def test_handle_retry_answers_instead_of_blocking_when_the_row_is_locked(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """R2-12: the status was read without a lock, so two near-simultaneous
+    `/retry` both passed the check and both dispatched. `nowait` also keeps
+    the handler from blocking behind a live resolve's `FOR UPDATE`."""
+    marker_url = f"https://open.spotify.com/track/{uuid.uuid4().hex}"
+    async with session_factory() as session:
+        track = Track(source_url=marker_url, source_url_normalized=marker_url)
+        session.add(track)
+        await session.flush()
+        post = Post(track_id=track.id, created_by_user_id=111)
+        session.add(post)
+        await session.flush()
+        set_post_status(post, PostStatus.RESOLVING)
+        set_post_status(post, PostStatus.FAILED, error="boom")
+        post_id = post.id
+        await session.commit()
+
+    message = make_message(f"/retry {post_id}")
+    celery_client = MagicMock()
+
+    async with session_factory() as holder:
+        locked = await holder.get(Post, post_id, with_for_update=True)
+        assert locked is not None
+
+        await asyncio.wait_for(handle_retry(message, session_factory, celery_client), timeout=10)
+
+        await holder.rollback()
+
+    assert "обробляється воркером" in message.answer.await_args.args[0]
+    celery_client.send_task.assert_not_called()

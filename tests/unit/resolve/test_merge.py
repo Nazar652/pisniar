@@ -11,6 +11,7 @@ from pisniar.resolve.merge import (
     merge_platform_link,
     merge_stored_artists,
     merge_stored_platform_links,
+    merge_stored_scalars,
     merge_title,
     merge_year,
 )
@@ -274,10 +275,66 @@ def test_stored_artists_are_kept_when_the_resolve_returned_none_at_all() -> None
     assert track.artists[0].hashtag == "Stored"
 
 
-def test_stored_artist_entry_for_a_different_name_is_ignored() -> None:
+def test_stored_artist_entry_for_a_different_name_is_ignored_when_it_holds_no_override() -> None:
+    """Nothing irreplaceable to lose, so the fresh name wins outright — the
+    R2-6 fallback below deliberately does not fire here."""
     track = ResolvedTrack(artists=[ArtistInfo(name="New Name")])
 
-    merge_stored_artists(track, [{"name": "Old Name", "hashtag": "Stale"}])
+    merge_stored_artists(track, [{"name": "Old Name", "hashtag": None}])
 
     assert [artist.name for artist in track.artists] == ["New Name"]
     assert track.artists[0].hashtag is None
+
+
+def test_stored_artist_key_matching_ignores_case_and_repeated_whitespace() -> None:
+    """R2-6: the match key was the raw `name` string, so `"0%Mercury"` and
+    `"0%mercury"` were two different artists and the override vanished."""
+    track = ResolvedTrack(artists=[ArtistInfo(name="0%Mercury")])
+
+    merge_stored_artists(track, [{"name": "0%mercury", "hashtag": "ZeroPercentMercury"}])
+
+    assert track.artists[0].hashtag == "ZeroPercentMercury"
+
+
+def test_stored_artists_with_a_hashtag_survive_a_change_of_name_shape() -> None:
+    """R2-6, the real case: `spotify` lists artists separately while
+    `songlink:spotify` joins them into one string. One Spotify outage turned
+    two names into one, no key matched, and the override was gone silently.
+    """
+    track = ResolvedTrack(artists=[ArtistInfo(name="Burned Time Machine, 0%Mercury")])
+
+    merge_stored_artists(
+        track,
+        [
+            {"name": "Burned Time Machine", "hashtag": None},
+            {"name": "0%Mercury", "hashtag": "ZeroPercentMercury"},
+        ],
+    )
+
+    assert [artist.name for artist in track.artists] == [
+        "Burned Time Machine",
+        "0%Mercury",
+    ]
+    assert track.artists[1].hashtag == "ZeroPercentMercury"
+    assert track.warnings
+
+
+def test_merge_stored_scalars_keeps_a_value_the_fresh_resolve_lost() -> None:
+    """R2-4: after the TTL (D-40) a re-resolve really goes to the network, so
+    one transient failure used to write `isrc = NULL` over a good value and
+    silently disable the D-41 duplicate warning for that track forever."""
+    track = ResolvedTrack(title="Creep")
+
+    merge_stored_scalars(track, {"isrc": "GBAYE9200070", "title": None, "year": 1993})
+
+    assert track.isrc == "GBAYE9200070"
+    assert track.year == 1993
+    assert track.title == "Creep"
+
+
+def test_merge_stored_scalars_never_overwrites_a_fresh_value() -> None:
+    track = ResolvedTrack(isrc="UAAAA2500001")
+
+    merge_stored_scalars(track, {"isrc": "GBAYE9200070"})
+
+    assert track.isrc == "UAAAA2500001"

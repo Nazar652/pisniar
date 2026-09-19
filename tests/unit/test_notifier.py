@@ -1,6 +1,7 @@
 """`send_alert`: a delivery failure must never raise into the caller's
 business logic — this is the contract `pisniar.worker.tasks` and
-`pisniar.bot.handlers` both depend on."""
+`pisniar.bot.handlers` both depend on — and an alert carrying a URL must
+not drag a full-screen link preview into the operational channel."""
 
 from __future__ import annotations
 
@@ -23,7 +24,19 @@ async def test_send_alert_returns_true_on_success() -> None:
     delivered = await send_alert(bot, chat_id=123, text="hello")
 
     assert delivered is True
-    bot.send_message.assert_awaited_once_with(chat_id=123, text="hello")
+    bot.send_message.assert_awaited_once()
+    sent = bot.send_message.await_args.kwargs
+    assert sent["chat_id"] == 123
+    assert sent["text"] == "hello"
+
+
+async def test_send_alert_disables_the_link_preview() -> None:
+    bot = AsyncMock()
+
+    await send_alert(bot, chat_id=123, text="duplicate: https://open.spotify.com/track/x")
+
+    link_preview_options = bot.send_message.await_args.kwargs["link_preview_options"]
+    assert link_preview_options.is_disabled is True
 
 
 async def test_send_alert_swallows_telegram_api_error() -> None:

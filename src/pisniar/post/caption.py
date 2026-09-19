@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from pisniar.post.hashtags import default_hashtag
 from pisniar.post.render import CaptionDocument, visible_length
+from pisniar.resolve.matching import is_valid_spotify_id
 from pisniar.resolve.types import ArtistInfo, GenreInfo, PlatformLink
 
 CHANNEL_LINK_TEXT = "Піснярня 🇺🇦"
@@ -101,11 +102,15 @@ def _build_document(
         document.append_text(f" · {release_type_name}")
         if include_release_title and release_title and release_type == "album":
             document.append_text(" «")
-            if album_id_spotify:
+            if album_id_spotify and is_valid_spotify_id(album_id_spotify):
                 document.append_link(
                     release_title, f"https://open.spotify.com/album/{album_id_spotify}"
                 )
             else:
+                if album_id_spotify:
+                    # A stray space in the id is a Telegram 400 on the whole
+                    # post; plain text loses a link, not the post (R2-16).
+                    warnings.append(f"album_id_spotify «{album_id_spotify}» не base62, лінк знято")
                 document.append_text(release_title)
             document.append_text("»")
 

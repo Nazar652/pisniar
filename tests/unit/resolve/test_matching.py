@@ -1,6 +1,7 @@
 """`matching.is_match()`: normalization and the calibrated duration
-tolerance. Fixture numbers are the real iTunes/ytmusicapi values recorded
-live during 2.6 calibration (see `matching.py` module docstring)."""
+tolerance. Every artist/title/duration below is a real value recorded live
+from Spotify, Deezer, iTunes, ytmusicapi and song.link on all nine spike
+reference tracks (`spike-calibration-full.md`)."""
 
 from __future__ import annotations
 
@@ -10,6 +11,9 @@ from pisniar.resolve.matching import (
     DURATION_TOLERANCE_MS,
     is_match,
     is_valid_isrc,
+    is_valid_spotify_id,
+    known_duration,
+    normalize_artist_set,
     normalize_text,
 )
 
@@ -37,26 +41,130 @@ def test_normalize_text_strips_diacritics() -> None:
     assert normalize_text("Alternativă") == normalize_text("Alternativa")
 
 
+# Spotify reference (artist, title, ms) vs the candidate the named source
+# actually returned for it. Nine tracks, both alphabets, two sources.
+REAL_CROSS_PLATFORM_PAIRS = [
+    ("itunes", "АННА", "Горн", 270981, "Анна", "Горн", 270982),
+    ("ytmusic", "АННА", "Горн", 270981, "Анна", "Горн", 271000),
+    ("ytmusic", "Тол", "Сумніви", 293133, "ТОЛ", "Сумніви", 294000),
+    (
+        "itunes",
+        "Burned Time Machine, 0%Mercury",
+        "Покаяння",
+        224124,
+        "Burned Time Machine & 0%Mercury",
+        "Покаяння",
+        224125,
+    ),
+    (
+        "ytmusic",
+        "Burned Time Machine, 0%Mercury",
+        "Покаяння",
+        224124,
+        "Burned Time Machine, 0%Mercury",
+        "Покаяння",
+        225000,
+    ),
+    ("itunes", "hackedface", "but wait...", 264000, "Hackedface", "But Wait...", 264000),
+    ("ytmusic", "hackedface", "but wait...", 264000, "hackedface", "but wait...", 264000),
+    (
+        "ytmusic",
+        "Sick Solution",
+        "Церемонія (Прощання)",
+        148774,
+        "Sick Solution",
+        "Церемонія (Прощання)",
+        149000,
+    ),
+    ("itunes", "Krovna", "Berserker", 262105, "Krovna", "Berserker", 262105),
+    ("ytmusic", "Krovna", "Berserker", 262105, "Krovna", "Berserker", 263000),
+    ("itunes", "ПРОЗАК", "Сила", 309035, "ПРОЗАК", "Сила", 309035),
+    ("ytmusic", "ПРОЗАК", "Сила", 309035, "ПРОЗАК", "Сила", 310000),
+    (
+        "ytmusic",
+        "hackedface",
+        "live like a saint/die like a sinner",
+        157058,
+        "hackedface",
+        "live like a saint/die like a sinner",
+        158000,
+    ),
+    ("ytmusic", "Sick Solution", "Зашморг", 160095, "Sick Solution", "Зашморг", 161000),
+]
+
+
+@pytest.mark.parametrize(
+    (
+        "source",
+        "reference_artist",
+        "reference_title",
+        "reference_duration_ms",
+        "candidate_artist",
+        "candidate_title",
+        "candidate_duration_ms",
+    ),
+    REAL_CROSS_PLATFORM_PAIRS,
+)
+def test_is_match_accepts_every_real_cross_platform_pair(
+    source: str,
+    reference_artist: str,
+    reference_title: str,
+    reference_duration_ms: int,
+    candidate_artist: str,
+    candidate_title: str,
+    candidate_duration_ms: int,
+) -> None:
+    assert is_match(
+        reference_artist=reference_artist,
+        reference_title=reference_title,
+        reference_duration_ms=reference_duration_ms,
+        candidate_artist=candidate_artist,
+        candidate_title=candidate_title,
+        candidate_duration_ms=candidate_duration_ms,
+    ), source
+
+
+def test_widest_measured_duration_gap_stays_inside_the_tolerance() -> None:
+    """ПРОЗАК — Сила: Spotify 309035 ms vs YouTube Music 310000 ms is the
+    largest gap seen between two platforms holding the same recording."""
+    widest_gap = max(
+        abs(candidate_duration - reference_duration)
+        for _, _, _, reference_duration, _, _, candidate_duration in REAL_CROSS_PLATFORM_PAIRS
+    )
+    assert widest_gap == 965
+    assert widest_gap < DURATION_TOLERANCE_MS
+
+
 @pytest.mark.parametrize(
     ("reference_artist", "candidate_artist"),
     [
         ("Burned Time Machine, 0%Mercury", "Burned Time Machine & 0%Mercury"),
+        ("Burned Time Machine, 0%Mercury", "0%Mercury, Burned Time Machine"),
         ("hackedface", "Hackedface"),
+        ("АННА", "Анна"),
+        ("Тол", "ТОЛ"),
     ],
 )
-def test_is_match_accepts_real_calibration_candidates(
+def test_normalize_artist_set_absorbs_real_crediting_differences(
     reference_artist: str, candidate_artist: str
 ) -> None:
-    # iTunes/ytmusicapi live results for "Burned Time Machine — Покаяння":
-    # 224125ms and 225000ms for the same track (delta well under tolerance).
-    assert is_match(
-        reference_artist=reference_artist,
-        reference_title="Покаяння",
-        reference_duration_ms=224125,
-        candidate_artist=candidate_artist,
-        candidate_title="Покаяння",
-        candidate_duration_ms=225000,
-    )
+    assert normalize_artist_set(reference_artist) == normalize_artist_set(candidate_artist)
+
+
+@pytest.mark.parametrize(
+    ("topic_channel", "plain_name"),
+    [
+        ("Анна - Topic", "АННА"),
+        ("Burned Time Machine - Topic", "Burned Time Machine"),
+        ("Hackedface - Topic", "hackedface"),
+    ],
+)
+def test_normalize_artist_set_strips_the_real_topic_channel_suffix(
+    topic_channel: str, plain_name: str
+) -> None:
+    """song.link returns the YouTube channel name as `artistName`, and for
+    an auto-generated recording that name carries a `- Topic` tail."""
+    assert normalize_artist_set(topic_channel) == normalize_artist_set(plain_name)
 
 
 def test_is_match_rejects_same_word_different_song() -> None:
@@ -69,6 +177,96 @@ def test_is_match_rejects_same_word_different_song() -> None:
         candidate_artist="Runes of the North",
         candidate_title="Bjarkamál (The Berserker's Call)",
         candidate_duration_ms=210000,
+    )
+
+
+@pytest.mark.parametrize(
+    ("candidate_artist", "candidate_title", "candidate_duration_ms"),
+    [
+        ("Gunship, Tyler Bates", "Berserker (feat. Dave Lombardo)", 335000),
+        ("Dal Av", "Berserker", 238000),
+        ("RAVN", "Berserker", 380000),
+        ("Dahako, HENSEI", "BERSERKER", 122000),
+        ("Korbl", "Berserker", 116000),
+    ],
+)
+def test_is_match_rejects_the_five_real_berserker_impostors(
+    candidate_artist: str, candidate_title: str, candidate_duration_ms: int
+) -> None:
+    """All five came back in one live ytmusicapi search for "Krovna —
+    Berserker" with a title that is exactly equal after normalization."""
+    assert normalize_text(candidate_title) == "berserker"
+    assert not is_match(
+        reference_artist="Krovna",
+        reference_title="Berserker",
+        reference_duration_ms=262105,
+        candidate_artist=candidate_artist,
+        candidate_title=candidate_title,
+        candidate_duration_ms=candidate_duration_ms,
+    )
+
+
+def test_is_match_rejects_a_same_title_track_by_another_ukrainian_band() -> None:
+    # Live ytmusicapi result for "Тол — Сумніви": KOLORYT has a song of the
+    # very same name, and only the artist set tells them apart.
+    assert not is_match(
+        reference_artist="Тол",
+        reference_title="Сумніви",
+        reference_duration_ms=293133,
+        candidate_artist="KOLORYT",
+        candidate_title="Сумніви",
+        candidate_duration_ms=146000,
+    )
+
+
+@pytest.mark.parametrize(
+    ("live_title", "expected"),
+    [
+        ("Артерія (Acoustic Version)", "артерія acoustic version"),
+        ("snow (Extended Version)", "snow extended version"),
+        ("oxygen (defacement version)", "oxygen defacement version"),
+        ("Berserker - Cutdown", "berserker cutdown"),
+        ("Церемонія (Прощання)", "церемонія прощання"),
+    ],
+)
+def test_normalize_text_keeps_real_bracketed_tails(live_title: str, expected: str) -> None:
+    """Every title here came back live: the first four mark a different
+    recording, the fifth is simply part of a reference track's own name."""
+    assert normalize_text(live_title) == expected
+
+
+@pytest.mark.parametrize("value", [None, 0, -1])
+def test_known_duration_treats_a_non_positive_value_as_unknown(value: int | None) -> None:
+    assert known_duration(value) is None
+
+
+@pytest.mark.parametrize("value", [1, 965, 293133])
+def test_known_duration_passes_a_real_length_through(value: int) -> None:
+    assert known_duration(value) == value
+
+
+@pytest.mark.parametrize(
+    ("reference_artist", "reference_title", "candidate_duration_ms"),
+    [
+        ("ТОЛ", "Сумніви", 293133),
+        ("hackedface", "but wait...", 264000),
+        ("Krovna", "Berserker", 262105),
+        ("ПРОЗАК", "Сила", 309035),
+        ("Hackedface", "live like a saint/die like a sinner", 157058),
+    ],
+)
+def test_is_match_treats_songlinks_zero_duration_as_unknown(
+    reference_artist: str, reference_title: str, candidate_duration_ms: int
+) -> None:
+    """song.link's YouTube entity reported `duration: 0` for these five, and
+    a literal 0 used to reject every correct Spotify candidate behind them."""
+    assert is_match(
+        reference_artist=reference_artist,
+        reference_title=reference_title,
+        reference_duration_ms=0,
+        candidate_artist=reference_artist,
+        candidate_title=reference_title,
+        candidate_duration_ms=candidate_duration_ms,
     )
 
 
@@ -141,3 +339,27 @@ def test_is_valid_isrc_rejects_anything_that_could_reshape_a_url(isrc: str | Non
     """F-16: the value is pasted into `/track/isrc:<isrc>`, so a stray `/`
     or `?` from a source would change which endpoint we call."""
     assert is_valid_isrc(isrc) is False
+
+
+def test_is_valid_spotify_id_accepts_a_real_base62_id() -> None:
+    assert is_valid_spotify_id("6N9PS4QXF1D0OWPk0Sxtb4") is True
+
+
+@pytest.mark.parametrize(
+    "spotify_id",
+    [
+        None,
+        "",
+        "album123",
+        "6N9PS4QXF1D0OWPk0Sxtb",
+        "6N9PS4QXF1D0OWPk0Sxtb4x",
+        "6N9PS4QXF1D0OWPk0Sxt 4",
+        "../../v1/me",
+    ],
+)
+def test_is_valid_spotify_id_rejects_anything_that_could_reshape_a_url(
+    spotify_id: str | None,
+) -> None:
+    """R2-15/R2-16: the id goes into `/v1/tracks/<id>` and into an `href`;
+    a space alone is a Telegram 400 on the whole post."""
+    assert is_valid_spotify_id(spotify_id) is False

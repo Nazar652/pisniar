@@ -69,3 +69,26 @@ def test_result_from_payload_ignores_unrecognized_hosts() -> None:
     result = musicbrainz._result_from_payload({"found": True, "data": RECORDING})
 
     assert "example.com" not in str(result.platform_links)
+
+
+def test_a_broken_url_rel_is_skipped_instead_of_failing_the_whole_recording() -> None:
+    """R2-7: `httpx.URL()` raises on a control character, and MusicBrainz is
+    publicly editable — one bad url-rel used to fail the post despite the
+    good links sitting right next to it, reproducibly for the cache hour."""
+    recording: dict[str, object] = {
+        "id": "recording-456",
+        "relations": [
+            {"url": {"resource": "https://open.spotify.com/track/ok"}},
+            {"url": {"resource": "https://exa	mple.com/x"}},
+            {"url": {"resource": "http://xn--a.com/x"}},
+            {"url": {"resource": "https://[::zz]/x"}},
+            {"url": {"resource": "https://www.deezer.com/track/ok"}},
+        ],
+    }
+
+    result = musicbrainz._result_from_payload({"found": True, "data": recording})
+
+    assert result.platform_links == {
+        "spotify": "https://open.spotify.com/track/ok",
+        "deezer": "https://www.deezer.com/track/ok",
+    }

@@ -1,6 +1,7 @@
-"""YouTube Music via `ytmusicapi` (unauthenticated search). The library is
-sync (`requests`-based) and supports no timeout of its own, so every call
-goes through `asyncio.to_thread` under an explicit `wait_for` (F-15).
+"""YouTube Music via `ytmusicapi` (unauthenticated search): sync, no timeout
+of its own, so every call goes through `asyncio.to_thread` under an explicit
+`wait_for` (F-15). That frees the task, not the thread — a hung socket holds
+a slot in the shared default executor until its own TCP timeout (R2-17).
 """
 
 from __future__ import annotations

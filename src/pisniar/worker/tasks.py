@@ -11,7 +11,7 @@ from typing import Any
 import httpx
 from celery.signals import task_postrun, task_prerun
 from sqlalchemy import func, select, text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from pisniar.config import Settings, get_settings, redaction_secrets
@@ -50,6 +50,15 @@ configure_logging(
 celery_app = build_celery_app(settings.redis_url)
 
 logger = get_logger(__name__)
+
+# Contention on these rows only ever means another resolve of the same
+# post or track; a fast FAILED + alert beats blocking a worker slot (R2-3).
+LOCK_TIMEOUT_MS = 5000
+
+EMPTY_RE_RESOLVE_ERROR = (
+    "Повторний резолв не повернув нічого, але трек уже має збережені дані — "
+    "нічого не видалено. Спробуйте /retry пізніше (кеш джерел живе годину)."
+)
 
 
 # Clears correlation ids around every task, not just `ping` — a stale
@@ -107,7 +116,9 @@ def resolve_post(self: Any, post_id: int) -> None:
 
 
 async def _resolve_post(post_id: int) -> None:
-    engine = build_engine(settings.database_url, use_null_pool=True)
+    engine = build_engine(
+        settings.database_url, use_null_pool=True, lock_timeout_ms=LOCK_TIMEOUT_MS
+    )
     try:
         session_factory = build_session_factory(engine)
         async with session_factory() as session:
@@ -117,7 +128,16 @@ async def _resolve_post(post_id: int) -> None:
             if post is None:
                 logger.error("resolve_post_post_not_found", post_id=post_id)
                 return
-            track = await session.get(Track, post.track_id, with_for_update=True)
+
+            try:
+                # FOR NO KEY UPDATE, not FOR UPDATE: the latter conflicts
+                # with the FOR KEY SHARE every `INSERT INTO post` takes on
+                # this row, freezing the bot for the whole resolve (R2-3).
+                track = await session.get(Track, post.track_id, with_for_update={"key_share": True})
+            except DBAPIError as error:
+                await session.rollback()
+                await _fail_post(session, post_id, f"трек заблоковано іншою задачею: {error}")
+                return
             assert track is not None
 
             if post.status is not PostStatus.RESOLVING:
@@ -168,6 +188,9 @@ async def _resolve_and_deliver(
         await _clean_up_non_track(session, post, track)
         return
 
+    # Read before anything can expire the ORM objects: a failed commit rolls
+    # back, and `post.id` would then be a lazy refresh -> MissingGreenlet.
+    post_id = post.id
     nothing_usable = False
     delivered = False
     http_client = build_http_client()
@@ -176,10 +199,15 @@ async def _resolve_and_deliver(
         try:
             resolved = await resolve_track(context, classified)
         except Exception as error:
-            await _fail_post(session, post, str(error))
+            await _fail_post(session, post_id, str(error))
             return
 
         if not resolved.title and not resolved.artists and not resolved.platform_links:
+            if track.resolved_at is not None or track.platform_links:
+                # One stale 404 is not proof the track is gone, and deleting
+                # here would take the admin's manual data with it (R2-1).
+                await _fail_post(session, post_id, EMPTY_RE_RESOLVE_ERROR)
+                return
             nothing_usable = True
         else:
             genres = await resolve_genres(context, resolved)
@@ -199,10 +227,14 @@ async def _resolve_and_deliver(
                 logger.warning("resolve_post_warning", post_id=post.id, warning=warning)
 
             post.caption = render_html(document)
-            post.genres = [
+            fresh_genres: list[object] = [
                 {"name": genre.name, "hashtag": genre.hashtag, "source": genre.source}
                 for genre in genres
             ]
+            # Empty never wins over stored: Deezer not answering is not the
+            # same statement as "this release has no genres" (R2-4).
+            if fresh_genres or not post.genres:
+                post.genres = fresh_genres
 
             # Delivery first, RESOLVED after (D-38): RESOLVED means "the
             # draft is in the admin's chat", and RESOLVING -> FAILED is legal
@@ -217,7 +249,7 @@ async def _resolve_and_deliver(
             await session.commit()
             delivered = True
     except Exception as error:
-        await _fail_post(session, post, str(error))
+        await _fail_post(session, post_id, str(error))
     finally:
         await http_client.aclose()
 
@@ -252,6 +284,7 @@ def _persist_track(track: Track, resolved: ResolvedTrack) -> None:
     that a re-resolve can never reproduce on its own."""
     merge.merge_stored_platform_links(resolved, track.platform_links)
     merge.merge_stored_artists(resolved, track.artists)
+    merge.merge_stored_scalars(resolved, _stored_scalars(track))
 
     track.isrc = resolved.isrc
     track.title = resolved.title
@@ -264,6 +297,12 @@ def _persist_track(track: Track, resolved: ResolvedTrack) -> None:
         platform: _platform_link_to_dict(link) for platform, link in resolved.platform_links.items()
     }
     track.resolved_at = datetime.now(UTC)
+
+
+def _stored_scalars(track: Track) -> dict[str, object]:
+    """`merge` stays free of ORM imports, so the row's scalars are handed
+    over as a plain dict."""
+    return {name: getattr(track, name) for name in merge.STORED_SCALAR_FIELDS}
 
 
 def _artist_to_dict(artist: ArtistInfo) -> dict[str, object]:
@@ -295,33 +334,58 @@ async def _warn_about_isrc_duplicate(session: AsyncSession, post: Post, track: T
         track_id=track.id,
         duplicate_track_id=duplicate.id,
     )
+    text_message = (
+        f"Цей трек уже є в базі за ISRC {track.isrc}. "
+        f"Новий пост {post.id}; попередній трек #{duplicate.id}: {duplicate.source_url}"
+    )
+    # Also into the draft chat: `alert_chat_id` is only "usually one of the
+    # admins" per `.env.example`, and the draft is already there (R2-14).
+    chat_ids = [settings.alert_chat_id]
+    if post.draft_chat_id is not None and post.draft_chat_id != settings.alert_chat_id:
+        chat_ids.append(post.draft_chat_id)
+
+    bot = build_bot(settings)
+    try:
+        for chat_id in chat_ids:
+            await send_alert(bot, chat_id, text_message)
+    finally:
+        await bot.session.close()
+
+
+async def _fail_post(session: AsyncSession, post_id: int, error_message: str) -> None:
+    """Takes an id, never a live `Post`: this is the error handler, so its
+    own inputs must survive the rollback that a failed commit performs and
+    that expires every ORM object in the session (R2-2)."""
+    logger.error("resolve_post_failed", post_id=post_id, error=error_message)
+
+    try:
+        await _write_failed_status(session, post_id, error_message)
+    except Exception:
+        logger.exception("resolve_post_failed_status_write_retried", post_id=post_id)
+        await session.rollback()
+        await _write_failed_status(session, post_id, error_message)
+
     bot = build_bot(settings)
     try:
         await send_alert(
             bot,
             settings.alert_chat_id,
-            f"Цей трек уже є в базі за ISRC {track.isrc}. "
-            f"Новий пост {post.id}; попередній трек #{duplicate.id}: {duplicate.source_url}",
+            f"Не вдалося обробити пост {post_id}: {error_message}\n"
+            f"Адмін може повторити командою /retry {post_id}",
         )
     finally:
         await bot.session.close()
 
 
-async def _fail_post(session: AsyncSession, post: Post, error_message: str) -> None:
-    logger.error("resolve_post_failed", post_id=post.id, error=error_message)
+async def _write_failed_status(session: AsyncSession, post_id: int, error_message: str) -> None:
+    post = await session.get(Post, post_id, with_for_update={"key_share": True})
+    if post is None or post.status is PostStatus.FAILED:
+        # No `FAILED -> FAILED` edge exists, and a second call into the
+        # handler after a failed commit is exactly what would ask for one.
+        return
+
     set_post_status(post, PostStatus.FAILED, error=error_message)
     await session.commit()
-
-    bot = build_bot(settings)
-    try:
-        await send_alert(
-            bot,
-            settings.alert_chat_id,
-            f"Не вдалося обробити пост {post.id}: {error_message}\n"
-            f"Адмін може повторити командою /retry {post.id}",
-        )
-    finally:
-        await bot.session.close()
 
 
 async def _clean_up_non_track(session: AsyncSession, post: Post, track: Track) -> None:

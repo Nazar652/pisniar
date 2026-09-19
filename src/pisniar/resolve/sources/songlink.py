@@ -14,7 +14,12 @@ import httpx
 
 from pisniar.logging import get_logger
 from pisniar.resolve.cache import SourceCache, build_request_key
-from pisniar.resolve.http import Throttler, parse_retry_after_seconds
+from pisniar.resolve.http import (
+    MAX_RESPONSE_BYTES,
+    ResponseTooLargeError,
+    Throttler,
+    parse_retry_after_seconds,
+)
 from pisniar.resolve.json_utils import as_dict, as_int, as_list, as_str
 from pisniar.resolve.urls import normalize_url
 
@@ -23,6 +28,11 @@ logger = get_logger(__name__)
 THROTTLE = Throttler(min_interval_seconds=1.0)
 MAX_RETRIES = 3
 DEFAULT_RETRY_DELAY_SECONDS = 2.0
+
+# The only adapter that follows redirects, so the only one where a hop
+# could leave Odesli entirely. Measured: `song.link` answers 308/302 to its
+# own relative paths, and the `?url=` form lands on `odesli.co` (R2-10).
+ODESLI_HOST_SUFFIXES = ("song.link", "odesli.co")
 
 NEXT_DATA_RE = re.compile(
     r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', re.DOTALL
@@ -66,25 +76,58 @@ async def _fetch_and_parse(client: httpx.AsyncClient, external_url: str) -> dict
 
     for attempt in range(MAX_RETRIES):
         await THROTTLE.wait()
-        response = await client.get(
+        async with client.stream(
+            "GET",
             request_url,
             follow_redirects=True,
             headers={"User-Agent": "pisniar-v2 (personal Telegram bot)"},
-        )
+        ) as response:
+            _reject_foreign_redirects(response)
 
-        if response.status_code == 429:
-            delay = parse_retry_after_seconds(response.headers.get("Retry-After"))
-            logger.warning("songlink_rate_limited", attempt=attempt, delay=delay)
-            await asyncio.sleep(delay if delay is not None else DEFAULT_RETRY_DELAY_SECONDS)
-            continue
+            if response.status_code == 429:
+                delay = parse_retry_after_seconds(response.headers.get("Retry-After"))
+                logger.warning("songlink_rate_limited", attempt=attempt, delay=delay)
+                await asyncio.sleep(delay if delay is not None else DEFAULT_RETRY_DELAY_SECONDS)
+                continue
 
-        if response.status_code == 404:
-            return {"found": False}
+            if response.status_code == 404:
+                return {"found": False}
 
-        response.raise_for_status()
-        return _parse_page(response.text)
+            response.raise_for_status()
+            html = await _read_limited(response)
+
+        return _parse_page(html)
 
     raise SonglinkParseError(f"song.link kept rate-limiting after {MAX_RETRIES} attempts")
+
+
+async def _read_limited(response: httpx.Response) -> str:
+    """The size hook reads `Content-Length`, which song.link's chunked CDN
+    response does not send — and where it does, it counts compressed bytes.
+    Counting decoded chunks is the only limit that actually binds (R2-9).
+    """
+    chunks: list[bytes] = []
+    total_bytes = 0
+    async for chunk in response.aiter_bytes():
+        total_bytes += len(chunk)
+        if total_bytes > MAX_RESPONSE_BYTES:
+            raise ResponseTooLargeError(
+                f"song.link response exceeded {MAX_RESPONSE_BYTES} bytes while streaming"
+            )
+        chunks.append(chunk)
+
+    return b"".join(chunks).decode(response.charset_encoding or "utf-8", errors="replace")
+
+
+def _reject_foreign_redirects(response: httpx.Response) -> None:
+    """Blind SSRF only (the body never leaves this module), but this is the
+    one adapter that follows redirects, so every hop is checked (R2-10)."""
+    for hop in [*response.history, response]:
+        host = (hop.url.host or "").lower()
+        if not any(
+            host == suffix or host.endswith(f".{suffix}") for suffix in ODESLI_HOST_SUFFIXES
+        ):
+            raise SonglinkParseError(f"song.link redirected outside Odesli: {hop.url}")
 
 
 def _parse_page(html: str) -> dict[str, object]:

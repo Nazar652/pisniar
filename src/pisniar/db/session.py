@@ -17,13 +17,23 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.pool import NullPool
 
 
-def build_engine(database_url: str, *, use_null_pool: bool = False) -> AsyncEngine:
+def build_engine(
+    database_url: str, *, use_null_pool: bool = False, lock_timeout_ms: int | None = None
+) -> AsyncEngine:
+    # A connection-level GUC, not `SET LOCAL`: it must survive the rollback
+    # a failed commit performs, which is exactly when locks matter (R2-3).
+    connect_args = (
+        {"server_settings": {"lock_timeout": str(lock_timeout_ms)}}
+        if lock_timeout_ms is not None
+        else {}
+    )
+
     if use_null_pool:
         # Fresh engine per task already means a fresh connection.
-        return create_async_engine(database_url, poolclass=NullPool)
+        return create_async_engine(database_url, poolclass=NullPool, connect_args=connect_args)
     # pool_pre_ping: without it, the first /readyz after a Postgres
     # restart 503s on a pooled-but-dead connection; only the second is 200.
-    return create_async_engine(database_url, pool_pre_ping=True)
+    return create_async_engine(database_url, pool_pre_ping=True, connect_args=connect_args)
 
 
 def build_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:

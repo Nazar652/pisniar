@@ -9,6 +9,7 @@ import httpx
 
 from pisniar.resolve.cache import SourceCache, build_request_key
 from pisniar.resolve.http import Throttler
+from pisniar.resolve.json_utils import as_dict, as_int, as_list, as_str
 from pisniar.resolve.types import TrackCandidate
 
 MIN_INTERVAL_SECONDS = 3.0
@@ -38,7 +39,7 @@ async def search_by_name(
         )
         response.raise_for_status()
         data: dict[str, object] = response.json()
-        return {"results": data.get("results") or []}
+        return {"results": as_list(data.get("results"))}
 
     payload = await cache.get_or_fetch("itunes", cache_key, do_fetch)
     results = payload.get("results")
@@ -48,13 +49,15 @@ async def search_by_name(
     return [candidate for candidate in candidates if candidate.url]
 
 
-def _candidate_from_result(item: dict[str, object]) -> TrackCandidate:
-    duration_ms = item.get("trackTimeMillis")
+def _candidate_from_result(raw_item: object) -> TrackCandidate:
+    """Every field through `json_utils`: a `null` `trackViewUrl` used to
+    become the string `"None"` and survive the emptiness filter (R2-8)."""
+    item = as_dict(raw_item)
     return TrackCandidate(
         platform="appleMusic",
-        url=str(item.get("trackViewUrl", "")),
+        url=as_str(item.get("trackViewUrl")) or "",
         source=SOURCE_NAME,
-        artist_name=str(item.get("artistName", "")),
-        title=str(item.get("trackName", "")),
-        duration_ms=duration_ms if isinstance(duration_ms, int) else None,
+        artist_name=as_str(item.get("artistName")) or "",
+        title=as_str(item.get("trackName")) or "",
+        duration_ms=as_int(item.get("trackTimeMillis")),
     )

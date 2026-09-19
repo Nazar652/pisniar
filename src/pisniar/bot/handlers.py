@@ -7,13 +7,14 @@ everything else out by the time a handler runs.
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 
 from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.types import Message
 from celery import Celery
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from pisniar.db.models import Post, Track
@@ -27,7 +28,7 @@ from pisniar.resolve.urls import (
     classify_url,
     is_within_length_limit,
 )
-from pisniar.worker.celery_app import RESOLVE_POST_TASK_NAME
+from pisniar.worker.celery_app import RESOLVE_POST_TASK_NAME, TASK_TIME_LIMIT_SECONDS
 
 logger = get_logger(__name__)
 
@@ -63,17 +64,29 @@ async def handle_retry(
     post_id = int(arguments[1].strip())
 
     async with session_scope(session_factory) as session:
-        post = await session.get(Post, post_id)
+        try:
+            # Locked, not just read: without it two near-simultaneous
+            # `/retry` both pass the status check and dispatch (R2-12).
+            post = await session.get(Post, post_id, with_for_update={"nowait": True})
+        except DBAPIError:
+            await session.rollback()
+            await message.answer(
+                f"Пост {post_id} зараз обробляється воркером. Зачекайте на чернетку або помилку."
+            )
+            return
+
         if post is None:
             await message.answer(f"Пост {post_id} не знайдено.")
             return
-        if post.status is PostStatus.RESOLVING:
+
+        if post.status is PostStatus.RESOLVING and not _resolving_has_gone_stale(post):
             # The self-edge exists for Celery redelivery, not as a button:
             # a second task would race the first into two drafts (D-43/F-9).
             await message.answer(
                 f"Пост {post_id} уже обробляється. Зачекайте на чернетку або на помилку."
             )
             return
+
         try:
             set_post_status(post, PostStatus.RESOLVING)
         except IllegalStatusTransitionError:
@@ -111,6 +124,13 @@ async def handle_link(
             f"Посилання задовге (ліміт {MAX_NORMALIZED_URL_BYTES} байтів). "
             f"Надішліть коротке посилання на трек."
         )
+        logger.info(
+            "link_rejected",
+            reason="too_long",
+            raw_url_bytes=len(raw_url.encode("utf-8")),
+            normalized_url_bytes=len(classified.normalized_url.encode("utf-8")),
+            limit_bytes=MAX_NORMALIZED_URL_BYTES,
+        )
         return
 
     if classified.kind is UrlKind.NOT_TRACK:
@@ -118,9 +138,19 @@ async def handle_link(
         await message.answer(
             f"Це посилання на {reason}, а не на трек. Надішліть пряме посилання на трек."
         )
+        logger.info(
+            "link_rejected",
+            reason="not_track",
+            not_track_reason=classified.not_track_reason,
+            normalized_url=classified.normalized_url,
+        )
         return
+
     if classified.kind is UrlKind.UNKNOWN:
         await message.answer("Не розпізнав це як посилання на трек.")
+        # Only the length: the raw text of an unrecognized message is not a
+        # URL and has no business in the logs.
+        logger.info("link_rejected", reason="unknown", raw_text_length=len(raw_url))
         return
 
     async with session_scope(session_factory) as session:
@@ -128,9 +158,21 @@ async def handle_link(
 
         post = Post(track_id=track.id, created_by_user_id=message.from_user.id)
         session.add(post)
-        await session.flush()
-        set_post_status(post, PostStatus.RESOLVING)
-        post_id = post.id
+        try:
+            await session.flush()
+        except IntegrityError:
+            # The worker's cleanup deleted this track between the SELECT and
+            # this INSERT; unhandled, aiogram answers the admin nothing (R2-13).
+            await session.rollback()
+            logger.warning("link_post_insert_lost_its_track", track_id=track.id)
+            post_id = None
+        else:
+            set_post_status(post, PostStatus.RESOLVING)
+            post_id = post.id
+
+    if post_id is None:
+        await message.answer("Трек саме прибрали з бази. Надішліть посилання ще раз.")
+        return
 
     bind_post_id(post_id)
     logger.info("link_received", post_id=post_id, track_existed=track_existed)
@@ -146,6 +188,15 @@ async def handle_link(
     if track_existed:
         receipt += " Цей трек уже реєструвався раніше — створюю ще один пост."
     await message.answer(receipt)
+
+
+def _resolving_has_gone_stale(post: Post) -> bool:
+    """The only way out of `RESOLVING` when the worker died mid-task (R2-2).
+    No race with F-9: Celery's hard limit kills a live task at
+    `TASK_TIME_LIMIT_SECONDS`, so a running one is always fresher than this.
+    """
+    age_seconds = (datetime.now(UTC) - post.updated_at).total_seconds()
+    return age_seconds > TASK_TIME_LIMIT_SECONDS
 
 
 async def _get_or_create_track(

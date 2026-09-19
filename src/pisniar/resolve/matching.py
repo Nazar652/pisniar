@@ -1,6 +1,6 @@
 """Name-search verification (contract p.12): exact artist+title match after
 normalization, plus a duration tolerance. Constants calibrated live against
-3 of the 9 spike reference tracks during 2.6 — see `test_matching.py`.
+9 of the 9 spike reference tracks — see `spike-calibration-full.md`.
 """
 
 from __future__ import annotations
@@ -8,8 +8,8 @@ from __future__ import annotations
 import re
 import unicodedata
 
-# Calibrated live on 3 of the 9 spike reference tracks (decision-log.md):
-# correct cross-platform matches differed by <=1000ms; 3000ms has headroom.
+# Calibrated on 9 of 9 spike reference tracks: the widest gap between two
+# platforms holding the same recording was 965 ms, so 3000 ms has headroom.
 DURATION_TOLERANCE_MS = 3000
 
 _SUFFIX_PATTERNS = (
@@ -29,6 +29,7 @@ _PUNCTUATION_RE = re.compile(r"[^\w\s]", re.UNICODE)
 _WHITESPACE_RE = re.compile(r"\s+")
 _ARTIST_SEPARATOR_RE = re.compile(r",|&|/| x | vs\.? | with ", re.IGNORECASE)
 _ISRC_RE = re.compile(r"^[A-Z]{2}[A-Z0-9]{3}\d{7}$")
+_SPOTIFY_ID_RE = re.compile(r"^[0-9A-Za-z]{22}$")
 
 
 def is_valid_isrc(value: str | None) -> bool:
@@ -36,6 +37,12 @@ def is_valid_isrc(value: str | None) -> bool:
     (`/track/isrc:...`), where a source-supplied stray `/` or `?` would
     otherwise change which endpoint we call."""
     return value is not None and _ISRC_RE.match(value) is not None
+
+
+def is_valid_spotify_id(value: str | None) -> bool:
+    """22 base62 characters. Same reason as `is_valid_isrc`: the value is
+    source-supplied and goes straight into a URL path (R2-15/R2-16)."""
+    return value is not None and _SPOTIFY_ID_RE.match(value) is not None
 
 
 def strip_diacritics(value: str) -> str:
@@ -60,6 +67,12 @@ def normalize_artist_set(value: str) -> frozenset[str]:
     return frozenset(normalize_text(part) for part in parts if normalize_text(part))
 
 
+def known_duration(value: int | None) -> int | None:
+    """song.link's YouTube entity answers `duration: 0` (measured on 6 of the
+    9 reference tracks), and 0 ms is an absence, not a track length."""
+    return value if value is not None and value > 0 else None
+
+
 def is_match(
     *,
     reference_artist: str,
@@ -76,8 +89,11 @@ def is_match(
         return False
     if normalize_artist_set(reference_artist) != normalize_artist_set(candidate_artist):
         return False
+
+    reference_duration = known_duration(reference_duration_ms)
+    candidate_duration = known_duration(candidate_duration_ms)
     return not (
-        reference_duration_ms is not None
-        and candidate_duration_ms is not None
-        and abs(reference_duration_ms - candidate_duration_ms) > DURATION_TOLERANCE_MS
+        reference_duration is not None
+        and candidate_duration is not None
+        and abs(reference_duration - candidate_duration) > DURATION_TOLERANCE_MS
     )

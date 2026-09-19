@@ -226,3 +226,76 @@ async def test_losing_the_unique_race_leaves_the_business_transaction_intact(
             assert survivor.title == "pending"
     finally:
         await engine.dispose()
+
+
+async def test_a_negative_payload_never_evicts_a_still_fresh_positive_row(
+    source_cache: SourceCache, db_session: AsyncSession
+) -> None:
+    """R2-5: D-40 turned insert-only into `ON CONFLICT DO UPDATE`, i.e. plain
+    last-writer-wins. Task A writes a valid album, task B three seconds later
+    gets a quota error body, and every track of that release loses its genres
+    for the rest of the hour — with no outbound request in the logs to show.
+    """
+    request_key = unique_key("album:GUARD")
+
+    await source_cache.get_or_fetch("deezer", request_key, lambda: _payload({"genres": [85]}))
+    await source_cache._upsert("deezer", request_key, {"found": False})
+
+    stored = await stored_row(db_session, request_key)
+    assert stored is not None
+    assert stored.payload == {"found": True, "data": {"genres": [85]}}
+
+
+async def test_a_negative_payload_does_replace_another_negative_one(
+    source_cache: SourceCache, db_session: AsyncSession
+) -> None:
+    """The guard is about quality, not about freezing the row: a negative may
+    always refresh a negative, so the TTL still does its D-40 job."""
+    request_key = unique_key("album:NEGNEG")
+
+    await source_cache._upsert("deezer", request_key, {"found": False})
+    await source_cache._upsert("deezer", request_key, {"found": False, "marker": "second"})
+
+    stored = await stored_row(db_session, request_key)
+    assert stored is not None
+    assert stored.payload == {"found": False, "marker": "second"}
+
+
+async def test_an_empty_result_list_does_not_evict_a_non_empty_one(
+    source_cache: SourceCache, db_session: AsyncSession
+) -> None:
+    """The search-shaped payload of the same rule: `{"results": []}` reads
+    exactly like "nothing found" and must not overwrite real hits."""
+    request_key = unique_key("search:GUARD")
+
+    await source_cache._upsert("deezer", request_key, {"results": [{"id": 1}]})
+    await source_cache._upsert("deezer", request_key, {"results": []})
+
+    stored = await stored_row(db_session, request_key)
+    assert stored is not None
+    assert stored.payload == {"results": [{"id": 1}]}
+
+
+async def test_a_negative_payload_replaces_a_stale_positive_row(
+    source_cache: SourceCache, db_session: AsyncSession
+) -> None:
+    """Past the TTL the stored positive carries no more authority than the
+    fresh negative, so D-40's refresh path stays open."""
+    request_key = unique_key("album:STALE")
+
+    await source_cache.get_or_fetch("deezer", request_key, lambda: _payload({"genres": [85]}))
+    stored = await stored_row(db_session, request_key)
+    assert stored is not None
+    stored.fetched_at = datetime.now(UTC) - timedelta(seconds=source_cache.ttl_seconds + 60)
+    await db_session.commit()
+
+    await source_cache._upsert("deezer", request_key, {"found": False})
+
+    db_session.expire_all()
+    refreshed = await stored_row(db_session, request_key)
+    assert refreshed is not None
+    assert refreshed.payload == {"found": False}
+
+
+async def _payload(data: dict[str, object]) -> dict[str, object]:
+    return {"found": True, "data": data}

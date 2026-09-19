@@ -158,3 +158,24 @@ async def test_request_retries_after_429_then_succeeds(fake_cache: SourceCache) 
 
     assert search_attempts == 2
     assert result.found is True
+
+
+async def test_get_track_refuses_a_non_base62_id_without_issuing_a_request(
+    fake_cache: SourceCache,
+) -> None:
+    """R2-15: no caller yet, which is exactly why the trap had to be defused
+    now — the id goes straight into `/v1/tracks/<id>`."""
+    requests_made = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal requests_made
+        requests_made += 1
+        return httpx.Response(200, json=TOKEN_BODY)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        result = await spotify.get_track(
+            client, fake_cache, "../v1/me/player", "client-id", "client-secret"
+        )
+
+    assert result.found is False
+    assert requests_made == 0

@@ -126,3 +126,46 @@ def test_album_id_only_set_for_spotify_provider() -> None:
     result = songlink._result_from_payload(payload)
 
     assert result.album_id_spotify is None
+
+
+async def test_a_body_over_the_limit_is_refused_while_streaming() -> None:
+    """R2-9: song.link is the one response read as text, and its chunked CDN
+    reply carries no `Content-Length` for the size hook to check — where it
+    does, the number counts compressed bytes, not what lands in memory."""
+    oversized = b"x" * (songlink.MAX_RESPONSE_BYTES + 1024)
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, content=oversized))
+
+    async with make_client(transport) as client:
+        with pytest.raises(songlink.ResponseTooLargeError):
+            await songlink._fetch_and_parse(client, "https://open.spotify.com/track/x")
+
+
+async def test_a_redirect_off_odesli_is_refused_before_the_body_is_read() -> None:
+    """R2-10: this is the only adapter with `follow_redirects=True`, so it is
+    the only one where a hop can leave Odesli for an internal address."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "song.link":
+            return httpx.Response(302, headers={"location": "http://169.254.169.254/latest/meta"})
+        return httpx.Response(200, text=FIXTURE_HTML)
+
+    async with make_client(httpx.MockTransport(handler)) as client:
+        with pytest.raises(songlink.SonglinkParseError) as raised:
+            await songlink._fetch_and_parse(client, "https://open.spotify.com/track/x")
+
+    assert "169.254.169.254" in str(raised.value)
+
+
+async def test_a_redirect_within_odesli_is_allowed() -> None:
+    """The `?url=` form lands on `odesli.co`, and song.link 308s to its own
+    relative paths — both measured live, both must keep working."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "song.link":
+            return httpx.Response(302, headers={"location": "https://odesli.co/s/x"})
+        return httpx.Response(200, text=FIXTURE_HTML)
+
+    async with make_client(httpx.MockTransport(handler)) as client:
+        payload = await songlink._fetch_and_parse(client, "https://open.spotify.com/track/x")
+
+    assert payload["found"] is True

@@ -6,7 +6,7 @@ never the first line/artist hashtags/channel link)."""
 from __future__ import annotations
 
 from pisniar.post.caption import CHANNEL_LINK_URL, build_caption
-from pisniar.post.render import plain_text, visible_length
+from pisniar.post.render import LinkSegment, plain_text, visible_length
 from pisniar.resolve.types import ArtistInfo, GenreInfo, MatchClass, PlatformLink
 
 SPOTIFY_LINK = PlatformLink(
@@ -51,7 +51,7 @@ def test_album_with_link_uses_named_release_title() -> None:
         year=2013,
         release_type="album",
         release_title="Синдром Бажання",
-        album_id_spotify="album123",
+        album_id_spotify="6N9PS4QXF1D0OWPk0Sxtb4",
         genres=[],
         platform_links={"spotify": SPOTIFY_LINK},
     )
@@ -60,7 +60,8 @@ def test_album_with_link_uses_named_release_title() -> None:
     release_links = [
         segment
         for segment in document.segments
-        if hasattr(segment, "href") and segment.href == "https://open.spotify.com/album/album123"
+        if hasattr(segment, "href")
+        and segment.href == "https://open.spotify.com/album/6N9PS4QXF1D0OWPk0Sxtb4"
     ]
     assert len(release_links) == 1
 
@@ -243,3 +244,26 @@ def test_degradation_reports_warning_when_still_over_limit() -> None:
     )
 
     assert any("ліміт" in warning for warning in warnings)
+
+
+def test_a_malformed_album_id_degrades_to_plain_text_with_a_warning() -> None:
+    """R2-16: `escape_attribute` stops the XSS, but a space in the id is a
+    Telegram 400 on the whole post — a missing link costs far less."""
+    document, warnings = build_caption(
+        artists=[ArtistInfo(name="Тол")],
+        title="Сумніви",
+        year=2013,
+        release_type="album",
+        release_title="Синдром Бажання",
+        album_id_spotify="bad id with spaces",
+        genres=[],
+        platform_links={"spotify": SPOTIFY_LINK},
+    )
+
+    assert "альбом «Синдром Бажання»" in plain_text(document)
+    assert not [
+        segment
+        for segment in document.segments
+        if isinstance(segment, LinkSegment) and "/album/" in segment.href
+    ]
+    assert any("base62" in warning for warning in warnings)

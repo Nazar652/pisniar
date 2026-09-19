@@ -4,6 +4,7 @@ album genre extraction — via `httpx.MockTransport`, trimmed real payloads."""
 from __future__ import annotations
 
 import httpx
+import pytest
 
 from pisniar.resolve.sources import deezer
 
@@ -17,6 +18,9 @@ ISRC_FOUND_BODY: dict[str, object] = {
     "album": {"id": 14880711, "title": "Pablo Honey"},
 }
 ISRC_NOT_FOUND_BODY = {"error": {"type": "DataException", "message": "no data", "code": 800}}
+# Verified live on 2026-09-19: `code: 800` is what a missing ISRC and a
+# missing album both answer. A quota failure is a different class entirely.
+QUOTA_ERROR_BODY = {"error": {"type": "Exception", "message": "Quota limit exceeded", "code": 4}}
 SEARCH_FOUND_BODY: dict[str, object] = {
     "data": [
         {
@@ -48,7 +52,49 @@ async def test_fetch_by_isrc_treats_200_with_error_body_as_not_found() -> None:
     async with make_client(transport) as client:
         payload = await deezer._request(client, "https://api.deezer.com/track/isrc:X", {})
 
-    assert deezer._is_error_body(payload) is True
+    assert deezer._is_not_found_body(payload) is True
+
+
+def test_quota_error_body_raises_instead_of_being_cached_as_not_found() -> None:
+    """R2-5: `{"found": false}` for a quota failure is a lie that then sits
+    in the cache for a whole TTL, blanking every track of that release."""
+    with pytest.raises(deezer.DeezerApiError) as raised:
+        deezer._is_not_found_body(QUOTA_ERROR_BODY)
+
+    assert "code=4" in str(raised.value)
+
+
+def test_a_body_without_an_error_key_is_not_a_miss() -> None:
+    assert deezer._is_not_found_body(ISRC_FOUND_BODY) is False
+
+
+async def test_search_raises_on_an_error_body_instead_of_caching_empty_results() -> None:
+    """Search answers a genuine miss with an empty `data` list, so an error
+    body here can only be an outage (R2-5)."""
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, json=QUOTA_ERROR_BODY))
+
+    async with make_client(transport) as client:
+        data = await deezer._request(client, "https://api.deezer.com/search", {})
+
+    with pytest.raises(deezer.DeezerApiError):
+        deezer._is_not_found_body(data)
+
+
+def test_search_item_with_a_null_link_is_dropped_rather_than_becoming_none_string() -> None:
+    """R2-8: `str(item.get("link", ""))` turned JSON `null` into the string
+    `"None"`, which survived the emptiness filter and only failed later."""
+    candidate = deezer._candidate_from_search_item({"title": "X", "link": None})
+
+    assert candidate.url == ""
+
+
+def test_search_item_that_is_not_a_dict_does_not_raise() -> None:
+    """R2-8: a non-dict entry in `results` used to be an `AttributeError`,
+    and the whole post went to `failed` because of it."""
+    candidate = deezer._candidate_from_search_item("not a dict")
+
+    assert candidate.url == ""
+    assert candidate.title == ""
 
 
 def test_fetch_by_isrc_extracts_fields_and_converts_seconds_to_ms() -> None:

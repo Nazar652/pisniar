@@ -67,8 +67,12 @@ clean: ## docker compose down -v (also drops the postgres volume)
 test-int: ## full test suite (unit + integration) inside the bot container (V12)
 	$(COMPOSE) run --rm bot pytest -q
 
-migrate: ## alembic upgrade head inside the bot container
+# `alembic check` is part of this target, not only of `verify`: revision
+# 0002 was edited after it had already been applied somewhere, and an
+# `upgrade head` on such a database is a silent no-op (R2-18).
+migrate: ## alembic upgrade head inside the bot container, then alembic check
 	$(COMPOSE) run --rm bot alembic upgrade head
+	$(COMPOSE) run --rm bot alembic check
 
 revision: ## autogenerate a migration: make revision m="add lyric table"
 	$(COMPOSE) run --rm bot alembic revision --autogenerate -m "$(m)"

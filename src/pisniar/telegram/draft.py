@@ -7,6 +7,7 @@ the shared `Bot` stays `parse_mode=None` everywhere else (D-2 in contract).
 from __future__ import annotations
 
 from aiogram import Bot
+from aiogram.types import LinkPreviewOptions
 
 from pisniar.db.models import Post
 
@@ -19,6 +20,13 @@ async def deliver_draft(bot: Bot, post: Post, chat_id: int) -> None:
     if post.caption is None:
         raise ValueError(f"post {post.id} has no caption to deliver")
 
-    sent_message = await bot.send_message(chat_id=chat_id, text=post.caption, parse_mode="HTML")
+    # A caption is full of platform links; without this Telegram appends a
+    # preview card and the draft no longer looks like the future post.
+    sent_message = await bot.send_message(
+        chat_id=chat_id,
+        text=post.caption,
+        parse_mode="HTML",
+        link_preview_options=LinkPreviewOptions(is_disabled=True),
+    )
     post.draft_chat_id = chat_id
     post.draft_message_id = sent_message.message_id

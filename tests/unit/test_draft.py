@@ -1,6 +1,7 @@
 """`deliver_draft`: idempotent (draft_message_id set -> no-op), sends with
-explicit `parse_mode="HTML"`, and — unlike `send_alert` — never swallows
-a delivery failure (contract p.10: недоставка -> ретрай -> failed)."""
+explicit `parse_mode="HTML"` and no link preview, and — unlike `send_alert` —
+never swallows a delivery failure (contract p.10: недоставка -> ретрай ->
+failed)."""
 
 from __future__ import annotations
 
@@ -27,9 +28,24 @@ async def test_deliver_draft_sends_html_and_sets_draft_reference() -> None:
 
     await deliver_draft(bot, post, chat_id=999)
 
-    bot.send_message.assert_awaited_once_with(chat_id=999, text="caption text", parse_mode="HTML")
+    bot.send_message.assert_awaited_once()
+    sent = bot.send_message.await_args.kwargs
+    assert sent["chat_id"] == 999
+    assert sent["text"] == "caption text"
+    assert sent["parse_mode"] == "HTML"
     assert post.draft_chat_id == 999
     assert post.draft_message_id == 42
+
+
+async def test_deliver_draft_disables_the_link_preview() -> None:
+    bot = AsyncMock()
+    bot.send_message.return_value.message_id = 42
+    post = make_post(caption='<a href="https://open.spotify.com/track/x">Spotify</a>')
+
+    await deliver_draft(bot, post, chat_id=999)
+
+    link_preview_options = bot.send_message.await_args.kwargs["link_preview_options"]
+    assert link_preview_options.is_disabled is True
 
 
 async def test_deliver_draft_is_idempotent_when_already_delivered() -> None:
