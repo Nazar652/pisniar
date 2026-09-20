@@ -1,7 +1,8 @@
 """Channel publication — the mirror of `draft.py`: idempotent send, explicit
 per-call `parse_mode="HTML"`, the caption passed through verbatim, and
 failures propagated rather than swallowed, because the post is the product.
-The post carries its cover (D-45), so `send_photo` is the normal path.
+The post carries its cover (D-45), so `send_photo` is the normal path, and
+a post that reached `rendered` goes out as `send_video` instead (§6).
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ from aiogram.types import (
 from pisniar.channel import CHANNEL_USERNAME
 from pisniar.db.models import Post
 from pisniar.logging import get_logger
+from pisniar.telegram.video import RenderedVideo, send_rendered_video
 
 logger = get_logger(__name__)
 
@@ -84,18 +86,32 @@ def warn_if_channel_identity_diverges(chat: ChatFullInfo) -> bool:
     return True
 
 
-async def publish_to_channel(bot: Bot, post: Post, chat_id: int, cover_url: str | None) -> None:
+async def publish_to_channel(
+    bot: Bot,
+    post: Post,
+    chat_id: int,
+    cover_url: str | None,
+    video: RenderedVideo | None = None,
+) -> None:
     """Idempotent: a post that already carries `channel_message_id` is a
     no-op — the first of the three barriers a redelivered task has to pass.
     The caption goes out exactly as stored; it is already rendered, escaped
     HTML (`post.render.render_html`), and escaping it again double-encodes it.
+
+    Three branches now. The video one is chosen by the **caller**, from
+    `post.status is RENDERED` plus a valid `render` row (§6) — never from a
+    file lying around, which a previous failed attempt can also leave.
     """
     if post.channel_message_id is not None:
         return
     if post.caption is None:
         raise ValueError(f"post {post.id} has no caption to publish")
 
-    if cover_url:
+    if video is not None:
+        # The video limit for a caption is the same 1024 the photo caption
+        # already fits (D-45), so nothing is rebuilt — byte for byte (S4-A14).
+        sent_message = await send_rendered_video(bot, chat_id, post.caption, video)
+    elif cover_url:
         # Telegram fetches the cover by URL itself and can fail on it; that
         # is a delivery failure to report, not one to work around here.
         sent_message = await bot.send_photo(

@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from collections.abc import Mapping
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -19,13 +20,18 @@ from pisniar.bot import handlers
 from pisniar.bot.handlers import (
     PUBLISH_DISPATCH_FAILED_ERROR,
     UNKNOWN_CALLBACK_ANSWER,
-    handle_publish_callback,
+    handle_callback,
     handle_retry,
 )
 from pisniar.db.models import Post, Track
 from pisniar.db.session import build_engine, build_session_factory
 from pisniar.db.states import PostStatus, set_post_status
-from pisniar.worker.celery_app import PUBLISH_POST_TASK_NAME, RESOLVE_POST_TASK_NAME
+from pisniar.worker.celery_app import (
+    DOWNLOAD_POST_AUDIO_TASK_NAME,
+    PUBLISH_POST_TASK_NAME,
+    RENDER_POST_VIDEO_TASK_NAME,
+    RESOLVE_POST_TASK_NAME,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -37,6 +43,9 @@ PUBLISHER_ID = 222
 # test database is shared for the whole session, so every reference derives
 # from the post id rather than from a constant.
 DRAFT_CHAT_ID = 111
+# `uq_post_preview_message` is real too, so the preview reference has to be
+# distinct from the draft's within the same chat.
+PREVIEW_MESSAGE_OFFSET = 1_000_000
 
 
 def status_ladder(status: PostStatus, *, with_draft: bool) -> list[PostStatus]:
@@ -53,7 +62,28 @@ def status_ladder(status: PostStatus, *, with_draft: bool) -> list[PostStatus]:
     ladder = [PostStatus.RESOLVING, PostStatus.RESOLVED]
     if status is PostStatus.RESOLVED:
         return ladder
+    if status in MEDIA_LADDER:
+        return [*ladder, *MEDIA_LADDER[status]]
     return [*ladder, PostStatus.PUBLISHING, status]
+
+
+# The real path through the media chain, so the `failed_from_status` a test
+# reads is the one `set_post_status` actually wrote on the way there.
+MEDIA_LADDER = {
+    PostStatus.DOWNLOADING: [PostStatus.DOWNLOADING],
+    PostStatus.DOWNLOADED: [PostStatus.DOWNLOADING, PostStatus.DOWNLOADED],
+    PostStatus.RENDERING: [
+        PostStatus.DOWNLOADING,
+        PostStatus.DOWNLOADED,
+        PostStatus.RENDERING,
+    ],
+    PostStatus.RENDERED: [
+        PostStatus.DOWNLOADING,
+        PostStatus.DOWNLOADED,
+        PostStatus.RENDERING,
+        PostStatus.RENDERED,
+    ],
+}
 
 
 @pytest.fixture
@@ -72,6 +102,8 @@ async def make_post_with_draft(
     status: PostStatus = PostStatus.RESOLVED,
     with_draft: bool = True,
     already_published: bool = False,
+    with_preview: bool = False,
+    failed_from: PostStatus | None = None,
 ) -> int:
     marker_url = f"https://open.spotify.com/track/{uuid.uuid4().hex}"
     async with session_factory() as session:
@@ -92,7 +124,16 @@ async def make_post_with_draft(
 
         # The real path to each state: `RESOLVED -> FAILED` has no edge on
         # purpose, so a `failed` post with a draft got there through publishing.
-        for step in status_ladder(status, with_draft=with_draft):
+        if with_preview:
+            post.preview_chat_id = DRAFT_CHAT_ID
+            post.preview_message_id = post.id + PREVIEW_MESSAGE_OFFSET
+
+        ladder = status_ladder(status, with_draft=with_draft)
+        if failed_from is not None:
+            ladder = [*MEDIA_LADDER.get(failed_from, [failed_from]), PostStatus.FAILED]
+            ladder = [PostStatus.RESOLVING, PostStatus.RESOLVED, *ladder]
+
+        for step in ladder:
             set_post_status(post, step, error="boom" if step is PostStatus.FAILED else None)
 
         post_id = post.id
@@ -134,7 +175,7 @@ async def test_the_button_moves_the_post_to_publishing_and_dispatches(
     callback = make_callback(f"publish:{post_id}")
     celery_client = MagicMock()
 
-    await handle_publish_callback(callback, AsyncMock(), session_factory, celery_client)
+    await handle_callback(callback, AsyncMock(), session_factory, celery_client)
 
     post = await load_post(session_factory, post_id)
     assert post.status is PostStatus.PUBLISHING
@@ -160,7 +201,7 @@ async def test_the_button_is_removed_before_the_task_is_dispatched(
     celery_client = MagicMock()
     celery_client.send_task.side_effect = lambda *args, **kwargs: order.append("task")
 
-    await handle_publish_callback(callback, bot, session_factory, celery_client)
+    await handle_callback(callback, bot, session_factory, celery_client)
 
     assert order == ["keyboard", "task"]
     removal = bot.edit_message_reply_markup.await_args
@@ -183,7 +224,7 @@ async def test_a_tap_on_an_already_published_post_dispatches_nothing(
     callback = make_callback(f"publish:{post_id}")
     celery_client = MagicMock()
 
-    await handle_publish_callback(callback, AsyncMock(), session_factory, celery_client)
+    await handle_callback(callback, AsyncMock(), session_factory, celery_client)
 
     celery_client.send_task.assert_not_called()
     assert "уже опубліковано" in callback.answer.await_args.args[0]
@@ -199,7 +240,7 @@ async def test_a_tap_on_a_post_that_cannot_publish_is_refused(
     post_id = await make_post_with_draft(session_factory, status=PostStatus.RESOLVING)
     celery_client = MagicMock()
 
-    await handle_publish_callback(
+    await handle_callback(
         make_callback(f"publish:{post_id}"), AsyncMock(), session_factory, celery_client
     )
 
@@ -215,7 +256,7 @@ async def test_a_tap_for_an_unknown_post_is_refused(
     callback = make_callback("publish:10000000")
     celery_client = MagicMock()
 
-    await handle_publish_callback(callback, AsyncMock(), session_factory, celery_client)
+    await handle_callback(callback, AsyncMock(), session_factory, celery_client)
 
     celery_client.send_task.assert_not_called()
     assert "не знайдено" in callback.answer.await_args.args[0]
@@ -228,7 +269,7 @@ async def test_malformed_callback_data_never_reaches_the_database(
     bot = AsyncMock()
     celery_client = MagicMock()
 
-    await handle_publish_callback(callback, bot, session_factory, celery_client)
+    await handle_callback(callback, bot, session_factory, celery_client)
 
     celery_client.send_task.assert_not_called()
     bot.edit_message_reply_markup.assert_not_awaited()
@@ -244,7 +285,7 @@ async def test_a_failed_publish_dispatch_leaves_the_post_retryable(
     celery_client = MagicMock()
     celery_client.send_task.side_effect = RuntimeError("broker down")
 
-    await handle_publish_callback(
+    await handle_callback(
         make_callback(f"publish:{post_id}"), AsyncMock(), session_factory, celery_client
     )
 
@@ -262,7 +303,7 @@ async def test_a_tap_on_a_post_already_publishing_dispatches_nothing(
     callback = make_callback(f"publish:{post_id}")
     celery_client = MagicMock()
 
-    await handle_publish_callback(callback, AsyncMock(), session_factory, celery_client)
+    await handle_callback(callback, AsyncMock(), session_factory, celery_client)
 
     celery_client.send_task.assert_not_called()
     assert "уже публікується" in callback.answer.await_args.args[0]
@@ -275,10 +316,10 @@ async def test_two_simultaneous_taps_dispatch_only_once(
     celery_client = MagicMock()
 
     await asyncio.gather(
-        handle_publish_callback(
+        handle_callback(
             make_callback(f"publish:{post_id}"), AsyncMock(), session_factory, celery_client
         ),
-        handle_publish_callback(
+        handle_callback(
             make_callback(f"publish:{post_id}"), AsyncMock(), session_factory, celery_client
         ),
     )
@@ -318,7 +359,7 @@ async def test_the_tap_and_its_dispatch_are_both_logged_with_the_user(
     monkeypatch.setattr(handlers, "logger", fake_logger)
     post_id = await make_post_with_draft(session_factory)
 
-    await handle_publish_callback(
+    await handle_callback(
         make_callback(f"publish:{post_id}"), AsyncMock(), session_factory, MagicMock()
     )
 
@@ -341,7 +382,7 @@ async def test_a_refused_tap_is_logged_with_its_own_reason(
         session_factory, status=PostStatus.PUBLISHED, already_published=True
     )
 
-    await handle_publish_callback(
+    await handle_callback(
         make_callback(f"publish:{post_id}"), AsyncMock(), session_factory, MagicMock()
     )
 
@@ -362,7 +403,7 @@ async def test_a_failed_publish_dispatch_is_logged_as_a_refusal(
     celery_client = MagicMock()
     celery_client.send_task.side_effect = RuntimeError("broker down")
 
-    await handle_publish_callback(
+    await handle_callback(
         make_callback(f"publish:{post_id}"), AsyncMock(), session_factory, celery_client
     )
 
@@ -396,7 +437,7 @@ async def test_retry_logs_which_of_the_two_branches_it_took(
         "branch": "republish",
         "user_id": PUBLISHER_ID,
         "post_id": published_post_id,
-        "reclaimed_stale_resolving": False,
+        "reclaimed_stale_stage": None,
     }
 
 
@@ -443,3 +484,256 @@ async def test_retry_before_any_draft_still_resolves(
 
     post = await load_post(session_factory, post_id)
     assert post.status is PostStatus.RESOLVING
+
+
+async def test_the_render_button_moves_the_post_to_downloading_and_dispatches(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """D-77: the whole trigger for the media chain. Nothing else starts it."""
+    post_id = await make_post_with_draft(session_factory)
+    celery_client = MagicMock()
+
+    await handle_callback(
+        make_callback(f"render:{post_id}"), AsyncMock(), session_factory, celery_client
+    )
+
+    celery_client.send_task.assert_called_once_with(
+        DOWNLOAD_POST_AUDIO_TASK_NAME, kwargs={"post_id": post_id}
+    )
+
+    post = await load_post(session_factory, post_id)
+    assert post.status is PostStatus.DOWNLOADING
+
+
+async def test_the_render_keyboard_goes_before_the_task_is_dispatched(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """D-68 order, and the double-tap guard on this button: the database
+    first, the keyboard second, the dispatch last. Removing it any earlier
+    would strand a post the database then declined to move."""
+    post_id = await make_post_with_draft(session_factory)
+    order: list[str] = []
+
+    bot = AsyncMock()
+    bot.edit_message_reply_markup.side_effect = lambda **kwargs: order.append("keyboard")
+    celery_client = MagicMock()
+    celery_client.send_task.side_effect = lambda *args, **kwargs: order.append("task")
+
+    await handle_callback(make_callback(f"render:{post_id}"), bot, session_factory, celery_client)
+
+    assert order == ["keyboard", "task"]
+    assert bot.edit_message_reply_markup.await_args.kwargs == {
+        "chat_id": DRAFT_CHAT_ID,
+        "message_id": post_id,
+        "reply_markup": None,
+    }
+
+
+async def test_two_simultaneous_render_taps_dispatch_only_once(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """A second download is minutes of CPU and a second copy on the volume."""
+    post_id = await make_post_with_draft(session_factory)
+    celery_client = MagicMock()
+
+    await asyncio.gather(
+        handle_callback(
+            make_callback(f"render:{post_id}"), AsyncMock(), session_factory, celery_client
+        ),
+        handle_callback(
+            make_callback(f"render:{post_id}"), AsyncMock(), session_factory, celery_client
+        ),
+    )
+
+    assert celery_client.send_task.call_count == 1
+
+
+async def test_a_render_tap_on_an_already_published_post_dispatches_nothing(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    post_id = await make_post_with_draft(
+        session_factory, status=PostStatus.PUBLISHED, already_published=True
+    )
+    callback = make_callback(f"render:{post_id}")
+    celery_client = MagicMock()
+
+    await handle_callback(callback, AsyncMock(), session_factory, celery_client)
+
+    celery_client.send_task.assert_not_called()
+    assert "опубліковано" in callback.answer.await_args.args[0]
+
+
+async def test_a_render_tap_while_rendering_dispatches_nothing(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    post_id = await make_post_with_draft(session_factory, status=PostStatus.RENDERING)
+    callback = make_callback(f"render:{post_id}")
+    celery_client = MagicMock()
+
+    await handle_callback(callback, AsyncMock(), session_factory, celery_client)
+
+    celery_client.send_task.assert_not_called()
+    assert "відео" in callback.answer.await_args.args[0]
+
+
+async def test_a_failed_render_dispatch_leaves_the_post_retryable(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """D-53 on the media side: `downloading` is already committed, and no
+    task exists to move it on."""
+    post_id = await make_post_with_draft(session_factory)
+    celery_client = MagicMock()
+    celery_client.send_task.side_effect = RuntimeError("broker down")
+
+    await handle_callback(
+        make_callback(f"render:{post_id}"), AsyncMock(), session_factory, celery_client
+    )
+
+    post = await load_post(session_factory, post_id)
+    assert post.status is PostStatus.FAILED
+    assert post.last_error == handlers.DOWNLOAD_DISPATCH_FAILED_ERROR
+    assert post.failed_from_status is PostStatus.DOWNLOADING
+
+
+async def test_a_publish_tap_during_the_render_says_what_is_actually_happening(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """S4-R14: `RESOLVED -> PUBLISHING` stays legal, so the old draft's
+    publish button is live during the render. The generic refusal would name
+    the state and read like a breakage; this one names the reason."""
+    post_id = await make_post_with_draft(session_factory, status=PostStatus.DOWNLOADING)
+    callback = make_callback(f"publish:{post_id}")
+    celery_client = MagicMock()
+
+    await handle_callback(callback, AsyncMock(), session_factory, celery_client)
+
+    celery_client.send_task.assert_not_called()
+    answer = callback.answer.await_args.args[0]
+    assert "відео" in answer
+    assert "downloading" not in answer
+
+    post = await load_post(session_factory, post_id)
+    assert post.status is PostStatus.DOWNLOADING
+
+
+async def test_retry_after_a_failed_download_downloads_instead_of_publishing(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """V39/S4-R7: the post has a draft, so the D-47 rule would republish it —
+    putting the cover photo in the channel for a post whose video never
+    rendered. The stage is read from the column instead."""
+    post_id = await make_post_with_draft(
+        session_factory, status=PostStatus.FAILED, failed_from=PostStatus.DOWNLOADING
+    )
+    message = make_message(f"/retry {post_id}")
+    celery_client = MagicMock()
+
+    await handle_retry(message, session_factory, celery_client)
+
+    celery_client.send_task.assert_called_once_with(
+        DOWNLOAD_POST_AUDIO_TASK_NAME, kwargs={"post_id": post_id}
+    )
+    assert "завантаження" in message.answer.await_args.args[0]
+
+    post = await load_post(session_factory, post_id)
+    assert post.status is PostStatus.DOWNLOADING
+
+
+async def test_retry_after_a_failed_render_renders_instead_of_publishing(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """M52: the admin must read about a repeated render, not a publication."""
+    post_id = await make_post_with_draft(
+        session_factory, status=PostStatus.FAILED, failed_from=PostStatus.RENDERING
+    )
+    message = make_message(f"/retry {post_id}")
+    celery_client = MagicMock()
+
+    await handle_retry(message, session_factory, celery_client)
+
+    celery_client.send_task.assert_called_once_with(
+        RENDER_POST_VIDEO_TASK_NAME, kwargs={"post_id": post_id}
+    )
+    assert "рендер" in message.answer.await_args.args[0]
+
+    post = await load_post(session_factory, post_id)
+    assert post.status is PostStatus.RENDERING
+
+
+async def test_retry_after_a_failed_publication_still_republishes(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """The half of D-47 that stays: the column now says so explicitly."""
+    post_id = await make_post_with_draft(
+        session_factory, status=PostStatus.FAILED, failed_from=PostStatus.PUBLISHING
+    )
+    celery_client = MagicMock()
+
+    await handle_retry(make_message(f"/retry {post_id}"), session_factory, celery_client)
+
+    celery_client.send_task.assert_called_once_with(
+        PUBLISH_POST_TASK_NAME,
+        kwargs={"post_id": post_id, "published_by_user_id": PUBLISHER_ID},
+    )
+
+
+async def test_a_live_render_refuses_retry_with_its_own_sentence(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    post_id = await make_post_with_draft(session_factory, status=PostStatus.RENDERING)
+    message = make_message(f"/retry {post_id}")
+    celery_client = MagicMock()
+
+    await handle_retry(message, session_factory, celery_client)
+
+    celery_client.send_task.assert_not_called()
+    assert "рендериться" in message.answer.await_args.args[0]
+
+
+async def test_a_stuck_render_older_than_its_limit_can_be_reclaimed(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """S4-A13: without this a `rendering` post whose worker died needed a
+    manual UPDATE in psql, documented nowhere — R2-2 all over again."""
+    post_id = await make_post_with_draft(session_factory, status=PostStatus.RENDERING)
+    stale_age = handlers.settings.render_task_time_limit_seconds + 60
+    async with session_factory() as session:
+        post = await session.get(Post, post_id)
+        assert post is not None
+        post.updated_at = datetime.now(UTC) - timedelta(seconds=stale_age)
+        await session.commit()
+
+    celery_client = MagicMock()
+    await handle_retry(make_message(f"/retry {post_id}"), session_factory, celery_client)
+
+    celery_client.send_task.assert_called_once_with(
+        RENDER_POST_VIDEO_TASK_NAME, kwargs={"post_id": post_id}
+    )
+
+    post = await load_post(session_factory, post_id)
+    assert post.status is PostStatus.RENDERING
+    # The self-edge changes no column, so the ORM `onupdate` never fires and
+    # every later /retry would pass the staleness guard too (R3-4).
+    assert (datetime.now(UTC) - post.updated_at).total_seconds() < stale_age
+
+
+async def test_a_publish_tap_under_a_preview_clears_the_preview_keyboard(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Once a preview exists it is the message carrying the button — the text
+    draft lost its keyboard when the preview arrived."""
+    post_id = await make_post_with_draft(
+        session_factory, status=PostStatus.RENDERED, with_preview=True
+    )
+    bot = AsyncMock()
+
+    await handle_callback(make_callback(f"publish:{post_id}"), bot, session_factory, MagicMock())
+
+    assert bot.edit_message_reply_markup.await_args.kwargs == {
+        "chat_id": DRAFT_CHAT_ID,
+        "message_id": post_id + PREVIEW_MESSAGE_OFFSET,
+        "reply_markup": None,
+    }
+
+    post = await load_post(session_factory, post_id)
+    assert post.status is PostStatus.PUBLISHING

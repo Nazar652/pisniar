@@ -1,5 +1,6 @@
-"""`Settings`: required fields, comma-separated admin ids, and the
-`postgresql+asyncpg://` DSN guard. Every test builds `Settings` with
+"""`Settings`: required fields, comma-separated admin ids, the
+`postgresql+asyncpg://` DSN guard and step 4A's media/task-limit settings.
+Every test builds `Settings` with
 `_env_file=None` and explicit values, so it never reads the real `.env` in
 the repo root."""
 
@@ -7,13 +8,15 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Literal
+from pathlib import Path
+from typing import Any, Literal
 
 import pydantic
 import pytest
 
 from pisniar.config import Settings, redaction_secrets
 from pisniar.logging import REDACTED_PLACEHOLDER, configure_logging
+from pisniar.worker.celery_app import TASK_SOFT_TIME_LIMIT_SECONDS, TASK_TIME_LIMIT_SECONDS
 
 # conftest.py sets fallbacks for these; "missing field" tests need them
 # genuinely absent, so this fixture removes them from real OS environ.
@@ -38,6 +41,7 @@ def build_settings(
     log_format: Literal["json", "console"] = "json",
     spotify_client_id: str = "fake-spotify-client-id",
     spotify_client_secret: str = "fake-spotify-client-secret",
+    **overrides: Any,
 ) -> Settings:
     return Settings(
         _env_file=None,
@@ -51,6 +55,7 @@ def build_settings(
         log_format=log_format,
         spotify_client_id=spotify_client_id,
         spotify_client_secret=spotify_client_secret,
+        **overrides,
     )
 
 
@@ -177,6 +182,72 @@ def test_musicbrainz_contact_defaults_to_none() -> None:
     settings = build_settings()
 
     assert settings.musicbrainz_contact is None
+
+
+def test_media_root_defaults_to_the_mounted_volume(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`compose.yaml` mounts the named `media-data` volume at `/data` in the
+    worker; a different default here would put the files back in the image."""
+    monkeypatch.delenv("MEDIA_ROOT", raising=False)
+
+    assert build_settings().media_root == Path("/data")
+
+
+def test_media_root_must_be_absolute() -> None:
+    """A relative root resolves against the worker's `/app` cwd — media would
+    land inside the container's filesystem and disappear on the next build."""
+    with pytest.raises(pydantic.ValidationError) as excinfo:
+        build_settings(media_root="data/media")
+
+    assert "absolute" in str(excinfo.value)
+
+
+def test_media_min_free_bytes_must_be_positive() -> None:
+    """Zero would make the pre-download space check pass on a full volume,
+    which is the whole failure it exists to catch."""
+    with pytest.raises(pydantic.ValidationError):
+        build_settings(media_min_free_bytes=0)
+
+
+def test_a_download_soft_limit_at_or_above_the_hard_limit_is_refused() -> None:
+    """A soft limit that never fires means SIGKILL with no chance to remove
+    the `.partial` file the task was writing."""
+    with pytest.raises(pydantic.ValidationError) as excinfo:
+        build_settings(
+            download_task_soft_time_limit_seconds=300,
+            download_task_time_limit_seconds=300,
+        )
+
+    assert "download" in str(excinfo.value)
+
+
+def test_a_render_soft_limit_at_or_above_the_hard_limit_is_refused() -> None:
+    with pytest.raises(pydantic.ValidationError) as excinfo:
+        build_settings(
+            render_task_soft_time_limit_seconds=240,
+            render_task_time_limit_seconds=240,
+        )
+
+    assert "render" in str(excinfo.value)
+
+
+def test_step_four_limits_are_separate_from_the_resolve_ones(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """§3: `TASK_TIME_LIMIT_SECONDS` is also how `/retry` decides a resolve
+    has gone stale (R2-2), so raising a limit for a render must never reach
+    it. This pins both sides of that separation."""
+    for name in (
+        "DOWNLOAD_TASK_SOFT_TIME_LIMIT_SECONDS",
+        "DOWNLOAD_TASK_TIME_LIMIT_SECONDS",
+        "RENDER_TASK_SOFT_TIME_LIMIT_SECONDS",
+        "RENDER_TASK_TIME_LIMIT_SECONDS",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    settings = build_settings()
+
+    assert (TASK_SOFT_TIME_LIMIT_SECONDS, TASK_TIME_LIMIT_SECONDS) == (300, 360)
+    assert settings.download_task_time_limit_seconds == 180
+    assert settings.render_task_time_limit_seconds == 240
 
 
 def test_redaction_secrets_includes_spotify_client_secret() -> None:

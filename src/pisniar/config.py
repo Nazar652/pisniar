@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Annotated, Literal
 from urllib.parse import unquote, urlsplit
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 from sqlalchemy.engine import make_url
 
@@ -54,6 +55,19 @@ class Settings(BaseSettings):
     # `/retry` can actually recover a release song.link had not indexed yet.
     source_fetch_ttl_seconds: int = 3600
 
+    # Mount point of the `media-data` volume inside the worker container, and
+    # the only root `worker/` ever builds a media path under.
+    media_root: Path = Path("/data")
+    # Checked with `shutil.disk_usage()` *before* a download starts: running
+    # out mid-render leaves a file that looks finished.
+    media_min_free_bytes: int = Field(default=2_000_000_000, gt=0)
+    # Per-task limits (§3). The resolve limits in `worker.celery_app` also gate
+    # `/retry`'s "resolve has gone stale" window, so they are never raised here.
+    download_task_soft_time_limit_seconds: int = Field(default=120, gt=0)
+    download_task_time_limit_seconds: int = Field(default=180, gt=0)
+    render_task_soft_time_limit_seconds: int = Field(default=180, gt=0)
+    render_task_time_limit_seconds: int = Field(default=240, gt=0)
+
     @field_validator("admin_ids", mode="before")
     @classmethod
     def split_admin_ids(cls, value: object) -> object:
@@ -68,6 +82,39 @@ class Settings(BaseSettings):
         if not value.startswith("postgresql+asyncpg://"):
             raise ValueError("database_url must use the postgresql+asyncpg:// driver")
         return value
+
+    @field_validator("media_root")
+    @classmethod
+    def require_absolute_media_root(cls, value: Path) -> Path:
+        """A relative root would resolve against the worker's `/app` cwd —
+        media would land inside the image instead of on the volume."""
+        if not value.as_posix().startswith("/"):
+            raise ValueError("media_root must be an absolute path inside the container")
+        return value
+
+    @model_validator(mode="after")
+    def require_soft_limit_below_hard_limit(self) -> Settings:
+        """A soft limit at or above the hard one never fires, and the task is
+        SIGKILLed with no chance to clean up its `.partial` files."""
+        limit_pairs = (
+            (
+                "download",
+                self.download_task_soft_time_limit_seconds,
+                self.download_task_time_limit_seconds,
+            ),
+            (
+                "render",
+                self.render_task_soft_time_limit_seconds,
+                self.render_task_time_limit_seconds,
+            ),
+        )
+        for task_name, soft_limit, hard_limit in limit_pairs:
+            if soft_limit >= hard_limit:
+                raise ValueError(
+                    f"{task_name}_task_soft_time_limit_seconds must be below "
+                    f"{task_name}_task_time_limit_seconds"
+                )
+        return self
 
     @property
     def is_docker(self) -> bool:

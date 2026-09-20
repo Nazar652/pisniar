@@ -1,17 +1,28 @@
 # pisniar
 
 A Telegram bot that automates posting music tracks to a channel: resolve a
-link's metadata, prepare a post, render a karaoke-style video fragment,
-publish. See `AGENTS.md` for a terse, code-facing map of the stack and the
+link's metadata, prepare a post, render a vertical video fragment, publish.
+See `AGENTS.md` for a terse, code-facing map of the stack and the
 architectural boundaries that are easy to break without knowing them.
 
-This repository is at **step 3**: an admin sends a link, the bot classifies
+This repository is at **step 4A**: an admin sends a link, the bot classifies
 it, the worker resolves it across six external sources (song.link, Spotify,
 Deezer, iTunes, `ytmusicapi`, MusicBrainz) with an ISRC-first matching
 discipline, builds an HTML caption, and delivers a draft back with `/retry`
-on failure. The draft carries an **Опублікувати в канал** button: one tap
-publishes the cover plus that exact caption into the channel, once, and
-records who approved it. Video rendering (step 4) is next.
+on failure. The draft carries two buttons.
+
+**Опублікувати в канал** publishes the cover plus that exact caption into
+the channel, once, and records who approved it.
+
+**Зробити відео** starts the media chain instead: the worker downloads the
+track's audio from YouTube Music, takes a 45-second fragment from the start
+(D-76), renders a 720x1280 video of the cover plus that audio, and sends it
+back as a **preview with its own publish button**. Publishing from there
+puts that exact file, with that exact caption, into the channel as a video.
+The preview is not a convenience — a published post cannot be revoked, so
+it is the one place a wrong fragment can still be caught. Manual choice of
+the fragment arrives in step 6, and synced lyrics in step 4B/8, after the
+Mini App editor.
 
 ## Prerequisites
 

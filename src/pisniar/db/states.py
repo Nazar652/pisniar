@@ -81,9 +81,10 @@ class IllegalStatusTransitionError(ValueError):
 
 
 def set_post_status(post: Post, new_status: PostStatus, *, error: str | None = None) -> None:
-    """Move `post.status`, or raise if illegal. Owns `last_error`: set on
-    FAILED, cleared leaving FAILED (except to ARCHIVED, per D-9). Treats
-    `post.status is None` (unflushed `Post()`) as DRAFT — see decision-log.md.
+    """Move `post.status`, or raise if illegal. Owns `last_error` and
+    `failed_from_status`: both set on FAILED, both cleared leaving FAILED
+    (except to ARCHIVED, per D-9). Treats `post.status is None` (unflushed
+    `Post()`) as DRAFT — see decision-log.md.
     """
     current_status = PostStatus(post.status) if post.status is not None else PostStatus.DRAFT
     if new_status not in ALLOWED_TRANSITIONS[current_status]:
@@ -91,7 +92,11 @@ def set_post_status(post: Post, new_status: PostStatus, *, error: str | None = N
 
     if new_status is PostStatus.FAILED:
         post.last_error = error
+        # The stage that failed, recorded rather than inferred: `/retry` reads
+        # it instead of guessing from `draft_message_id` (D-47).
+        post.failed_from_status = current_status
     elif current_status is PostStatus.FAILED and new_status is not PostStatus.ARCHIVED:
         post.last_error = None
+        post.failed_from_status = None
 
     post.status = new_status

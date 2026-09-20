@@ -343,6 +343,17 @@ def test_merge_stored_scalars_keeps_the_stored_album_id() -> None:
     assert track.album_id_spotify == "4yYXqedvSKuJlgI2IWsB0j"
 
 
+def test_merge_stored_scalars_keeps_the_stored_duration() -> None:
+    """Step 4 checks the downloaded audio against `track.duration_ms`, so the
+    R2-4 mechanic now nulls the yardstick itself: one failed source on a
+    `/retry` and the next download has nothing to be wrong against."""
+    track = ResolvedTrack(title="Creep")
+
+    merge_stored_scalars(track, {"duration_ms": 238000})
+
+    assert track.duration_ms == 238000
+
+
 def test_merge_stored_scalars_never_overwrites_a_fresh_value() -> None:
     track = ResolvedTrack(isrc="UAAAA2500001")
 

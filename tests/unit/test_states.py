@@ -1,6 +1,6 @@
 """The post status state machine: every legal transition succeeds and
-mutates `last_error` correctly, every illegal one raises and leaves the post
-untouched."""
+mutates `last_error`/`failed_from_status` correctly, every illegal one raises
+and leaves the post untouched."""
 
 from __future__ import annotations
 
@@ -15,11 +15,22 @@ from pisniar.db.states import (
 )
 
 
-def make_post(status: PostStatus, *, last_error: str | None = None) -> Post:
+def make_post(
+    status: PostStatus,
+    *,
+    last_error: str | None = None,
+    failed_from_status: PostStatus | None = None,
+) -> Post:
     """A plain, unmapped `Post` instance: `set_post_status()` only mutates
-    `.status` / `.last_error` in Python, so no DB session is needed to
-    exercise it."""
-    return Post(track_id=1, created_by_user_id=1, status=status, last_error=last_error)
+    `.status` / `.last_error` / `.failed_from_status` in Python, so no DB
+    session is needed to exercise it."""
+    return Post(
+        track_id=1,
+        created_by_user_id=1,
+        status=status,
+        last_error=last_error,
+        failed_from_status=failed_from_status,
+    )
 
 
 ALL_TRANSITION_PAIRS = [
@@ -134,6 +145,47 @@ def test_failed_to_archived_preserves_the_error() -> None:
 
     assert post.status == PostStatus.ARCHIVED
     assert post.last_error == "odesli timed out"
+
+
+@pytest.mark.parametrize(
+    "stage",
+    [PostStatus.RESOLVING, PostStatus.DOWNLOADING, PostStatus.RENDERING, PostStatus.PUBLISHING],
+)
+def test_moving_into_failed_records_the_stage_it_failed_from(stage: PostStatus) -> None:
+    """The column exists because step 4 puts DOWNLOADING and RENDERING
+    between the draft and publication: every one of these four leaves a post
+    with `draft_message_id` set, which is all D-47's rule could see."""
+    post = make_post(stage)
+
+    set_post_status(post, PostStatus.FAILED, error="ffmpeg exited 1")
+
+    assert post.failed_from_status == stage
+
+
+def test_leaving_failed_clears_the_stage() -> None:
+    post = make_post(PostStatus.FAILED, failed_from_status=PostStatus.RENDERING)
+
+    set_post_status(post, PostStatus.RENDERING)
+
+    assert post.failed_from_status is None
+
+
+def test_failed_to_archived_preserves_the_stage() -> None:
+    """Same reason `last_error` survives archiving (D-9): with no
+    `post_status_history` table, these two columns are the whole record."""
+    post = make_post(PostStatus.FAILED, failed_from_status=PostStatus.DOWNLOADING)
+
+    set_post_status(post, PostStatus.ARCHIVED)
+
+    assert post.failed_from_status == PostStatus.DOWNLOADING
+
+
+def test_a_non_failed_transition_never_sets_the_stage() -> None:
+    post = make_post(PostStatus.RESOLVED)
+
+    set_post_status(post, PostStatus.DOWNLOADING)
+
+    assert post.failed_from_status is None
 
 
 @pytest.mark.parametrize(

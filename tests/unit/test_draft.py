@@ -13,7 +13,7 @@ from aiogram.methods import SendMessage
 
 from pisniar.db.models import Post
 from pisniar.telegram.draft import deliver_draft
-from pisniar.telegram.keyboards import parse_publish_callback
+from pisniar.telegram.keyboards import CallbackAction, parse_callback
 
 
 def make_post(*, caption: str | None = "caption text", draft_message_id: int | None = None) -> Post:
@@ -38,9 +38,9 @@ async def test_deliver_draft_sends_html_and_sets_draft_reference() -> None:
     assert post.draft_message_id == 42
 
 
-async def test_deliver_draft_attaches_the_publish_button() -> None:
-    """The draft is the whole trigger for step 3 (D-46): without the button
-    a delivered draft cannot be published by any route at all."""
+async def test_deliver_draft_attaches_both_triggers() -> None:
+    """The draft is the whole trigger for steps 3 and 4A (D-46 + D-77):
+    without these buttons a delivered draft goes nowhere by any route."""
     bot = AsyncMock()
     bot.send_message.return_value.message_id = 42
     post = make_post()
@@ -48,7 +48,15 @@ async def test_deliver_draft_attaches_the_publish_button() -> None:
     await deliver_draft(bot, post, chat_id=999)
 
     reply_markup = bot.send_message.await_args.kwargs["reply_markup"]
-    assert parse_publish_callback(reply_markup.inline_keyboard[0][0].callback_data) == post.id
+    parsed = [
+        parse_callback(button.callback_data)
+        for row in reply_markup.inline_keyboard
+        for button in row
+    ]
+    assert [(one.action, one.post_id) for one in parsed if one is not None] == [
+        (CallbackAction.PUBLISH, post.id),
+        (CallbackAction.RENDER, post.id),
+    ]
 
 
 async def test_deliver_draft_disables_the_link_preview() -> None:

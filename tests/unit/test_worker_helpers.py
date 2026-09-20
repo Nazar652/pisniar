@@ -106,6 +106,34 @@ def test_persist_track_writes_the_album_id_into_its_own_column() -> None:
     assert track.album_id_spotify == "4yYXqedvSKuJlgI2IWsB0j"
 
 
+def test_persist_track_writes_the_duration_into_its_own_column() -> None:
+    """Until step 4A the duration lived only in the resolve's memory, the
+    same gap `album_id_spotify` had before D-45 — and the download checks
+    `ffprobe`'s answer against it."""
+    track = Track(source_url="https://open.spotify.com/track/x", source_url_normalized="x")
+    track.artists = []
+    track.platform_links = {}
+    resolved = ResolvedTrack(title="Creep", duration_ms=238000)
+
+    worker_tasks._persist_track(track, resolved)
+
+    assert track.duration_ms == 238000
+
+
+def test_persist_track_keeps_a_stored_duration_a_failed_resolve_lost() -> None:
+    """The R2-4 path end to end: `_stored_scalars` reads the column only
+    because `duration_ms` is in `STORED_SCALAR_FIELDS`. Drop it from that
+    tuple and this `/retry` writes NULL over a good duration."""
+    track = Track(source_url="https://open.spotify.com/track/x", source_url_normalized="x")
+    track.artists = []
+    track.platform_links = {}
+    track.duration_ms = 238000
+
+    worker_tasks._persist_track(track, ResolvedTrack(title="Creep"))
+
+    assert track.duration_ms == 238000
+
+
 def test_persist_track_never_touches_the_languages_column() -> None:
     """Only step 5's Mini App writes languages — a resolve that rewrote them
     would undo the admin's correction on every `/retry`."""

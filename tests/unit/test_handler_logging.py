@@ -115,7 +115,7 @@ async def test_a_malformed_callback_logs_who_sent_it(monkeypatch: pytest.MonkeyP
     callback.data = "publish:not-an-id"
     callback.from_user = SimpleNamespace(id=PUBLISHER_ID)
 
-    await handlers.handle_publish_callback(callback, AsyncMock(), MagicMock(), MagicMock())
+    await handlers.handle_callback(callback, AsyncMock(), MagicMock(), MagicMock())
 
     assert warnings_named(fake_logger, "callback_rejected") == [
         {"reason": "unparsable_callback_data", "user_id": PUBLISHER_ID}

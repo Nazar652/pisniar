@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime
+from enum import StrEnum
 
 from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramAPIError
@@ -18,6 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from pisniar.config import get_settings
 from pisniar.db.models import Post, Track
 from pisniar.db.session import session_scope
 from pisniar.db.states import IllegalStatusTransitionError, PostStatus, set_post_status
@@ -31,9 +33,11 @@ from pisniar.resolve.urls import (
     is_safe_url,
     is_within_length_limit,
 )
-from pisniar.telegram.keyboards import parse_publish_callback
+from pisniar.telegram.keyboards import CallbackAction, parse_callback
 from pisniar.worker.celery_app import (
+    DOWNLOAD_POST_AUDIO_TASK_NAME,
     PUBLISH_POST_TASK_NAME,
+    RENDER_POST_VIDEO_TASK_NAME,
     RESOLVE_POST_TASK_NAME,
     TASK_TIME_LIMIT_SECONDS,
 )
@@ -42,9 +46,26 @@ logger = get_logger(__name__)
 
 router = Router(name="commands")
 
+# The media time limits live in `Settings`, never in `worker.celery_app`:
+# raising the resolve limits would silently widen the staleness window below.
+settings = get_settings()
+
 DISPATCH_FAILED_ERROR = "не вдалося поставити задачу в чергу"
 PUBLISH_DISPATCH_FAILED_ERROR = "не вдалося поставити задачу публікації в чергу"
+DOWNLOAD_DISPATCH_FAILED_ERROR = "не вдалося поставити задачу завантаження аудіо в чергу"
+RENDER_DISPATCH_FAILED_ERROR = "не вдалося поставити задачу рендера відео в чергу"
 UNKNOWN_CALLBACK_ANSWER = "Невідома дія."
+
+# §6: the old draft's publish button is still live during a render, and a
+# refusal naming `downloading` would read to the admin like a breakage.
+MEDIA_IN_PROGRESS_STATUSES = frozenset(
+    {PostStatus.DOWNLOADING, PostStatus.DOWNLOADED, PostStatus.RENDERING}
+)
+MEDIA_IN_PROGRESS_ANSWER = (
+    "Для поста {post_id} саме зараз готується відео. Дочекайтесь прев'ю — "
+    "кнопка публікації буде під ним."
+)
+VIDEO_READY_ANSWER = "Відео для поста {post_id} уже готове — публікуйте кнопкою під прев'ю з відео."
 
 # D-64: a clip is a `youtube` link, never a `youtubeMusic` one — the latter
 # is the canonical "— Topic" upload and belongs to the platform half.
@@ -70,6 +91,63 @@ NOT_TRACK_REASON_UA = {
     "playlist": "плейлист",
     "show": "подкаст",
     "episode": "епізод",
+}
+
+
+class RetryBranch(StrEnum):
+    """What `/retry` is actually being asked to repeat. Four intents, not four
+    spellings of one — the distinction D-47 introduced and D-70 made visible."""
+
+    RESOLVE = "resolve"
+    DOWNLOAD = "download"
+    RENDER = "render"
+    REPUBLISH = "republish"
+
+
+RETRY_TARGET_STATUS = {
+    RetryBranch.RESOLVE: PostStatus.RESOLVING,
+    RetryBranch.DOWNLOAD: PostStatus.DOWNLOADING,
+    RetryBranch.RENDER: PostStatus.RENDERING,
+    RetryBranch.REPUBLISH: PostStatus.PUBLISHING,
+}
+
+RETRY_DISPATCH_FAILED_ERROR = {
+    RetryBranch.RESOLVE: DISPATCH_FAILED_ERROR,
+    RetryBranch.DOWNLOAD: DOWNLOAD_DISPATCH_FAILED_ERROR,
+    RetryBranch.RENDER: RENDER_DISPATCH_FAILED_ERROR,
+    RetryBranch.REPUBLISH: PUBLISH_DISPATCH_FAILED_ERROR,
+}
+
+RETRY_RECEIPT = {
+    RetryBranch.RESOLVE: "Повторюю обробку поста {post_id}.",
+    RetryBranch.DOWNLOAD: "Повторюю завантаження аудіо для поста {post_id}.",
+    RetryBranch.RENDER: "Повторюю рендер відео для поста {post_id}.",
+    RetryBranch.REPUBLISH: "Повторюю публікацію поста {post_id}.",
+}
+
+# The stage the post is *stuck in*, and what repeating it means. Every one of
+# these has a self-edge in `db.states`, which is what makes the reclaim legal.
+STALE_STAGE_BRANCH = {
+    PostStatus.RESOLVING: RetryBranch.RESOLVE,
+    PostStatus.DOWNLOADING: RetryBranch.DOWNLOAD,
+    # Nothing runs in DOWNLOADED: the render dispatch happens right after the
+    # download commits, so a post left here means the worker died in between.
+    PostStatus.DOWNLOADED: RetryBranch.RENDER,
+    PostStatus.RENDERING: RetryBranch.RENDER,
+}
+
+STALE_STAGE_ANSWER = {
+    PostStatus.RESOLVING: "Пост {post_id} уже обробляється. Зачекайте на чернетку або на помилку.",
+    PostStatus.DOWNLOADING: "Для поста {post_id} уже качається аудіо. Зачекайте на прев'ю.",
+    PostStatus.DOWNLOADED: "Для поста {post_id} рендер уже в черзі. Зачекайте на прев'ю.",
+    PostStatus.RENDERING: "Для поста {post_id} уже рендериться відео. Зачекайте на прев'ю.",
+}
+
+STALE_STAGE_REFUSAL_REASON = {
+    PostStatus.RESOLVING: "already_resolving",
+    PostStatus.DOWNLOADING: "already_downloading",
+    PostStatus.DOWNLOADED: "render_already_queued",
+    PostStatus.RENDERING: "already_rendering",
 }
 
 
@@ -101,8 +179,8 @@ async def handle_retry(
     bind_post_id(post_id)
     logger.info("retry_requested", user_id=user_id, post_id=post_id)
 
-    republish = False
-    reclaimed_stale_resolving = False
+    branch = RetryBranch.RESOLVE
+    reclaimed_stale_stage: str | None = None
 
     async with session_scope(session_factory) as session:
         try:
@@ -124,113 +202,119 @@ async def handle_retry(
             )
             return
 
-        if post.status is PostStatus.FAILED and post.draft_message_id is not None:
-            # The draft was delivered, so the failure came after it — on
-            # publication (D-47). Resolving here substitutes the intent.
-            republish = True
-            set_post_status(post, PostStatus.PUBLISHING)
+        if post.status is PostStatus.FAILED:
+            branch = _retry_branch_for_failed_post(post)
 
-        elif post.status is PostStatus.RESOLVING:
-            if not _resolving_has_gone_stale(post):
-                # The self-edge exists for Celery redelivery, not as a button:
+        elif post.status in STALE_STAGE_BRANCH:
+            stuck_status = post.status
+            if not _stage_has_gone_stale(post, _stage_time_limit_seconds(stuck_status)):
+                # The self-edges exist for Celery redelivery, not as a button:
                 # a second task would race the first into two drafts (D-43/F-9).
-                await message.answer(
-                    f"Пост {post_id} уже обробляється. Зачекайте на чернетку або на помилку."
-                )
-                logger.warning(
-                    "retry_refused", reason="already_resolving", user_id=user_id, post_id=post_id
-                )
-                return
-
-            # The self-edge changes no column, so the ORM `onupdate` never
-            # fires and every later /retry would pass this guard too (R3-4).
-            post.updated_at = datetime.now(UTC)
-            reclaimed_stale_resolving = True
-
-        if not republish:
-            try:
-                set_post_status(post, PostStatus.RESOLVING)
-            except IllegalStatusTransitionError:
-                await message.answer(
-                    f"Пост {post_id} зараз у стані «{post.status.value}» — /retry недоступний."
-                )
+                await message.answer(STALE_STAGE_ANSWER[stuck_status].format(post_id=post_id))
                 logger.warning(
                     "retry_refused",
-                    reason="illegal_status",
-                    status=post.status.value,
+                    reason=STALE_STAGE_REFUSAL_REASON[stuck_status],
                     user_id=user_id,
                     post_id=post_id,
                 )
                 return
 
-    # The two branches are different intents, not two spellings of one — which
-    # is the distinction D-47 introduced and D-70 asked to make visible.
-    branch = "republish" if republish else "resolve"
-    logger.info(
-        "retry_branch_selected",
-        branch=branch,
-        user_id=user_id,
-        post_id=post_id,
-        reclaimed_stale_resolving=reclaimed_stale_resolving,
-    )
+            # A self-edge changes no column, so the ORM `onupdate` never fires
+            # and every later /retry would pass this guard too (R3-4).
+            post.updated_at = datetime.now(UTC)
+            reclaimed_stale_stage = stuck_status.value
+            branch = STALE_STAGE_BRANCH[stuck_status]
 
-    if republish:
-        if not await _dispatch_publish_task(celery_client, post_id, user_id):
-            await _mark_dispatch_failure(
-                session_factory,
-                post_id,
-                expected_status=PostStatus.PUBLISHING,
-                error=PUBLISH_DISPATCH_FAILED_ERROR,
+        try:
+            set_post_status(post, RETRY_TARGET_STATUS[branch])
+        except IllegalStatusTransitionError:
+            await message.answer(
+                f"Пост {post_id} зараз у стані «{post.status.value}» — /retry недоступний."
             )
-            await message.answer("Не вдалося поставити задачу в чергу. Спробуйте ще раз.")
             logger.warning(
                 "retry_refused",
-                reason="dispatch_failed",
-                branch=branch,
+                reason="illegal_status",
+                status=post.status.value,
                 user_id=user_id,
                 post_id=post_id,
             )
             return
 
-        await message.answer(f"Повторюю публікацію поста {post_id}.")
-        logger.info("retry_dispatched", branch=branch, user_id=user_id, post_id=post_id)
-        return
+    logger.info(
+        "retry_branch_selected",
+        branch=branch.value,
+        user_id=user_id,
+        post_id=post_id,
+        reclaimed_stale_stage=reclaimed_stale_stage,
+    )
 
-    if not await _dispatch_resolve_task(celery_client, post_id):
+    if not await _dispatch_retry_task(celery_client, branch, post_id, user_id):
         await _mark_dispatch_failure(
             session_factory,
             post_id,
-            expected_status=PostStatus.RESOLVING,
-            error=DISPATCH_FAILED_ERROR,
+            expected_status=RETRY_TARGET_STATUS[branch],
+            error=RETRY_DISPATCH_FAILED_ERROR[branch],
         )
         await message.answer("Не вдалося поставити задачу в чергу. Спробуйте ще раз.")
         logger.warning(
             "retry_refused",
             reason="dispatch_failed",
-            branch=branch,
+            branch=branch.value,
             user_id=user_id,
             post_id=post_id,
         )
         return
 
-    await message.answer(f"Повторюю обробку поста {post_id}.")
-    logger.info("retry_dispatched", branch=branch, user_id=user_id, post_id=post_id)
+    await message.answer(RETRY_RECEIPT[branch].format(post_id=post_id))
+    logger.info("retry_dispatched", branch=branch.value, user_id=user_id, post_id=post_id)
+
+
+def _retry_branch_for_failed_post(post: Post) -> RetryBranch:
+    """V39/S4-R7: the stage is **read** from `failed_from_status`, never
+    guessed from `draft_message_id`. Step 4 put two stages between the draft
+    and the publication, and a post that failed while downloading has a draft
+    too — the D-47 rule would hand it to `publish_post` as a photo."""
+    stage = post.failed_from_status
+    if stage is PostStatus.RESOLVING:
+        return RetryBranch.RESOLVE
+    if stage is PostStatus.DOWNLOADING:
+        return RetryBranch.DOWNLOAD
+    if stage in (PostStatus.DOWNLOADED, PostStatus.EDITING, PostStatus.RENDERING):
+        return RetryBranch.RENDER
+    if stage is PostStatus.PUBLISHING:
+        return RetryBranch.REPUBLISH
+
+    # Rows that failed before migration 0004 carry no stage at all, and for
+    # them the D-47 rule is still exactly right: step 4 did not exist yet.
+    return RetryBranch.REPUBLISH if post.draft_message_id is not None else RetryBranch.RESOLVE
+
+
+async def _dispatch_retry_task(
+    celery_client: Celery, branch: RetryBranch, post_id: int, user_id: int
+) -> bool:
+    if branch is RetryBranch.REPUBLISH:
+        return await _dispatch_publish_task(celery_client, post_id, user_id)
+    if branch is RetryBranch.DOWNLOAD:
+        return await _dispatch_media_task(celery_client, DOWNLOAD_POST_AUDIO_TASK_NAME, post_id)
+    if branch is RetryBranch.RENDER:
+        return await _dispatch_media_task(celery_client, RENDER_POST_VIDEO_TASK_NAME, post_id)
+    return await _dispatch_resolve_task(celery_client, post_id)
 
 
 @router.callback_query()
-async def handle_publish_callback(
+async def handle_callback(
     callback: CallbackQuery,
     bot: Bot,
     session_factory: async_sessionmaker[AsyncSession],
     celery_client: Celery,
 ) -> None:
-    """The publish trigger (D-46). Reachable only by admins for the same
-    reason every command is: the allowlist is an *outer* middleware on
-    `dispatcher.update`, and `event_from_user` is populated for a
-    `callback_query` too — `test_callback_authorization.py` proves it.
+    """The two inline triggers (D-46 publish, D-77 render). Reachable only by
+    admins for the same reason every command is: the allowlist is an *outer*
+    middleware on `dispatcher.update`, and `event_from_user` is populated for
+    a `callback_query` too — `test_callback_authorization.py` proves it.
     """
-    post_id = parse_publish_callback(callback.data)
-    if post_id is None or callback.from_user is None:
+    parsed = parse_callback(callback.data)
+    if parsed is None or callback.from_user is None:
         logger.warning(
             "callback_rejected",
             reason="unparsable_callback_data",
@@ -239,9 +323,27 @@ async def handle_publish_callback(
         await callback.answer(UNKNOWN_CALLBACK_ANSWER)
         return
 
-    bind_post_id(post_id)
-    user_id = callback.from_user.id
+    bind_post_id(parsed.post_id)
 
+    if parsed.action is CallbackAction.RENDER:
+        await _handle_render_tap(
+            callback, parsed.post_id, callback.from_user.id, bot, session_factory, celery_client
+        )
+        return
+
+    await _handle_publish_tap(
+        callback, parsed.post_id, callback.from_user.id, bot, session_factory, celery_client
+    )
+
+
+async def _handle_publish_tap(
+    callback: CallbackQuery,
+    post_id: int,
+    user_id: int,
+    bot: Bot,
+    session_factory: async_sessionmaker[AsyncSession],
+    celery_client: Celery,
+) -> None:
     # `published_by_user_id` is written on success only, so until now a
     # refused or failed tap left no trace of who tapped at all (D-70).
     logger.info("publish_button_tapped", user_id=user_id, post_id=post_id)
@@ -269,7 +371,7 @@ async def handle_publish_callback(
 
     # After the commit, before the dispatch: removing it any earlier would
     # strand a post the database then declined to move.
-    await _remove_publish_keyboard(bot, draft_reference)
+    await _remove_keyboard(bot, draft_reference, "publish_keyboard_removal_failed")
 
     if not await _dispatch_publish_task(celery_client, post_id, user_id):
         await _mark_dispatch_failure(
@@ -288,6 +390,56 @@ async def handle_publish_callback(
 
     await callback.answer("Публікую…")
     logger.info("publish_task_dispatched", user_id=user_id, post_id=post_id)
+
+
+async def _handle_render_tap(
+    callback: CallbackQuery,
+    post_id: int,
+    user_id: int,
+    bot: Bot,
+    session_factory: async_sessionmaker[AsyncSession],
+    celery_client: Celery,
+) -> None:
+    """D-77: the media chain starts here and nowhere else. Minutes of CPU and
+    hundreds of megabytes are spent only on a draft the admin approved."""
+    logger.info("render_button_tapped", user_id=user_id, post_id=post_id)
+
+    refusal: str | None = None
+    draft_reference: tuple[int, int] | None = None
+
+    async with session_scope(session_factory) as session:
+        try:
+            post = await session.get(Post, post_id, with_for_update={"nowait": True})
+        except DBAPIError:
+            await session.rollback()
+            refusal = f"Пост {post_id} зараз обробляється. Спробуйте за кілька секунд."
+            logger.warning("render_refused", reason="post_locked", user_id=user_id, post_id=post_id)
+        else:
+            refusal, draft_reference = _claim_post_for_media(post, post_id, user_id)
+
+    if refusal is not None:
+        await callback.answer(refusal, show_alert=True)
+        return
+
+    # D-68 order: database, keyboard, dispatch. Removing it before the commit
+    # would strand a post the database then declined to move.
+    await _remove_keyboard(bot, draft_reference, "render_keyboard_removal_failed")
+
+    if not await _dispatch_media_task(celery_client, DOWNLOAD_POST_AUDIO_TASK_NAME, post_id):
+        await _mark_dispatch_failure(
+            session_factory,
+            post_id,
+            expected_status=PostStatus.DOWNLOADING,
+            error=DOWNLOAD_DISPATCH_FAILED_ERROR,
+        )
+        await callback.answer(
+            f"Не вдалося поставити задачу в чергу. Спробуйте /retry {post_id}.", show_alert=True
+        )
+        logger.warning("render_refused", reason="dispatch_failed", user_id=user_id, post_id=post_id)
+        return
+
+    await callback.answer("Роблю відео… Прев'ю прийде окремим повідомленням.")
+    logger.info("download_task_dispatched", user_id=user_id, post_id=post_id)
 
 
 def _claim_post_for_publishing(
@@ -314,6 +466,18 @@ def _claim_post_for_publishing(
         )
         return f"Пост {post_id} уже публікується.", None
 
+    if post.status in MEDIA_IN_PROGRESS_STATUSES:
+        # S4-R14: `RESOLVED -> PUBLISHING` is still legal, so this tap would
+        # otherwise be refused by a state name instead of by a reason.
+        logger.warning(
+            "publish_refused",
+            reason="media_in_progress",
+            status=post.status.value,
+            user_id=user_id,
+            post_id=post_id,
+        )
+        return MEDIA_IN_PROGRESS_ANSWER.format(post_id=post_id), None
+
     try:
         set_post_status(post, PostStatus.PUBLISHING)
     except IllegalStatusTransitionError:
@@ -326,14 +490,71 @@ def _claim_post_for_publishing(
         )
         return f"Пост {post_id} у стані «{post.status.value}» — публікація недоступна.", None
 
-    if post.draft_chat_id is None or post.draft_message_id is None:
-        return None, None
-    return None, (post.draft_chat_id, post.draft_message_id)
+    return None, _button_message_reference(post)
 
 
-async def _remove_publish_keyboard(bot: Bot, draft_reference: tuple[int, int] | None) -> None:
+def _claim_post_for_media(
+    post: Post | None, post_id: int, user_id: int
+) -> tuple[str | None, tuple[int, int] | None]:
+    """The render button's mirror of `_claim_post_for_publishing`: moves a
+    locked post into `downloading`, or explains why it cannot go there."""
+    if post is None:
+        logger.warning("render_refused", reason="post_not_found", user_id=user_id, post_id=post_id)
+        return f"Пост {post_id} не знайдено.", None
+
+    if post.channel_message_id is not None:
+        logger.warning(
+            "render_refused", reason="already_published", user_id=user_id, post_id=post_id
+        )
+        return f"Пост {post_id} уже опубліковано — відео йому вже не допоможе.", None
+
+    if post.status in MEDIA_IN_PROGRESS_STATUSES:
+        logger.warning(
+            "render_refused",
+            reason="media_in_progress",
+            status=post.status.value,
+            user_id=user_id,
+            post_id=post_id,
+        )
+        return MEDIA_IN_PROGRESS_ANSWER.format(post_id=post_id), None
+
+    if post.status is PostStatus.RENDERED:
+        logger.warning(
+            "render_refused", reason="already_rendered", user_id=user_id, post_id=post_id
+        )
+        return VIDEO_READY_ANSWER.format(post_id=post_id), None
+
+    try:
+        set_post_status(post, PostStatus.DOWNLOADING)
+    except IllegalStatusTransitionError:
+        logger.warning(
+            "render_refused",
+            reason="illegal_status",
+            status=post.status.value,
+            user_id=user_id,
+            post_id=post_id,
+        )
+        return f"Пост {post_id} у стані «{post.status.value}» — відео недоступне.", None
+
+    return None, _button_message_reference(post)
+
+
+def _button_message_reference(post: Post) -> tuple[int, int] | None:
+    """Which message actually carries the button now. Once a preview exists
+    it is the preview: the text draft lost its keyboard when the preview
+    arrived, and editing a removed keyboard is a no-op at best."""
+    if post.preview_chat_id is not None and post.preview_message_id is not None:
+        return post.preview_chat_id, post.preview_message_id
+    if post.draft_chat_id is not None and post.draft_message_id is not None:
+        return post.draft_chat_id, post.draft_message_id
+    return None
+
+
+async def _remove_keyboard(
+    bot: Bot, draft_reference: tuple[int, int] | None, failure_event: str
+) -> None:
     """Cosmetic on its own — the status transition above is the real guard —
-    so a failure here must not stop a publication the database already owns."""
+    so a failure here must not stop work the database already owns."""
     if draft_reference is None:
         return
 
@@ -343,7 +564,7 @@ async def _remove_publish_keyboard(bot: Bot, draft_reference: tuple[int, int] | 
             chat_id=chat_id, message_id=message_id, reply_markup=None
         )
     except TelegramAPIError:
-        logger.warning("publish_keyboard_removal_failed", message_id=message_id, exc_info=True)
+        logger.warning(failure_event, message_id=message_id, exc_info=True)
 
 
 @router.message(F.text)
@@ -449,13 +670,29 @@ async def handle_link(
     await message.answer(receipt)
 
 
-def _resolving_has_gone_stale(post: Post) -> bool:
-    """The only way out of `RESOLVING` when the worker died mid-task (R2-2).
-    No race with F-9: Celery's hard limit kills a live task at
-    `TASK_TIME_LIMIT_SECONDS`, so a running one is always fresher than this.
-    """
+def _stage_has_gone_stale(post: Post, time_limit_seconds: int) -> bool:
+    """The only way out of an in-progress state when the worker died mid-task
+    (R2-2). No race with F-9: Celery's hard limit kills a live task at its own
+    `time_limit`, so a running one is always fresher than this."""
     age_seconds = (datetime.now(UTC) - post.updated_at).total_seconds()
-    return age_seconds > TASK_TIME_LIMIT_SECONDS
+    return age_seconds > time_limit_seconds
+
+
+def _stage_time_limit_seconds(status: PostStatus) -> int:
+    """§3: each stage is measured against **its own** Celery hard limit. The
+    resolve's lives in `worker.celery_app`, the media ones in `Settings` —
+    which is exactly why raising one never widens the window of another."""
+    if status is PostStatus.DOWNLOADING:
+        return settings.download_task_time_limit_seconds
+    if status in (PostStatus.DOWNLOADED, PostStatus.RENDERING):
+        return settings.render_task_time_limit_seconds
+    return TASK_TIME_LIMIT_SECONDS
+
+
+def _resolving_has_gone_stale(post: Post) -> bool:
+    """The `RESOLVING` case of the above, kept named because D-43's refusal
+    and F-9's non-race are both about this one state."""
+    return _stage_has_gone_stale(post, TASK_TIME_LIMIT_SECONDS)
 
 
 def _split_links(text: str) -> list[str]:
@@ -610,6 +847,17 @@ async def _dispatch_resolve_task(celery_client: Celery, post_id: int) -> bool:
         )
     except Exception:
         logger.exception("resolve_task_dispatch_failed", post_id=post_id)
+        return False
+    return True
+
+
+async def _dispatch_media_task(celery_client: Celery, task_name: str, post_id: int) -> bool:
+    """By name, like every other dispatch here: `bot/` must never import
+    `worker.tasks` (AGENTS.md), and the media tasks are no exception."""
+    try:
+        await asyncio.to_thread(celery_client.send_task, task_name, kwargs={"post_id": post_id})
+    except Exception:
+        logger.exception("media_task_dispatch_failed", task_name=task_name, post_id=post_id)
         return False
     return True
 

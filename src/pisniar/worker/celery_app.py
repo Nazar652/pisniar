@@ -13,8 +13,15 @@ RESOLVE_POST_TASK_NAME = "pisniar.worker.resolve_post"
 # itself — that import edge is the boundary AGENTS.md keeps closed.
 PUBLISH_POST_TASK_NAME = "pisniar.worker.publish_post"
 
+# Step 4A's media chain. The render button starts the download (D-77), and
+# the download task chains the render once `DOWNLOADED` is committed.
+DOWNLOAD_POST_AUDIO_TASK_NAME = "pisniar.worker.download_post_audio"
+RENDER_POST_VIDEO_TASK_NAME = "pisniar.worker.render_post_video"
+
 # A full resolve is ~20s of throttled HTTP; these are the ceiling that stops
 # one wedged socket from owning the single worker slot forever (F-15).
+# `bot.handlers` reads them as the "resolve has gone stale" window, so the
+# media tasks carry their own limits from `Settings` instead (§3).
 TASK_SOFT_TIME_LIMIT_SECONDS = 300
 TASK_TIME_LIMIT_SECONDS = 360
 

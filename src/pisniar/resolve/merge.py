@@ -25,6 +25,9 @@ STORED_SCALAR_FIELDS = (
     "release_title",
     "album_id_spotify",
     "cover_url",
+    # Persisted since step 4A: without it here the first `/retry` with a
+    # failed source nulls the duration the download then checks against.
+    "duration_ms",
 )
 
 # Higher number wins. "songlink:spotify"/"songlink:youtube" are qualified —

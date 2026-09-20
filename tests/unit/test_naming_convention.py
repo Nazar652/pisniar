@@ -9,12 +9,14 @@ from typing import cast
 
 from sqlalchemy import Table
 
-from pisniar.db.models import Post, SourceFetch, Track
+from pisniar.db.models import AudioAsset, Post, Render, SourceFetch, Track
 
 # Typed as FromClause by the stubs, but always a real Table at runtime.
 TRACK_TABLE = cast(Table, Track.__table__)
 POST_TABLE = cast(Table, Post.__table__)
 SOURCE_FETCH_TABLE = cast(Table, SourceFetch.__table__)
+AUDIO_ASSET_TABLE = cast(Table, AudioAsset.__table__)
+RENDER_TABLE = cast(Table, Render.__table__)
 
 
 def test_track_constraint_names_are_unchanged() -> None:
@@ -36,6 +38,7 @@ def test_post_constraint_and_index_names_are_unchanged() -> None:
         ("ix_post_track_id", False),
         ("uq_post_channel_message", True),
         ("uq_post_draft_message", True),
+        ("uq_post_preview_message", True),
     }
 
     check_names = {
@@ -44,12 +47,47 @@ def test_post_constraint_and_index_names_are_unchanged() -> None:
         if constraint.__class__.__name__ == "CheckConstraint"
     }
     assert "ck_post_status_valid" in check_names
+    assert "ck_post_failed_from_status_valid" in check_names
     assert "ck_post_fragment_bounds_valid" in check_names
     assert "ck_post_channel_ref_complete" in check_names
     assert "ck_post_draft_ref_complete" in check_names
+    assert "ck_post_preview_ref_complete" in check_names
 
     fk_names = {fk.name for fk in POST_TABLE.foreign_key_constraints}
     assert fk_names == {"fk_post_track_id_track"}
+
+
+def test_media_artifact_constraint_names_are_unchanged() -> None:
+    assert AUDIO_ASSET_TABLE.primary_key.name == "pk_audio_asset"
+    assert RENDER_TABLE.primary_key.name == "pk_render"
+
+    unique_names = {
+        constraint.name
+        for table in (AUDIO_ASSET_TABLE, RENDER_TABLE)
+        for constraint in table.constraints
+        if constraint.__class__.__name__ == "UniqueConstraint"
+    }
+    assert unique_names == {"uq_audio_asset_track_id_video_id", "uq_render_post_id_params_hash"}
+
+    check_names = {
+        constraint.name
+        for table in (AUDIO_ASSET_TABLE, RENDER_TABLE)
+        for constraint in table.constraints
+        if constraint.__class__.__name__ == "CheckConstraint"
+    }
+    assert check_names == {
+        "ck_audio_asset_size_positive",
+        "ck_audio_asset_duration_positive",
+        "ck_render_size_positive",
+        "ck_render_duration_positive",
+    }
+
+    fk_names = {
+        fk.name
+        for table in (AUDIO_ASSET_TABLE, RENDER_TABLE)
+        for fk in table.foreign_key_constraints
+    }
+    assert fk_names == {"fk_audio_asset_track_id_track", "fk_render_post_id_post"}
 
 
 def test_source_fetch_constraint_names_are_unchanged() -> None:

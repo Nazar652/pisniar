@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import inspect
 import re
+from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
@@ -35,6 +36,7 @@ from pisniar.telegram.publish import (
     publish_to_channel,
     warn_if_channel_identity_diverges,
 )
+from pisniar.telegram.video import RenderedVideo
 
 CHANNEL_ID = -1001234567890
 CAPTION_WITH_MARKUP = '<a href="https://open.spotify.com/track/x">Spotify</a> &amp; Co «Тест»'
@@ -89,11 +91,59 @@ def make_administrator(*, can_post_messages: bool) -> ChatMemberAdministrator:
     )
 
 
-def make_bot(*, photo_message_id: int = 77, text_message_id: int = 78) -> AsyncMock:
+def make_bot(
+    *, photo_message_id: int = 77, text_message_id: int = 78, video_message_id: int = 79
+) -> AsyncMock:
     bot = AsyncMock()
     bot.send_photo.return_value.message_id = photo_message_id
     bot.send_message.return_value.message_id = text_message_id
+    bot.send_video.return_value.message_id = video_message_id
     return bot
+
+
+def make_video(tmp_path: Path) -> RenderedVideo:
+    video_path = tmp_path / "render.mp4"
+    video_path.write_bytes(b"video bytes")
+    return RenderedVideo(path=video_path, width=720, height=1280, duration_ms=45_000)
+
+
+async def test_a_rendered_post_goes_out_as_a_video_not_a_photo(tmp_path: Path) -> None:
+    """§6's third branch. The caller decides it from the status, and once it
+    has, the cover URL must not pull the post back to `send_photo`."""
+    bot = make_bot()
+    post = make_post()
+
+    await publish_to_channel(
+        bot, post, CHANNEL_ID, "https://cdn.example/cover.jpg", make_video(tmp_path)
+    )
+
+    bot.send_video.assert_awaited_once()
+    bot.send_photo.assert_not_awaited()
+    bot.send_message.assert_not_awaited()
+    assert post.channel_chat_id == CHANNEL_ID
+    assert post.channel_message_id == 79
+
+
+async def test_the_video_caption_is_the_same_string_the_preview_carried(tmp_path: Path) -> None:
+    """V41/S4-A14: the video caption limit is the photo caption limit, so
+    nothing is rebuilt between the preview and the channel."""
+    bot = make_bot()
+
+    await publish_to_channel(bot, make_post(), CHANNEL_ID, None, make_video(tmp_path))
+
+    sent = bot.send_video.await_args.kwargs
+    assert sent["caption"] == CAPTION_WITH_MARKUP
+    assert sent["parse_mode"] == "HTML"
+
+
+async def test_an_already_published_post_sends_no_video_either(tmp_path: Path) -> None:
+    bot = make_bot()
+    post = make_post(channel_message_id=500)
+
+    await publish_to_channel(bot, post, CHANNEL_ID, None, make_video(tmp_path))
+
+    bot.send_video.assert_not_awaited()
+    assert post.channel_message_id == 500
 
 
 async def test_a_post_with_a_cover_goes_out_as_a_photo_with_the_caption() -> None:

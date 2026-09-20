@@ -58,7 +58,13 @@ def publish_mock(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
     """Stands in for the real send and writes the reference the same way, so
     the task's own transaction order is what is under test here."""
 
-    async def fake_publish(bot: object, post: Post, chat_id: int, cover_url: str | None) -> None:
+    async def fake_publish(
+        bot: object,
+        post: Post,
+        chat_id: int,
+        cover_url: str | None,
+        video: object | None = None,
+    ) -> None:
         if post.channel_message_id is not None:
             return
         post.channel_chat_id = chat_id

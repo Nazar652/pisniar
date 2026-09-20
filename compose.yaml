@@ -89,6 +89,10 @@ services:
       - .env
     environment:
       <<: *app-environment
+    # Named, not a bind mount (Windows + heavy files is what forced
+    # WATCHFILES_FORCE_POLLING); worker-only, since a shared volume is D-1.
+    volumes:
+      - media-data:/data
     depends_on:
       postgres:
         condition: service_healthy
@@ -107,3 +111,4 @@ services:
 
 volumes:
   postgres-data:
+  media-data:

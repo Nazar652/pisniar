@@ -76,16 +76,19 @@ CMD ["watchfiles", "--filter", "python", "python -m pisniar.bot.main", "/app/src
 
 FROM source-prod AS worker
 # apt-get needs root back; hand it off again after, or runtime stays root (D-23).
-
-# USER root
-# RUN apt-get update && apt-get install -y --no-install-recommends \
-#     ffmpeg fonts-noto-core && rm -rf /var/lib/apt/lists/*
-# USER app
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg fonts-noto-core && rm -rf /var/lib/apt/lists/*
+# Docker seeds an empty named volume from the image path, ownership included —
+# this chown is the only thing that lets non-root `app` write to /data.
+RUN mkdir -p /data/audio /data/render /data/tmp && chown -R app:app /data
+USER app
 CMD ["celery", "-A", "pisniar.worker.tasks", "worker", "--loglevel=INFO"]
 
 FROM source-dev AS worker-dev
-# USER root
-# RUN apt-get update && apt-get install -y --no-install-recommends \
-#     ffmpeg fonts-noto-core && rm -rf /var/lib/apt/lists/*
-# USER app
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg fonts-noto-core && rm -rf /var/lib/apt/lists/*
+RUN mkdir -p /data/audio /data/render /data/tmp && chown -R app:app /data
+USER app
 CMD ["watchfiles", "--filter", "python", "celery -A pisniar.worker.tasks worker --loglevel=INFO", "/app/src"]

@@ -5,20 +5,26 @@ entrypoint. Importing this reads/validates `Settings`, unlike
 
 from __future__ import annotations
 
+import asyncio
+from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import httpx
 from aiogram import Bot
 from aiogram.exceptions import TelegramAPIError
+from celery.exceptions import SoftTimeLimitExceeded
 from celery.signals import task_postrun, task_prerun
 from sqlalchemy import func, select, text
+from sqlalchemy.dialects.postgresql import Insert as PostgresInsert
+from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from pisniar.channel import warn_if_alerts_share_the_channel
 from pisniar.config import Settings, get_settings, redaction_secrets
-from pisniar.db.models import DEFAULT_LANGUAGES, Post, Track
+from pisniar.db.models import DEFAULT_LANGUAGES, AudioAsset, Post, Render, Track
 from pisniar.db.session import LOCK_TIMEOUT_MS, build_engine, build_session_factory
 from pisniar.db.states import PostStatus, set_post_status
 from pisniar.logging import (
@@ -47,15 +53,24 @@ from pisniar.resolve.urls import UrlKind, classify_url
 from pisniar.telegram.client import build_bot
 from pisniar.telegram.draft import deliver_draft
 from pisniar.telegram.notifier import send_alert
+from pisniar.telegram.preview import deliver_preview, remove_draft_keyboard
 from pisniar.telegram.publish import (
     channel_post_url,
     describe_publish_error,
     preflight_channel,
     publish_to_channel,
 )
+from pisniar.telegram.video import RenderedVideo
+from pisniar.worker import download as audio_download
+from pisniar.worker import ffmpeg as media_tools
+from pisniar.worker import fragment as fragment_rule
+from pisniar.worker import render as video_render
+from pisniar.worker import storage as media_storage
 from pisniar.worker.celery_app import (
+    DOWNLOAD_POST_AUDIO_TASK_NAME,
     PING_TASK_NAME,
     PUBLISH_POST_TASK_NAME,
+    RENDER_POST_VIDEO_TASK_NAME,
     RESOLVE_POST_TASK_NAME,
     build_celery_app,
 )
@@ -413,6 +428,7 @@ def _persist_track(track: Track, resolved: ResolvedTrack) -> None:
     track.release_title = resolved.release_title
     track.album_id_spotify = resolved.album_id_spotify
     track.cover_url = resolved.cover_url
+    track.duration_ms = resolved.duration_ms
     track.platform_links = {
         platform: _platform_link_to_dict(link) for platform, link in resolved.platform_links.items()
     }
@@ -635,6 +651,10 @@ async def _delete_post_and_orphan_track(
             f"у стані «resolving»: {_redacted(str(error))}"
         )
 
+    # §5: after the commit. The reverse order leaves a surviving row pointing
+    # at a deleted file, which is worse than an orphan file with no row.
+    media_storage.remove_post_artifacts(settings.media_root, post_id)
+
     try:
         # Re-taken after that commit released it: the lock is what blocks a
         # concurrent `INSERT INTO post` this COUNT would otherwise not see.
@@ -654,6 +674,8 @@ async def _delete_post_and_orphan_track(
                 # another post. Expected outcome, not a failure here (F-12).
                 await session.rollback()
                 logger.info("resolve_post_track_still_referenced", track_id=track_id)
+            else:
+                media_storage.remove_track_artifacts(settings.media_root, track_id)
         else:
             # Committed before Telegram, not after: this branch used to hold
             # the row lock across two network calls (R3-3).
@@ -730,6 +752,62 @@ async def _publish_post(post_id: int, published_by_user_id: int) -> None:
         await engine.dispose()
 
 
+def post_reached_rendered(post: Post) -> bool:
+    """§6 asks for «`post.status is RENDERED`», and by the time `publish_post`
+    runs the status is already `PUBLISHING` — the claim moved it. The durable
+    trace of `RENDERED` is `preview_message_id`: it is written in the very
+    transaction that sets that status and by nothing else, so reading it here
+    is still the status deciding, not a file that happens to be on the volume.
+    """
+    return post.preview_message_id is not None
+
+
+class RenderedVideoUnavailableError(RuntimeError):
+    """The post was previewed as a video and the video is gone. Loud on
+    purpose: falling back to `send_photo` would put a different post in the
+    channel than the one the admin approved, and D-65 leaves no way back."""
+
+
+async def _video_for_publication(session: AsyncSession, post: Post) -> RenderedVideo | None:
+    """The video branch of §6. A file alone never qualifies: a previous failed
+    attempt leaves one behind, and publishing it would be publishing a post
+    the admin never previewed."""
+    if not post_reached_rendered(post):
+        return None
+
+    render_row = (
+        (
+            await session.execute(
+                select(Render).where(Render.post_id == post.id).order_by(Render.updated_at.desc())
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if render_row is None:
+        raise RenderedVideoUnavailableError(
+            f"пост {post.id} має прев'ю з відео, але рядка render для нього немає — "
+            f"публікація фотографією підмінила б те, що схвалив адмін"
+        )
+
+    path = Path(render_row.path)
+    if media_storage.existing_artifact(path) is None:
+        raise RenderedVideoUnavailableError(
+            f"файл відео {path} зник із тому — повторіть рендер через /retry {post.id}"
+        )
+
+    thumbnail = media_storage.existing_artifact(
+        media_storage.thumbnail_file_path(settings.media_root, post.id, render_row.params_hash)
+    )
+    return RenderedVideo(
+        path=path,
+        width=video_render.VIDEO_WIDTH,
+        height=video_render.VIDEO_HEIGHT,
+        duration_ms=render_row.duration_ms,
+        thumbnail_path=thumbnail,
+    )
+
+
 async def _publish_and_confirm(
     session: AsyncSession, post: Post, track: Track, published_by_user_id: int
 ) -> None:
@@ -738,6 +816,7 @@ async def _publish_and_confirm(
     post_id = post.id
     draft_chat_id = post.draft_chat_id
     draft_message_id = post.draft_message_id
+    preview_reference = (post.preview_chat_id, post.preview_message_id)
     cover_url = track.cover_url
 
     bot = build_bot(settings)
@@ -745,9 +824,13 @@ async def _publish_and_confirm(
         try:
             chat = await preflight_channel(bot, settings.channel_id)
 
+            # Inside the try: a post previewed as a video whose file is gone
+            # must fail loudly here, never quietly go out as a photo.
+            video = await _video_for_publication(session, post)
+
             # Barrier 2, the D-38 order mirrored: send, write, commit, with
             # no network call between. The crash window is accepted (D-47).
-            await publish_to_channel(bot, post, settings.channel_id, cover_url)
+            await publish_to_channel(bot, post, settings.channel_id, cover_url, video)
             channel_message_id = post.channel_message_id
             assert channel_message_id is not None
 
@@ -769,13 +852,23 @@ async def _publish_and_confirm(
             return
 
         logger.info(
-            "publish_post_published", post_id=post_id, channel_message_id=channel_message_id
+            "publish_post_published",
+            post_id=post_id,
+            channel_message_id=channel_message_id,
+            as_video=video is not None,
         )
+
+        # Q8 retention, after the commit and only on success: Telegram holds
+        # the copy now, and a rollback would orphan the `published` row.
+        if video is not None:
+            media_storage.remove_post_artifacts(settings.media_root, post_id)
+
         await _confirm_publication(
             bot,
             post_id,
             draft_chat_id,
             draft_message_id,
+            preview_reference,
             channel_post_url(chat, channel_message_id),
         )
     finally:
@@ -787,19 +880,29 @@ async def _confirm_publication(
     post_id: int,
     draft_chat_id: int | None,
     draft_message_id: int | None,
+    preview_reference: tuple[int | None, int | None],
     post_url: str,
 ) -> None:
-    """D-66: only the button goes away — `channel_chat_id`/`channel_message_id`
-    stay, because step 5 edits the published caption through them."""
-    if draft_chat_id is not None and draft_message_id is not None:
+    """D-66: only the buttons go away — `channel_chat_id`/`channel_message_id`
+    stay, because step 5 edits the published caption through them. Both
+    messages are cleared: the preview carries a publish button of its own."""
+    for chat_id, message_id in ((draft_chat_id, draft_message_id), preview_reference):
+        if chat_id is None or message_id is None:
+            continue
+
         try:
             await bot.edit_message_reply_markup(
-                chat_id=draft_chat_id, message_id=draft_message_id, reply_markup=None
+                chat_id=chat_id, message_id=message_id, reply_markup=None
             )
         except TelegramAPIError:
             # The bot already removed it on the tap; this is the second pass,
             # for the paths (a retry, a redelivery) that never went through one.
-            logger.warning("publish_post_keyboard_removal_failed", post_id=post_id, exc_info=True)
+            logger.warning(
+                "publish_post_keyboard_removal_failed",
+                post_id=post_id,
+                message_id=message_id,
+                exc_info=True,
+            )
 
     chat_id = draft_chat_id if draft_chat_id is not None else settings.alert_chat_id
     await send_alert(bot, chat_id, f"Пост {post_id} опубліковано: {post_url}")
@@ -842,5 +945,733 @@ async def _fail_publish(
     try:
         for chat_id in chat_ids:
             await send_alert(bot, chat_id, alert_text)
+    finally:
+        await bot.session.close()
+
+
+# ---- step 4A: audio download and video render ----------------------------
+
+# Legal entries into DOWNLOADING / RENDERING per `db.states`. Anything else
+# is a Celery redelivery arriving at a post that has already moved on.
+DOWNLOAD_ENTRY_STATUSES = frozenset(
+    {PostStatus.RESOLVED, PostStatus.DOWNLOADING, PostStatus.FAILED}
+)
+RENDER_ENTRY_STATUSES = frozenset(
+    {PostStatus.DOWNLOADED, PostStatus.EDITING, PostStatus.RENDERING, PostStatus.FAILED}
+)
+
+MEDIA_TASK_TIMEOUT_ERROR = (
+    "перевищено м'який ліміт часу задачі — це ТАЙМАУТ, а не помилка обробки; "
+    "діагностувати треба тривалість операції, а не її вміст"
+)
+
+RENDER_DISPATCH_FAILED_ERROR = (
+    "аудіо завантажено, але задачу рендера не вдалося поставити в чергу — "
+    "повторіть через /retry, завантаження вдруге не знадобиться"
+)
+
+UNKNOWN_YTDLP_VERSION = "unknown"
+
+
+@dataclass(frozen=True)
+class DownloadClaim:
+    """Plain values only: the post lock is released before yt-dlp starts, so
+    nothing here may be an ORM object that would lazily refresh (§2)."""
+
+    post_id: int
+    track_id: int
+    platform_links: dict[str, object]
+    track_duration_ms: int | None
+
+
+@dataclass(frozen=True)
+class DownloadOutcome:
+    video_id: str
+    path: Path
+    size_bytes: int
+    duration_ms: int
+    # None when a stored artifact was reused — the row keeps the version that
+    # actually produced the file instead of the one running now (D-80).
+    ytdlp_version: str | None
+
+
+@dataclass(frozen=True)
+class RenderClaim:
+    post_id: int
+    track_id: int
+    video_id: str
+    audio_path: str
+    audio_duration_ms: int
+    cover_url: str | None
+    fragment_start_ms: int
+    fragment_end_ms: int
+
+
+@dataclass(frozen=True)
+class RenderOutcome:
+    params_hash: str
+    path: Path
+    size_bytes: int
+    duration_ms: int
+    # Cosmetic and therefore optional: Telegram builds its own preview when
+    # it is missing, so a failed thumbnail never fails a verified render.
+    thumbnail_path: Path | None = None
+
+
+@celery_app.task(
+    name=DOWNLOAD_POST_AUDIO_TASK_NAME,
+    bind=True,
+    soft_time_limit=settings.download_task_soft_time_limit_seconds,
+    time_limit=settings.download_task_time_limit_seconds,
+)
+def download_post_audio(self: Any, post_id: int) -> None:
+    """Downloads the track's audio with yt-dlp and records the fragment bounds.
+    Per-task limits (§3): the resolve limits gate `/retry`, so they stay put."""
+    bind_celery_task_id(self.request.id)
+    bind_post_id(post_id)
+    try:
+        run_async(_download_post_audio(post_id))
+    except SoftTimeLimitExceeded:
+        # Celery raises it in the main thread, i.e. out of the event loop
+        # rather than out of any `await` inside it — so it is caught here too.
+        logger.error("download_post_audio_soft_time_limit", post_id=post_id)
+        run_async(_fail_media_post_by_id(post_id, MEDIA_TASK_TIMEOUT_ERROR))
+
+
+async def _download_post_audio(post_id: int) -> None:
+    engine = build_engine(
+        settings.database_url, use_null_pool=True, lock_timeout_ms=LOCK_TIMEOUT_MS
+    )
+    tmp_directory = media_storage.task_tmp_directory(settings.media_root, post_id)
+    try:
+        session_factory = build_session_factory(engine)
+
+        claim = await _claim_post_for_downloading(session_factory, post_id)
+        if claim is None:
+            return
+
+        try:
+            outcome = await asyncio.to_thread(_download_audio_off_transaction, claim, tmp_directory)
+        except SoftTimeLimitExceeded:
+            logger.error("download_post_audio_soft_time_limit", post_id=post_id)
+            await _fail_media_post(session_factory, post_id, MEDIA_TASK_TIMEOUT_ERROR)
+            return
+        except Exception as error:
+            logger.exception("download_post_audio_failed", post_id=post_id)
+            await _fail_media_post(session_factory, post_id, _describe_media_error(error))
+            return
+        finally:
+            media_storage.remove_tree_quietly(tmp_directory)
+
+        await _finish_download(session_factory, claim, outcome)
+    finally:
+        await engine.dispose()
+
+
+async def _claim_post_for_downloading(
+    session_factory: async_sessionmaker[AsyncSession], post_id: int
+) -> DownloadClaim | None:
+    """Transaction 1 of §2: lock, guard, status, commit — milliseconds, and
+    the lock is gone long before yt-dlp is started."""
+    async with session_factory() as session:
+        try:
+            post = await session.get(Post, post_id, with_for_update=True)
+        except DBAPIError as error:
+            await session.rollback()
+            logger.error("download_post_audio_post_locked", post_id=post_id, error=str(error))
+            return None
+
+        if post is None:
+            logger.error("download_post_audio_post_not_found", post_id=post_id)
+            return None
+
+        if post.status not in DOWNLOAD_ENTRY_STATUSES:
+            logger.info(
+                "download_post_audio_task_arrived_at_settled_post",
+                post_id=post_id,
+                status=post.status.value,
+            )
+            return None
+
+        track = await session.get(Track, post.track_id)
+        assert track is not None
+
+        claim = DownloadClaim(
+            post_id=post_id,
+            track_id=track.id,
+            platform_links=dict(track.platform_links),
+            track_duration_ms=track.duration_ms,
+        )
+
+        set_post_status(post, PostStatus.DOWNLOADING)
+        await session.commit()
+
+    logger.info("download_post_audio_claimed", post_id=post_id, track_id=claim.track_id)
+    return claim
+
+
+def _download_audio_off_transaction(claim: DownloadClaim, tmp_directory: Path) -> DownloadOutcome:
+    """Runs in a thread with no transaction and no lock open (§2). The source
+    of `video_id` is `["youtubeMusic"]` and there is no fallback (AS3)."""
+    video_id = audio_download.youtube_music_video_id(claim.platform_links)
+
+    reused = media_storage.find_existing_audio(settings.media_root, claim.track_id, video_id)
+    if reused is not None:
+        probe = audio_download.verify_downloaded_audio(reused, claim.track_duration_ms)
+        logger.info(
+            "download_post_audio_reused_artifact",
+            post_id=claim.post_id,
+            track_id=claim.track_id,
+            path=str(reused),
+        )
+        return DownloadOutcome(
+            video_id=video_id,
+            path=reused,
+            size_bytes=probe.size_bytes,
+            duration_ms=probe.duration_ms,
+            ytdlp_version=None,
+        )
+
+    media_storage.ensure_free_space(settings.media_root, settings.media_min_free_bytes)
+
+    downloaded, ytdlp_version = audio_download.download_audio(
+        video_id,
+        tmp_directory,
+        timeout_seconds=settings.download_task_soft_time_limit_seconds,
+    )
+    probe = audio_download.verify_downloaded_audio(downloaded, claim.track_duration_ms)
+
+    final_path = media_storage.audio_file_path(
+        settings.media_root, claim.track_id, video_id, downloaded.suffix.lstrip(".")
+    )
+    media_storage.publish_atomically(downloaded, final_path)
+
+    return DownloadOutcome(
+        video_id=video_id,
+        path=final_path,
+        size_bytes=probe.size_bytes,
+        duration_ms=probe.duration_ms,
+        ytdlp_version=ytdlp_version,
+    )
+
+
+async def _finish_download(
+    session_factory: async_sessionmaker[AsyncSession],
+    claim: DownloadClaim,
+    outcome: DownloadOutcome,
+) -> None:
+    """Transaction 2 of §2: lock, artifact, fragment bounds, status, commit."""
+    async with session_factory() as session:
+        try:
+            post = await session.get(Post, claim.post_id, with_for_update=True)
+        except DBAPIError as error:
+            await session.rollback()
+            logger.error(
+                "download_post_audio_post_locked_on_finish",
+                post_id=claim.post_id,
+                error=str(error),
+            )
+            return
+
+        if post is None or post.status is not PostStatus.DOWNLOADING:
+            logger.info(
+                "download_post_audio_finish_skipped",
+                post_id=claim.post_id,
+                status=None if post is None else post.status.value,
+            )
+            return
+
+        await session.execute(_upsert_audio_asset_statement(claim, outcome))
+
+        bounds = _fragment_bounds_for(post, outcome.duration_ms)
+        post.fragment_start_ms = bounds.start_ms
+        post.fragment_end_ms = bounds.end_ms
+
+        set_post_status(post, PostStatus.DOWNLOADED)
+        await session.commit()
+
+    logger.info(
+        "download_post_audio_finished",
+        post_id=claim.post_id,
+        track_id=claim.track_id,
+        video_id=outcome.video_id,
+        size_bytes=outcome.size_bytes,
+        duration_ms=outcome.duration_ms,
+        ytdlp_version=outcome.ytdlp_version,
+        reused_artifact=outcome.ytdlp_version is None,
+        fragment_start_ms=bounds.start_ms,
+        fragment_end_ms=bounds.end_ms,
+    )
+
+    await _chain_render_after_download(session_factory, claim.post_id)
+
+
+async def _chain_render_after_download(
+    session_factory: async_sessionmaker[AsyncSession], post_id: int
+) -> None:
+    """The chain's one internal hop, dispatched **after** the commit so a
+    redelivery of the render can never outrun the `DOWNLOADED` it needs.
+    A failed dispatch is D-53's case again: the post is committed in a state
+    no task will move it out of, so it is failed here rather than left."""
+    try:
+        await asyncio.to_thread(
+            celery_app.send_task, RENDER_POST_VIDEO_TASK_NAME, kwargs={"post_id": post_id}
+        )
+    except Exception:
+        logger.exception("render_task_dispatch_failed", post_id=post_id)
+        await _fail_media_post(session_factory, post_id, RENDER_DISPATCH_FAILED_ERROR)
+        return
+
+    logger.info("render_task_dispatched", post_id=post_id)
+
+
+def _upsert_audio_asset_statement(claim: DownloadClaim, outcome: DownloadOutcome) -> PostgresInsert:
+    """`ON CONFLICT` rather than a read-modify-write: two posts of one track
+    can finish downloading at the same moment, and neither may lose its row."""
+    update_set: dict[str, Any] = {
+        "path": str(outcome.path),
+        "size_bytes": outcome.size_bytes,
+        "duration_ms": outcome.duration_ms,
+        # A Core statement never fires the ORM `onupdate` (AGENTS.md).
+        "updated_at": func.now(),
+    }
+    if outcome.ytdlp_version is not None:
+        update_set["ytdlp_version"] = outcome.ytdlp_version
+
+    return (
+        postgres_insert(AudioAsset)
+        .values(
+            track_id=claim.track_id,
+            video_id=outcome.video_id,
+            path=str(outcome.path),
+            size_bytes=outcome.size_bytes,
+            duration_ms=outcome.duration_ms,
+            ytdlp_version=outcome.ytdlp_version or UNKNOWN_YTDLP_VERSION,
+        )
+        .on_conflict_do_update(
+            index_elements=[AudioAsset.track_id, AudioAsset.video_id], set_=update_set
+        )
+    )
+
+
+def _fragment_bounds_for(post: Post, audio_duration_ms: int) -> fragment_rule.FragmentBounds:
+    """Stored bounds win — step 6 will write them by hand, and overwriting one
+    would silently undo the admin's choice. They must still fit the file."""
+    try:
+        stored = fragment_rule.stored_bounds(post.fragment_start_ms, post.fragment_end_ms)
+    except fragment_rule.FragmentBoundsError:
+        stored = None
+
+    if stored is not None and fragment_rule.bounds_within_track(stored, audio_duration_ms):
+        return stored
+
+    if stored is not None:
+        logger.warning(
+            "download_post_audio_stored_fragment_out_of_range",
+            post_id=post.id,
+            stored_start_ms=stored.start_ms,
+            stored_end_ms=stored.end_ms,
+            audio_duration_ms=audio_duration_ms,
+        )
+    return fragment_rule.choose_fragment_bounds(audio_duration_ms)
+
+
+@celery_app.task(
+    name=RENDER_POST_VIDEO_TASK_NAME,
+    bind=True,
+    soft_time_limit=settings.render_task_soft_time_limit_seconds,
+    time_limit=settings.render_task_time_limit_seconds,
+)
+def render_post_video(self: Any, post_id: int) -> None:
+    """Renders the 720x1280 fragment video. Terminal on error like every other
+    task here: FAILED plus an alert, never a Celery retry (AS4)."""
+    bind_celery_task_id(self.request.id)
+    bind_post_id(post_id)
+    try:
+        run_async(_render_post_video(post_id))
+    except SoftTimeLimitExceeded:
+        logger.error("render_post_video_soft_time_limit", post_id=post_id)
+        run_async(_fail_media_post_by_id(post_id, MEDIA_TASK_TIMEOUT_ERROR))
+
+
+async def _render_post_video(post_id: int) -> None:
+    engine = build_engine(
+        settings.database_url, use_null_pool=True, lock_timeout_ms=LOCK_TIMEOUT_MS
+    )
+    tmp_directory = media_storage.task_tmp_directory(settings.media_root, post_id)
+    try:
+        session_factory = build_session_factory(engine)
+
+        claim = await _claim_post_for_rendering(session_factory, post_id)
+        if claim is None:
+            return
+
+        try:
+            outcome = await _render_video_off_transaction(claim, tmp_directory)
+        except SoftTimeLimitExceeded:
+            logger.error("render_post_video_soft_time_limit", post_id=post_id)
+            await _fail_media_post(session_factory, post_id, MEDIA_TASK_TIMEOUT_ERROR)
+            return
+        except Exception as error:
+            logger.exception("render_post_video_failed", post_id=post_id)
+            await _fail_media_post(session_factory, post_id, _describe_media_error(error))
+            return
+        finally:
+            media_storage.remove_tree_quietly(tmp_directory)
+
+        await _finish_render_or_fail(session_factory, claim, outcome)
+    finally:
+        await engine.dispose()
+
+
+async def _finish_render_or_fail(
+    session_factory: async_sessionmaker[AsyncSession], claim: RenderClaim, outcome: RenderOutcome
+) -> None:
+    """The preview send lives inside `_finish_render`, and `RENDERED` has no
+    edge to `FAILED` (D-38's shape) — so a delivery failure has to be reported
+    from `RENDERING`, which is the state that can legally fail."""
+    try:
+        await _finish_render(session_factory, claim, outcome)
+    except SoftTimeLimitExceeded:
+        # Before the blanket handler: Celery raises it as an ordinary
+        # exception, and "помилка" would hide the truth, which is a timeout.
+        logger.error("render_post_video_soft_time_limit", post_id=claim.post_id)
+        await _fail_media_post(session_factory, claim.post_id, MEDIA_TASK_TIMEOUT_ERROR)
+    except Exception as error:
+        logger.exception("render_post_video_finish_failed", post_id=claim.post_id)
+        await _fail_media_post(session_factory, claim.post_id, _describe_media_error(error))
+
+
+async def _claim_post_for_rendering(
+    session_factory: async_sessionmaker[AsyncSession], post_id: int
+) -> RenderClaim | None:
+    """Transaction 1 of §2 for the render. Everything ffmpeg needs is read out
+    as plain values here, because the lock is gone by the time it runs."""
+    async with session_factory() as session:
+        try:
+            post = await session.get(Post, post_id, with_for_update=True)
+        except DBAPIError as error:
+            await session.rollback()
+            logger.error("render_post_video_post_locked", post_id=post_id, error=str(error))
+            return None
+
+        if post is None:
+            logger.error("render_post_video_post_not_found", post_id=post_id)
+            return None
+
+        if post.status not in RENDER_ENTRY_STATUSES:
+            logger.info(
+                "render_post_video_task_arrived_at_settled_post",
+                post_id=post_id,
+                status=post.status.value,
+            )
+            return None
+
+        track = await session.get(Track, post.track_id)
+        assert track is not None
+
+        preconditions = await _read_render_preconditions(session, track, post)
+
+        set_post_status(post, PostStatus.RENDERING)
+        await session.commit()
+
+    if preconditions.error is not None:
+        # Reported only after the status write: RESOLVED/DOWNLOADED have no
+        # edge to FAILED, so a refusal has to be made from RENDERING.
+        logger.error("render_post_video_preconditions_failed", post_id=post_id)
+        await _fail_media_post(session_factory, post_id, preconditions.error)
+        return None
+
+    assert preconditions.claim is not None
+    logger.info("render_post_video_claimed", post_id=post_id, track_id=preconditions.claim.track_id)
+    return preconditions.claim
+
+
+@dataclass(frozen=True)
+class RenderPreconditions:
+    claim: RenderClaim | None
+    error: str | None
+
+
+async def _read_render_preconditions(
+    session: AsyncSession, track: Track, post: Post
+) -> RenderPreconditions:
+    """Everything that can refuse the render, gathered while the lock is held
+    but reported after it is released — see `_claim_post_for_rendering`."""
+    try:
+        video_id = audio_download.youtube_music_video_id(dict(track.platform_links))
+    except Exception as error:
+        return RenderPreconditions(None, _describe_media_error(error))
+
+    asset = (
+        await session.execute(
+            select(AudioAsset).where(
+                AudioAsset.track_id == track.id, AudioAsset.video_id == video_id
+            )
+        )
+    ).scalar_one_or_none()
+    if asset is None:
+        return RenderPreconditions(
+            None, "для треку немає завантаженого аудіо — спершу має відпрацювати завантаження"
+        )
+
+    try:
+        bounds = fragment_rule.stored_bounds(post.fragment_start_ms, post.fragment_end_ms)
+    except fragment_rule.FragmentBoundsError as error:
+        return RenderPreconditions(None, _describe_media_error(error))
+    if bounds is None:
+        return RenderPreconditions(None, "у посту не записані межі фрагмента — рендерити нічого")
+
+    return RenderPreconditions(
+        RenderClaim(
+            post_id=post.id,
+            track_id=track.id,
+            video_id=video_id,
+            audio_path=asset.path,
+            audio_duration_ms=asset.duration_ms,
+            cover_url=track.cover_url,
+            fragment_start_ms=bounds.start_ms,
+            fragment_end_ms=bounds.end_ms,
+        ),
+        None,
+    )
+
+
+async def _render_video_off_transaction(claim: RenderClaim, tmp_directory: Path) -> RenderOutcome:
+    """No transaction, no lock, minutes of ffmpeg — the whole reason §2 exists."""
+    params_hash = video_render.compute_params_hash(
+        video_id=claim.video_id,
+        audio_duration_ms=claim.audio_duration_ms,
+        cover_url=claim.cover_url or "",
+        fragment_start_ms=claim.fragment_start_ms,
+        fragment_end_ms=claim.fragment_end_ms,
+    )
+    final_path = media_storage.render_file_path(settings.media_root, claim.post_id, params_hash)
+    expected_duration_ms = claim.fragment_end_ms - claim.fragment_start_ms
+
+    thumbnail_path = media_storage.thumbnail_file_path(
+        settings.media_root, claim.post_id, params_hash
+    )
+
+    existing = media_storage.existing_artifact(final_path)
+    if existing is not None:
+        probe = await asyncio.to_thread(
+            media_tools.verify_media,
+            existing,
+            require_video=True,
+            require_audio=True,
+            expected_duration_ms=expected_duration_ms,
+            duration_tolerance_ms=video_render.RENDER_DURATION_TOLERANCE_MS,
+        )
+        logger.info("render_post_video_reused_artifact", post_id=claim.post_id, path=str(existing))
+        return RenderOutcome(
+            params_hash=params_hash,
+            path=existing,
+            size_bytes=probe.size_bytes,
+            duration_ms=probe.duration_ms,
+            thumbnail_path=media_storage.existing_artifact(thumbnail_path),
+        )
+
+    media_storage.ensure_free_space(settings.media_root, settings.media_min_free_bytes)
+
+    http_client = build_http_client()
+    try:
+        cover_path = await video_render.download_cover(http_client, claim.cover_url, tmp_directory)
+    finally:
+        await http_client.aclose()
+
+    parameters = video_render.RenderParameters(
+        audio_path=Path(claim.audio_path),
+        cover_path=cover_path,
+        fragment_start_ms=claim.fragment_start_ms,
+        fragment_end_ms=claim.fragment_end_ms,
+    )
+    staging = media_storage.staging_path(tmp_directory, final_path)
+
+    probe, quality = await asyncio.to_thread(
+        video_render.render_fragment_within_size_limit,
+        parameters,
+        staging,
+        timeout_seconds=settings.render_task_soft_time_limit_seconds,
+    )
+
+    # Taken from the staged file before it is published, so the finished name
+    # never appears next to a thumbnail of some earlier render.
+    staged_thumbnail = await asyncio.to_thread(
+        video_render.render_thumbnail,
+        staging,
+        media_storage.staging_path(tmp_directory, thumbnail_path),
+    )
+
+    media_storage.publish_atomically(staging, final_path)
+    if staged_thumbnail is not None:
+        media_storage.publish_atomically(staged_thumbnail, thumbnail_path)
+
+    logger.info(
+        "render_post_video_rendered",
+        post_id=claim.post_id,
+        params_hash=params_hash,
+        size_bytes=probe.size_bytes,
+        duration_ms=probe.duration_ms,
+        crf=quality.crf,
+        maxrate=quality.maxrate,
+        has_thumbnail=staged_thumbnail is not None,
+    )
+    return RenderOutcome(
+        params_hash=params_hash,
+        path=final_path,
+        size_bytes=probe.size_bytes,
+        duration_ms=probe.duration_ms,
+        thumbnail_path=thumbnail_path if staged_thumbnail is not None else None,
+    )
+
+
+async def _finish_render(
+    session_factory: async_sessionmaker[AsyncSession], claim: RenderClaim, outcome: RenderOutcome
+) -> None:
+    """Transaction 2 of §2 for the render — and, like `publish_post`'s barrier
+    1, the lock it holds across one Telegram send *is* the delivery guard.
+    ffmpeg ran with no lock at all; what remains is an upload of a few MB.
+
+    The order is D-38's, mirrored: send the preview, write its reference,
+    then `RENDERED`, then commit. `RENDERED` therefore means «прев'ю вже в
+    чаті адміна», and a delivery failure happens while the post is still
+    `RENDERING`, which is the state that can legally fail.
+    """
+    async with session_factory() as session:
+        try:
+            post = await session.get(Post, claim.post_id, with_for_update=True)
+        except DBAPIError as error:
+            await session.rollback()
+            logger.error(
+                "render_post_video_post_locked_on_finish", post_id=claim.post_id, error=str(error)
+            )
+            return
+
+        if post is None or post.status is not PostStatus.RENDERING:
+            logger.info(
+                "render_post_video_finish_skipped",
+                post_id=claim.post_id,
+                status=None if post is None else post.status.value,
+            )
+            return
+
+        await session.execute(_upsert_render_statement(claim, outcome))
+
+        await _deliver_preview_for(post, outcome)
+        preview_message_id = post.preview_message_id
+
+        set_post_status(post, PostStatus.RENDERED)
+        await session.commit()
+
+    logger.info(
+        "render_post_video_finished",
+        post_id=claim.post_id,
+        params_hash=outcome.params_hash,
+        size_bytes=outcome.size_bytes,
+        duration_ms=outcome.duration_ms,
+        preview_message_id=preview_message_id,
+    )
+
+
+def _rendered_video(outcome: RenderOutcome) -> RenderedVideo:
+    """The dimensions are the renderer's constants, not a probe of the file:
+    `telegram/` never imports `worker/`, so they travel as data."""
+    return RenderedVideo(
+        path=outcome.path,
+        width=video_render.VIDEO_WIDTH,
+        height=video_render.VIDEO_HEIGHT,
+        duration_ms=outcome.duration_ms,
+        thumbnail_path=outcome.thumbnail_path,
+    )
+
+
+async def _deliver_preview_for(post: Post, outcome: RenderOutcome) -> None:
+    """AS11: publication cannot be revoked (D-65), so the admin sees the exact
+    file that will reach the channel before it does. The old text draft loses
+    its keyboard here — its publish button would send the cover photo."""
+    preview_chat_id = (
+        post.draft_chat_id if post.draft_chat_id is not None else settings.alert_chat_id
+    )
+
+    bot = build_bot(settings)
+    try:
+        await deliver_preview(bot, post, preview_chat_id, _rendered_video(outcome))
+        await remove_draft_keyboard(bot, post)
+    finally:
+        await bot.session.close()
+
+
+def _upsert_render_statement(claim: RenderClaim, outcome: RenderOutcome) -> PostgresInsert:
+    return (
+        postgres_insert(Render)
+        .values(
+            post_id=claim.post_id,
+            params_hash=outcome.params_hash,
+            # Always NULL in 4A; 4B fills it and `params_hash` covers it.
+            text_version=None,
+            path=str(outcome.path),
+            size_bytes=outcome.size_bytes,
+            duration_ms=outcome.duration_ms,
+        )
+        .on_conflict_do_update(
+            index_elements=[Render.post_id, Render.params_hash],
+            set_={
+                "path": str(outcome.path),
+                "size_bytes": outcome.size_bytes,
+                "duration_ms": outcome.duration_ms,
+                "updated_at": func.now(),
+            },
+        )
+    )
+
+
+def _describe_media_error(error: Exception) -> str:
+    """The class name travels with the message on purpose: D-80's whole point
+    is that "екстрактор зламався" must never read like "цього треку немає"."""
+    return f"{type(error).__name__}: {error}"
+
+
+async def _fail_media_post_by_id(post_id: int, error_message: str) -> None:
+    """The soft-time-limit path owns no engine yet — it builds its own."""
+    engine = build_engine(
+        settings.database_url, use_null_pool=True, lock_timeout_ms=LOCK_TIMEOUT_MS
+    )
+    try:
+        await _fail_media_post(build_session_factory(engine), post_id, error_message)
+    finally:
+        await engine.dispose()
+
+
+async def _fail_media_post(
+    session_factory: async_sessionmaker[AsyncSession], post_id: int, error_message: str
+) -> None:
+    """The media mirror of `_fail_post`: its own session, because the caller's
+    was committed and closed before the long stage ever started (§2)."""
+    error_message = _redacted(error_message)
+    logger.error("media_task_failed", post_id=post_id, error=error_message)
+
+    status_written = True
+    async with session_factory() as session:
+        try:
+            await _write_failed_status(session, post_id, error_message)
+        except Exception:
+            logger.exception("media_task_failed_status_write_retried", post_id=post_id)
+            try:
+                await session.rollback()
+                await _write_failed_status(session, post_id, error_message)
+            except Exception:
+                # Telegram does not depend on Postgres (R3-1): the alert goes
+                # out either way, and it says the status may be wrong.
+                logger.exception("media_task_failed_status_write_failed", post_id=post_id)
+                status_written = False
+
+    alert_text = f"Медіапайплайн не впорався з постом {post_id}: {error_message}"
+    if not status_written:
+        alert_text += "\nСтатус у базі зафіксувати не вдалося — пост міг лишитись у роботі."
+
+    bot = build_bot(settings)
+    try:
+        await send_alert(bot, settings.alert_chat_id, alert_text)
     finally:
         await bot.session.close()
