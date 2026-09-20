@@ -73,11 +73,13 @@ asyncio_default_fixture_loop_scope = "function"
 asyncio_default_test_loop_scope = "function"
 markers = [
     "integration: requires a running Postgres/Redis (run inside docker compose)",
+    "fonts: requires fontconfig and the worker image's fonts (run via `make test-fonts`)",
 ]
 
 [dependency-groups]
 dev = [
     "celery-types>=0.26.0",
+    "fonttools>=4.65.0",
     "pytest>=8.3,<9",
     "pytest-asyncio>=0.24,<1",
     "ruff>=0.7,<1",

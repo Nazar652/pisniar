@@ -19,6 +19,7 @@ logger = get_logger(__name__)
 AUDIO_DIRECTORY_NAME = "audio"
 RENDER_DIRECTORY_NAME = "render"
 TMP_DIRECTORY_NAME = "tmp"
+SUBTITLES_FILE_NAME = "lyrics.ass"
 
 # `.partial` is part of the idempotency guard, not an optimization: with the
 # lock gone (§2), "the final name exists" is the only thing left to trust.
@@ -86,6 +87,14 @@ def thumbnail_file_path(media_root: Path, post_id: int, params_hash: str) -> Pat
 def task_tmp_directory(media_root: Path, post_id: int) -> Path:
     """`/data/tmp/<post_id>/` — removed in a `finally`, always."""
     return media_root / TMP_DIRECTORY_NAME / _numeric_id(post_id, "post_id")
+
+
+def subtitles_file_path(media_root: Path, post_id: int) -> Path:
+    """`/data/tmp/<post_id>/lyrics.ass` — a numeric id and a constant name,
+    so the string that ends up inside the `subtitles=` filter argument can
+    carry no `,`, `;`, `[` or `]` (§4 p.8: `_escape_filter_path` covers the
+    other three, and this is what keeps the rest out of reach)."""
+    return task_tmp_directory(media_root, post_id) / SUBTITLES_FILE_NAME
 
 
 def staging_path(tmp_directory: Path, final_path: Path) -> Path:

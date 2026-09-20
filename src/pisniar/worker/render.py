@@ -20,6 +20,11 @@ logger = get_logger(__name__)
 
 VIDEO_WIDTH = 720
 VIDEO_HEIGHT = 1280
+# D-92: the square cover is pushed up instead of being centred, and the band
+# it frees at the bottom is where step 4B draws the text — a long line then
+# overflows into black rather than onto the artist's face. `ass`'s own
+# `TEXT_BAND_TOP_PX` is this number plus the cover's side.
+COVER_TOP_OFFSET_PX = 100
 VIDEO_FPS = 30
 VIDEO_CODEC = "libx264"
 AUDIO_CODEC = "aac"
@@ -44,7 +49,7 @@ THUMBNAIL_TIMEOUT_SECONDS = 30.0
 
 # Bumped whenever the filtergraph or the encoder settings change: it is an
 # input to `params_hash`, so an old artifact stops being reused (V36).
-RENDERER_VERSION = "4A.1"
+RENDERER_VERSION = "4B.1"
 
 
 class RenderError(RuntimeError):
@@ -123,13 +128,14 @@ def compute_params_hash(
 
 
 def build_filter_complex(subtitles_path: Path | None = None) -> str:
-    """`in_range=pc:out_range=tv` is the whole point (D-79); `pad` centres a
-    square cover in the vertical frame, `setsar=1` keeps players honest."""
+    """`in_range=pc:out_range=tv` is the whole point (D-79); `pad` lifts the
+    square cover to `COVER_TOP_OFFSET_PX` (D-92), `setsar=1` keeps players
+    honest."""
     steps = [
         f"scale={VIDEO_WIDTH}:{VIDEO_HEIGHT}:force_original_aspect_ratio=decrease"
         f":flags=lanczos:in_range=pc:out_range=tv",
         "format=yuv420p",
-        f"pad={VIDEO_WIDTH}:{VIDEO_HEIGHT}:(ow-iw)/2:(oh-ih)/2:color=black",
+        f"pad={VIDEO_WIDTH}:{VIDEO_HEIGHT}:(ow-iw)/2:{COVER_TOP_OFFSET_PX}:color=black",
         "setsar=1",
     ]
     if subtitles_path is not None:

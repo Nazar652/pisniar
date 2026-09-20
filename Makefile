@@ -8,7 +8,7 @@ COMPOSE := docker compose
 .DEFAULT_GOAL := help
 
 .PHONY: help sync lock-check fmt fmt-check lint typecheck test check \
-	build up down ps logs restart clean test-int migrate revision downgrade \
+	build up down ps logs restart clean test-int test-fonts migrate revision downgrade \
 	alembic-check psql shell verify
 
 help: ## Show this list of targets
@@ -65,7 +65,14 @@ clean: ## docker compose down -v (also drops the postgres volume)
 	$(COMPOSE) down -v
 
 test-int: ## full test suite (unit + integration) inside the bot container (V12)
-	$(COMPOSE) run --rm bot pytest -q
+	$(COMPOSE) run --rm bot pytest -q -m "not fonts"
+
+# Separate from `test-int` because fontconfig and the fonts live only in the
+# worker image: a font family that is not installed falls back byte-for-byte
+# silently (D-91), so this is the only thing standing between a typo in
+# `ass.FONT_FAMILY` and Cyrillic rectangles in a published video.
+test-fonts: ## the ASS font family against `fc-list`, inside the worker container
+	$(COMPOSE) run --rm worker pytest -q -m fonts
 
 # `alembic check` is part of this target, not only of `verify`: revision
 # 0002 was edited after it had already been applied somewhere, and an

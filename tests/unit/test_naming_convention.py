@@ -9,7 +9,7 @@ from typing import cast
 
 from sqlalchemy import Table
 
-from pisniar.db.models import AudioAsset, Post, Render, SourceFetch, Track
+from pisniar.db.models import AudioAsset, Lyric, Post, Render, SourceFetch, Track
 
 # Typed as FromClause by the stubs, but always a real Table at runtime.
 TRACK_TABLE = cast(Table, Track.__table__)
@@ -17,6 +17,7 @@ POST_TABLE = cast(Table, Post.__table__)
 SOURCE_FETCH_TABLE = cast(Table, SourceFetch.__table__)
 AUDIO_ASSET_TABLE = cast(Table, AudioAsset.__table__)
 RENDER_TABLE = cast(Table, Render.__table__)
+LYRIC_TABLE = cast(Table, Lyric.__table__)
 
 
 def test_track_constraint_names_are_unchanged() -> None:
@@ -98,3 +99,32 @@ def test_source_fetch_constraint_names_are_unchanged() -> None:
         if constraint.__class__.__name__ == "UniqueConstraint"
     }
     assert unique_constraint_names == {"uq_source_fetch_source_request_key"}
+
+
+def test_lyric_constraint_names_are_unchanged() -> None:
+    assert LYRIC_TABLE.primary_key.name == "pk_lyric"
+
+    unique_constraint_names = {
+        constraint.name
+        for constraint in LYRIC_TABLE.constraints
+        if constraint.__class__.__name__ == "UniqueConstraint"
+    }
+    assert unique_constraint_names == {"uq_lyric_track_id_line_index"}
+
+    check_names = {
+        constraint.name
+        for constraint in LYRIC_TABLE.constraints
+        if constraint.__class__.__name__ == "CheckConstraint"
+    }
+    assert check_names == {"ck_lyric_start_ms_non_negative", "ck_lyric_text_length_bounded"}
+
+    fk_names = {fk.name for fk in LYRIC_TABLE.foreign_key_constraints}
+    assert fk_names == {"fk_lyric_track_id_track"}
+
+
+def test_a_lyric_follows_its_track_out_of_the_database() -> None:
+    """CASCADE like `audio_asset`, unlike `post.track_id`'s RESTRICT: stored
+    text is not a reason to refuse deleting a track."""
+    foreign_key = next(iter(LYRIC_TABLE.foreign_key_constraints)).elements[0]
+
+    assert foreign_key.ondelete == "CASCADE"

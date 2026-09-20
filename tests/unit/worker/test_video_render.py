@@ -44,8 +44,17 @@ def test_the_frame_is_seven_twenty_by_twelve_eighty_with_square_pixels() -> None
     graph = video_render.build_filter_complex()
 
     assert "scale=720:1280:force_original_aspect_ratio=decrease" in graph
-    assert "pad=720:1280:(ow-iw)/2:(oh-ih)/2:color=black" in graph
+    assert "pad=720:1280:(ow-iw)/2:100:color=black" in graph
     assert "setsar=1" in graph
+
+
+def test_the_cover_is_lifted_instead_of_centred_so_the_text_band_is_black() -> None:
+    """D-92: centring left the side lines over a busy cover; the bottom band
+    is now empty frame, and the offset is a constant, not `(oh-ih)/2`."""
+    graph = video_render.build_filter_complex()
+
+    assert video_render.COVER_TOP_OFFSET_PX == 100
+    assert "(oh-ih)/2" not in graph
 
 
 def test_no_subtitle_filter_exists_in_4a() -> None:

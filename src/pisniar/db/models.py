@@ -1,6 +1,6 @@
-"""ORM models for `track`, `post`, `source_fetch` (step 2 resolver cache) and
-step 4A's media artifacts, `audio_asset` (per track) and `render` (per post).
-`lyric` (step 4B) and `post_status_history` (D-9) stay absent — see
+"""ORM models for `track`, `post`, `source_fetch` (step 2 resolver cache),
+step 4A's media artifacts (`audio_asset` per track, `render` per post) and
+step 4B's `lyric` (per track). `post_status_history` (D-9) stays absent — see
 decision-log.md.
 """
 
@@ -15,9 +15,12 @@ from sqlalchemy import (
     CheckConstraint,
     ForeignKey,
     Index,
+    Integer,
+    Select,
     SmallInteger,
     Text,
     UniqueConstraint,
+    select,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP
@@ -38,6 +41,10 @@ _VALID_POST_STATUSES_SQL_LIST = ", ".join(f"'{value}'" for value in VALID_POST_S
 # no source reports it — so it is stored with a default and edited by hand.
 DEFAULT_LANGUAGES = ["українська"]
 _DEFAULT_LANGUAGES_SQL = f"'{json.dumps(DEFAULT_LANGUAGES, ensure_ascii=False)}'::jsonb"
+
+# A karaoke line, not a verse: anything longer is a parser that lost the line
+# breaks, and the CHECK is where that stops being silent.
+MAX_LYRIC_TEXT_LENGTH = 500
 
 
 class PostStatusType(TypeDecorator[PostStatus]):
@@ -314,6 +321,65 @@ class Render(Base):
     # `ffprobe` of the output, against which the fragment length is asserted —
     # ffmpeg exiting 0 on an unusable file is step 4's main silent failure.
     duration_ms: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+
+class Lyric(Base):
+    """One line of a track's lyrics. Keyed to a **track** (precedent
+    `audio_asset`, D-61): two posts of one recording share the text.
+
+    `start_ms` is absolute from the start of the *full* track (D-5), never
+    fragment-local — at render time `ass_t = lyric.start_ms -
+    post.fragment_start_ms`. There is no `end_ms` column (D-4): the boundary
+    is derived at render time from the next line, a per-line ceiling and the
+    fragment end.
+    """
+
+    __tablename__ = "lyric"
+    __table_args__ = (
+        UniqueConstraint("track_id", "line_index"),
+        CheckConstraint("start_ms >= 0", name="start_ms_non_negative"),
+        CheckConstraint(f"length(text) <= {MAX_LYRIC_TEXT_LENGTH}", name="text_length_bounded"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=text("now()")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        server_default=text("now()"),
+        onupdate=text("now()"),
+    )
+
+    # CASCADE like `audio_asset.track_id`: a stored lyric is not a reason to
+    # refuse deleting its track.
+    track_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("track.id", ondelete="CASCADE"), nullable=False
+    )
+    # Seam §2.1.1: the stable order of the text, and the *only* thing render
+    # order is ever taken from — `start_ms` orders nothing.
+    line_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    start_ms: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    # Raw as the source gave it; the ASS substitution happens at render time
+    # (`worker.ass`), so nothing lossy is stored.
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    # Seam §2.1.3: `'lrclib'` today, `'manual'` from step 7 — the column
+    # exists from day one so step 7 never has to backfill it.
+    source: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+def renderable_lyrics_statement(track_id: int) -> Select[tuple[Lyric]]:
+    """Seams §2.1.1 and §2.1.2 in one statement, and the only way the render
+    path is allowed to read `lyric`. `ORDER BY line_index` never `start_ms`;
+    `start_ms IS NOT NULL` is a tautology while the column is NOT NULL, and
+    that is the point — step 7's `DROP NOT NULL` then changes no render code.
+    """
+    return (
+        select(Lyric)
+        .where(Lyric.track_id == track_id, Lyric.start_ms.is_not(None))
+        .order_by(Lyric.line_index)
+    )
 
 
 class SourceFetch(Base):

@@ -36,6 +36,27 @@ def test_the_tmp_directory_is_per_post(tmp_path: Path) -> None:
     assert media_storage.task_tmp_directory(tmp_path, 7) == tmp_path / "tmp" / "7"
 
 
+def test_the_subtitle_file_sits_in_the_post_tmp_directory_under_a_constant_name(
+    tmp_path: Path,
+) -> None:
+    assert media_storage.subtitles_file_path(tmp_path, 7) == tmp_path / "tmp" / "7" / "lyrics.ass"
+
+
+def test_the_subtitle_path_carries_nothing_the_filtergraph_would_read(tmp_path: Path) -> None:
+    """§4 p.8: `render._escape_filter_path` covers a backslash, `:` and `'`
+    but not `,`, `;`, `[` or `]` — a numeric id and a constant name is what
+    keeps those four out of the `subtitles=` argument in the first place."""
+    path = media_storage.subtitles_file_path(tmp_path, 12345).as_posix()
+
+    assert not set(path) & set(",;[]")
+
+
+@pytest.mark.parametrize("post_id", [0, -1, True])
+def test_a_non_positive_post_id_never_becomes_a_subtitle_path(tmp_path: Path, post_id: Any) -> None:
+    with pytest.raises(media_storage.MediaPathError):
+        media_storage.subtitles_file_path(tmp_path, post_id)
+
+
 @pytest.mark.parametrize("track_id", [0, -1, True])
 def test_a_non_positive_id_never_becomes_a_path_component(tmp_path: Path, track_id: Any) -> None:
     with pytest.raises(media_storage.MediaPathError):
