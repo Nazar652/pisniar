@@ -15,6 +15,14 @@ caption building, delivery. Rendering/publishing (steps 3-4) are next.
 - aiogram 3 (long polling) + FastAPI (health checks), Celery + Redis
   (worker), SQLAlchemy 2.0 async + asyncpg, Alembic.
 - Postgres and Redis run **only in Docker**; never install them on the host.
+- `REDIS_PASSWORD` in `.env` is a hard prerequisite: `compose.yaml` starts
+  Redis with `--requirepass` and builds `REDIS_URL` from it, so `docker
+  compose` refuses to start without it. The broker is published on
+  `127.0.0.1:56379` by `compose.override.yml`, and anything that can enqueue
+  a task there makes the worker act without passing `AdminAllowlistMiddleware`.
+  The healthcheck authenticates through `REDISCLI_AUTH`, never `redis-cli -a`,
+  and `config.redaction_secrets()` carries the password so it cannot surface
+  in a kombu traceback or in `readyz_redis_unavailable` (`exc_info=True`).
 
 ## Commands
 
@@ -44,7 +52,8 @@ suggest or introduce either.
   imports `pisniar/worker/tasks` directly. The bot dispatches Celery tasks by
   name through `pisniar.worker.celery_app`, not by importing task functions.
 - `pisniar/bot/` imports only `pisniar.resolve.urls` (syntactic
-  classification, no network) — the full resolve pipeline
+  classification, no network) and `pisniar.telegram.keyboards` (the
+  `callback_data` grammar, `aiogram` only) — the full resolve pipeline
   (`resolve.service`/`resolve.registry`, the six source adapters, `post/`
   caption building) runs only in `pisniar/worker/`.
 - `pisniar/resolve/` (six source adapters + ISRC-first matching/merge) and
@@ -92,11 +101,42 @@ suggest or introduce either.
   instead of raising past their own alert.
 - A Telegram alert delivery failure (`pisniar.telegram.notifier.send_alert`)
   never raises into business logic and never causes a Celery task retry.
-  Draft delivery (`pisniar.telegram.draft.deliver_draft`) is the opposite on
-  purpose: a draft is the product, so its failures propagate to `failed`.
+  Draft delivery (`pisniar.telegram.draft.deliver_draft`) and channel
+  publication (`pisniar.telegram.publish.publish_to_channel`) are the
+  opposite on purpose: both are the product, so their failures propagate to
+  `failed`.
+- **Channel publication is idempotent through three barriers, and only the
+  first one deduplicates.** (1) `publish_post` locks the `post` row `FOR
+  UPDATE` and returns early if `channel_message_id IS NOT NULL` or the status
+  is no longer `PUBLISHING`; (2) the D-38 order — send, write the reference,
+  commit, with **no network call in between**; (3) `uq_post_channel_message`,
+  which is a sanity check and nothing more: two sends produce two *different*
+  `message_id`s and both rows would insert cleanly. The window between the
+  send and the commit is an accepted risk (D-47) — there is no
+  `publish_attempted_at` column.
+- The publish target is `Settings.channel_id` and nothing else, while every
+  caption links to `channel.CHANNEL_LINK_URL`. Nothing derives one from the
+  other, so the two are reconciled at runtime instead:
+  `channel.warn_if_alerts_share_the_channel()` at startup (alerts leaking
+  into a public channel) and `publish.warn_if_channel_identity_diverges()`
+  against `get_chat()` (a post linking to one channel and landing in
+  another). Both warn and never refuse — publishing into a test channel is
+  exactly this divergence, on purpose. The admin-facing link to a published
+  post is built from the chat the post actually reached, never from
+  `CHANNEL_LINK_URL`.
+- The `PUBLISHING -> PUBLISHING` self-edge, like `RESOLVING`'s, exists for
+  Celery redelivery only. A second button tap is refused in `bot.handlers`
+  before `set_post_status()` ever sees it — the transition table alone
+  accepts it and would dispatch a second task.
+- `/retry` on a `failed` post routes by `draft_message_id`: set means the
+  draft was already delivered, so the failure came later — on publication,
+  and `/retry` re-publishes (`FAILED -> PUBLISHING`). Null means the resolve
+  failed before delivery, and `/retry` re-resolves. That distinction is what
+  replaced the `publish_attempted_at` column D-47 declined to add.
 - The bot's shared `Bot` client stays `parse_mode=None` globally — the same
   client sends alerts, and alert text regularly contains `<` (tracebacks,
-  URLs). `parse_mode="HTML"` is passed explicitly, only at `deliver_draft()`.
+  URLs). `parse_mode="HTML"` is passed explicitly, at `deliver_draft()` and
+  `publish_to_channel()`, and nowhere else.
 
 ## Resolver conventions (`pisniar/resolve/`)
 
@@ -142,7 +182,11 @@ suggest or introduce either.
   `manual` link and a non-empty `artists[].hashtag` always win, a platform
   missing from the fresh result is kept, and a fresh result wins a tie. The
   same rule covers scalars (`merge_stored_scalars`, R2-4): an absent fresh
-  value never nulls a stored one. A re-resolve that comes back completely
+  value never nulls a stored one. When `resolved.source_failures` is
+  non-empty the stored `title`/`artists` win outright
+  (`keep_stored_title_and_artists_after_source_failure`, D-58) — the fresh
+  values are present, just lower-priority, so `merge_stored_scalars` would
+  wave a raw `songlink:youtube` clip name over a clean Spotify title. A re-resolve that comes back completely
   empty fails the post instead of deleting a track that was resolved once
   before (R2-1) — deletion is only for a track that never resolved.
 - `track.artists` = `[{"name", "hashtag", "spotify_id"}]`; `hashtag` is
@@ -166,9 +210,12 @@ suggest or introduce either.
   `videoId` from `platform_links["youtubeMusic"]`, never `["youtube"]`** —
   the latter may hold a clip with intro/outro or different mastering.
 - `post.caption` already contains **rendered, escaped Telegram HTML**
-  (`pisniar.post.render.render_html`). Whoever sends it (step 3's channel
-  publish included) must pass it through as-is with `parse_mode="HTML"` —
-  escaping it again would double-encode `&amp;` into `&amp;amp;` etc.
+  (`pisniar.post.render.render_html`). Whoever sends it (the channel publish
+  included) must pass it through as-is with `parse_mode="HTML"` — escaping it
+  again would double-encode `&amp;` into `&amp;amp;` etc. The post carries a
+  cover (D-45), so it goes out as `send_photo(caption=...)`, which is also why
+  the caption is built at 1024 and never rebuilt at publish time: the admin
+  has to approve the exact text subscribers see.
 
 ## Data conventions
 
@@ -185,7 +232,13 @@ suggest or introduce either.
 
 ## Where things stand
 
-Step 1 (infrastructure skeleton) and step 2 (link -> post draft: URL
-classification, ISRC-first resolution across six sources, caption building,
-idempotent draft delivery, `/retry`) are implemented. Step 3 (channel
-publish, 1024-char caption limit) is next.
+Steps 1-3 are implemented: the infrastructure skeleton; link -> post draft
+(URL classification, ISRC-first resolution across six sources, caption
+building at the 1024 media limit, idempotent draft delivery, `/retry`); and
+channel publication (an inline button under the draft, a channel preflight,
+an idempotent `send_photo` with the cover, `published_by_user_id`). Step 4
+(audio download, fragment, ffmpeg/ASS render) is next; step 5 adds the Mini
+App, which edits a published caption through the stored
+`channel_chat_id`/`channel_message_id` (D-66). Revoking a published post is
+deliberately not implemented (D-65) — a wrong post is deleted by hand in
+Telegram, and the row goes on saying `published`.

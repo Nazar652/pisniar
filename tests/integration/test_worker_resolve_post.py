@@ -99,6 +99,46 @@ async def test_resolve_post_persists_track_and_marks_resolved(
     deliver_draft_mock.assert_awaited_once()
 
 
+async def test_the_caption_is_built_from_the_row_not_from_the_resolve(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch, deliver_draft_mock: AsyncMock
+) -> None:
+    """The seam D-45 and D-61 both land on: the album id must reach its new
+    column and come back out of it, and the languages the admin will set on
+    step 5 must beat the schema default no resolve ever overwrites."""
+    resolved = ResolvedTrack(
+        title="Сумніви",
+        artists=[ArtistInfo(name="Тол")],
+        year=2013,
+        release_type="album",
+        release_title="Синдром Бажання",
+        album_id_spotify="4yYXqedvSKuJlgI2IWsB0j",
+    )
+    monkeypatch.setattr(worker_tasks, "resolve_track", AsyncMock(return_value=resolved))
+    monkeypatch.setattr(worker_tasks, "resolve_genres", AsyncMock(return_value=[]))
+
+    post_id = await make_resolving_post(db_session)
+    post = await db_session.get(Post, post_id)
+    assert post is not None
+    track = await db_session.get(Track, post.track_id)
+    assert track is not None
+    track.languages = ["українська", "англійська"]
+    await db_session.commit()
+
+    await worker_tasks._resolve_post(post_id)
+
+    db_session.expire_all()
+    reloaded_post = await db_session.get(Post, post_id)
+    assert reloaded_post is not None
+    reloaded_track = await db_session.get(Track, reloaded_post.track_id)
+    assert reloaded_track is not None
+
+    assert reloaded_track.album_id_spotify == "4yYXqedvSKuJlgI2IWsB0j"
+    assert reloaded_post.caption is not None
+    assert "https://open.spotify.com/album/4yYXqedvSKuJlgI2IWsB0j" in reloaded_post.caption
+    assert "#українська #англійська" in reloaded_post.caption
+    assert reloaded_track.languages == ["українська", "англійська"]
+
+
 async def test_resolve_post_cleans_up_a_track_that_was_never_resolved(
     db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch, deliver_draft_mock: AsyncMock
 ) -> None:
@@ -1105,3 +1145,56 @@ async def test_the_duplicate_warning_closes_its_read_transaction_before_telegram
     await worker_tasks._warn_about_isrc_duplicate(db_session, post, track)
 
     assert open_transaction_during_alert == [False]
+
+
+async def test_a_degraded_re_resolve_does_not_downgrade_the_stored_title(
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+    deliver_draft_mock: AsyncMock,
+    point_task_at_test_database: AsyncMock,
+) -> None:
+    """D-58: Spotify raised, so the fresh title is the `songlink:youtube`
+    one — an uploader's clip name over a clean stored title. Not `None`, so
+    `merge_stored_scalars` waves it through; only the D-58 guard stops it."""
+    post_id = await make_resolving_post(db_session)
+    post = await db_session.get(Post, post_id)
+    assert post is not None
+    track = await db_session.get(Track, post.track_id)
+    assert track is not None
+    track_id = track.id
+
+    track.title = "Bruise Pristine"
+    track.artists = [{"name": "Placebo", "hashtag": None, "spotify_id": None}]
+    track.resolved_at = datetime.now(UTC)
+    await db_session.commit()
+
+    resolved = ResolvedTrack(
+        title="Bruise Pristine (Official Video)",
+        artists=[ArtistInfo(name="Валентин Стрыкало-Бувайте")],
+        source_failures=["spotify:bridge: HTTP 503"],
+        platform_links={
+            "youtubeMusic": PlatformLink(
+                url="https://music.youtube.com/watch?v=abc",
+                source="ytmusic",
+                match=MatchClass.CONFIRMED,
+            )
+        },
+    )
+    monkeypatch.setattr(worker_tasks, "resolve_track", AsyncMock(return_value=resolved))
+    monkeypatch.setattr(worker_tasks, "resolve_genres", AsyncMock(return_value=[]))
+
+    await worker_tasks._resolve_post(post_id)
+
+    db_session.expire_all()
+    reloaded_track = await db_session.get(Track, track_id)
+    assert reloaded_track is not None
+    assert reloaded_track.title == "Bruise Pristine"
+    assert reloaded_track.artists == [{"name": "Placebo", "hashtag": None, "spotify_id": None}]
+
+    reloaded_post = await db_session.get(Post, post_id)
+    assert reloaded_post is not None
+    assert reloaded_post.status is PostStatus.RESOLVED, reloaded_post.last_error
+    assert reloaded_post.caption is not None
+    assert "Bruise Pristine" in reloaded_post.caption
+    assert "Official Video" not in reloaded_post.caption
+    assert "Валентин" not in reloaded_post.caption

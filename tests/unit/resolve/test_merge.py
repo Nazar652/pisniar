@@ -6,6 +6,7 @@ an admin's overrides alive across a re-resolve (D-42)."""
 from __future__ import annotations
 
 from pisniar.resolve.merge import (
+    keep_stored_title_and_artists_after_source_failure,
     merge_artists,
     merge_isrc,
     merge_platform_link,
@@ -332,9 +333,105 @@ def test_merge_stored_scalars_keeps_a_value_the_fresh_resolve_lost() -> None:
     assert track.title == "Creep"
 
 
+def test_merge_stored_scalars_keeps_the_stored_album_id() -> None:
+    """D-45 made the album id a column, which only helps while a re-resolve
+    without song.link cannot null it — the album link is the payload."""
+    track = ResolvedTrack(title="Сумніви")
+
+    merge_stored_scalars(track, {"album_id_spotify": "4yYXqedvSKuJlgI2IWsB0j"})
+
+    assert track.album_id_spotify == "4yYXqedvSKuJlgI2IWsB0j"
+
+
 def test_merge_stored_scalars_never_overwrites_a_fresh_value() -> None:
     track = ResolvedTrack(isrc="UAAAA2500001")
 
     merge_stored_scalars(track, {"isrc": "GBAYE9200070"})
 
     assert track.isrc == "UAAAA2500001"
+
+
+def test_a_degraded_resolve_keeps_the_stored_title_and_artists() -> None:
+    """D-58: Spotify raised, so the title came from `songlink:youtube` — the
+    raw clip name. Lower priority than the stored one, but not `None`, so
+    only this guard stops it from overwriting what was already good."""
+    track = ResolvedTrack(
+        title="Bruise Pristine",
+        artists=[ArtistInfo(name="Валентин Стрыкало-Бувайте")],
+        source_failures=["spotify:bridge: HTTP 503"],
+    )
+
+    keep_stored_title_and_artists_after_source_failure(
+        track,
+        "Bruise Pristine (Official Video)",
+        [{"name": "Placebo", "hashtag": "Placebo", "spotify_id": "abc"}],
+    )
+
+    assert track.title == "Bruise Pristine (Official Video)"
+    assert track.artists == [ArtistInfo(name="Placebo", hashtag="Placebo", spotify_id="abc")]
+
+
+def test_a_degraded_resolve_keeps_the_stored_title_when_only_youtube_answered() -> None:
+    """D-63, weak side: the fresh title is the raw clip name `songlink:youtube`
+    gave, so the stored clean one still wins despite the fresh resolve."""
+    track = ResolvedTrack(source_failures=["spotify:isrc: HTTP 503"])
+    merge_title(track, "vesnavoseny - ніч минала", "songlink:youtube")
+    merge_artists(track, ["vesnavoseny"], "songlink:youtube")
+
+    keep_stored_title_and_artists_after_source_failure(
+        track, "ніч минала", [{"name": "vesnavoseny", "hashtag": "vesnavoseny"}]
+    )
+
+    assert track.title == "ніч минала"
+    assert track.artists == [ArtistInfo(name="vesnavoseny", hashtag="vesnavoseny")]
+
+
+def test_a_degraded_resolve_takes_the_fresh_title_from_a_strong_source() -> None:
+    """D-63, strong side: the track reached Spotify since the stored resolve,
+    so its clean values must evict the D-57 clip ones even while iTunes fails."""
+    track = ResolvedTrack(source_failures=["itunes: timeout"])
+    merge_title(track, "Bruise Pristine", "spotify")
+    merge_artists(track, ["Placebo"], "spotify")
+
+    keep_stored_title_and_artists_after_source_failure(
+        track, "Bruise Pristine (Official Video)", [{"name": "Валентин Стрыкало-Бувайте"}]
+    )
+
+    assert track.title == "Bruise Pristine"
+    assert track.artists == [ArtistInfo(name="Placebo")]
+
+
+def test_a_complete_resolve_still_overwrites_the_stored_title_and_artists() -> None:
+    """The guard is scoped to `source_failures`: with every source answering,
+    the fresh result is the authority and must win as before (D-42)."""
+    track = ResolvedTrack(title="Creep", artists=[ArtistInfo(name="Radiohead")])
+
+    keep_stored_title_and_artists_after_source_failure(
+        track, "Creep (Official Video)", [{"name": "RadioheadVEVO"}]
+    )
+
+    assert track.title == "Creep"
+    assert track.artists == [ArtistInfo(name="Radiohead")]
+
+
+def test_a_degraded_resolve_keeps_its_own_values_when_nothing_is_stored() -> None:
+    """First resolve of a track: an empty stored row must not blank the only
+    metadata there is."""
+    track = ResolvedTrack(
+        title="Creep", artists=[ArtistInfo(name="Radiohead")], source_failures=["itunes: timeout"]
+    )
+
+    keep_stored_title_and_artists_after_source_failure(track, None, [])
+
+    assert track.title == "Creep"
+    assert track.artists == [ArtistInfo(name="Radiohead")]
+
+
+def test_a_degraded_resolve_ignores_stored_artist_entries_without_a_name() -> None:
+    track = ResolvedTrack(
+        artists=[ArtistInfo(name="Uploader Channel")], source_failures=["spotify:isrc: HTTP 500"]
+    )
+
+    keep_stored_title_and_artists_after_source_failure(track, None, [{"hashtag": "X"}, "junk"])
+
+    assert track.artists == [ArtistInfo(name="Uploader Channel")]

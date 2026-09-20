@@ -332,3 +332,37 @@ async def test_a_failing_bridged_songlink_keeps_what_the_isrc_fan_out_found(
 
     assert track.platform_links["deezer"].url == "https://www.deezer.com/track/1"
     assert any("odesli quota exceeded" in failure for failure in track.source_failures)
+
+
+async def test_a_failing_spotify_bridge_leaves_the_raw_youtube_title(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The precondition D-58 exists for: before D-55 this exception killed
+    the resolve and nothing was written. Now it survives, and what it
+    carries into `_persist_track` is the uploader's name and clip title."""
+    monkeypatch.setattr(
+        service.songlink,
+        "fetch",
+        AsyncMock(
+            return_value=SonglinkResult(
+                found=True,
+                provider="youtube",
+                isrc=None,
+                title="Bruise Pristine (Official Video)",
+                artist_name="Валентин Стрыкало-Бувайте",
+                duration_ms=225000,
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        service.spotify, "search_by_name", AsyncMock(side_effect=RuntimeError("HTTP 503"))
+    )
+    monkeypatch.setattr(service, "resolve_by_name_with_matching", AsyncMock())
+
+    track = await service.resolve_track(
+        make_context(), classify_url("https://www.youtube.com/watch?v=someId")
+    )
+
+    assert track.title == "Bruise Pristine (Official Video)"
+    assert [artist.name for artist in track.artists] == ["Валентин Стрыкало-Бувайте"]
+    assert any(failure.startswith("spotify:bridge: ") for failure in track.source_failures)

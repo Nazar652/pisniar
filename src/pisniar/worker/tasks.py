@@ -9,13 +9,16 @@ from datetime import UTC, datetime
 from typing import Any
 
 import httpx
+from aiogram import Bot
+from aiogram.exceptions import TelegramAPIError
 from celery.signals import task_postrun, task_prerun
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from pisniar.channel import warn_if_alerts_share_the_channel
 from pisniar.config import Settings, get_settings, redaction_secrets
-from pisniar.db.models import Post, Track
+from pisniar.db.models import DEFAULT_LANGUAGES, Post, Track
 from pisniar.db.session import LOCK_TIMEOUT_MS, build_engine, build_session_factory
 from pisniar.db.states import PostStatus, set_post_status
 from pisniar.logging import (
@@ -44,7 +47,18 @@ from pisniar.resolve.urls import UrlKind, classify_url
 from pisniar.telegram.client import build_bot
 from pisniar.telegram.draft import deliver_draft
 from pisniar.telegram.notifier import send_alert
-from pisniar.worker.celery_app import PING_TASK_NAME, RESOLVE_POST_TASK_NAME, build_celery_app
+from pisniar.telegram.publish import (
+    channel_post_url,
+    describe_publish_error,
+    preflight_channel,
+    publish_to_channel,
+)
+from pisniar.worker.celery_app import (
+    PING_TASK_NAME,
+    PUBLISH_POST_TASK_NAME,
+    RESOLVE_POST_TASK_NAME,
+    build_celery_app,
+)
 from pisniar.worker.runner import run_async
 
 settings = get_settings()
@@ -57,6 +71,8 @@ configure_logging(
 celery_app = build_celery_app(settings.redis_url)
 
 logger = get_logger(__name__)
+
+warn_if_alerts_share_the_channel(settings.channel_id, settings.alert_chat_id)
 
 EMPTY_RE_RESOLVE_ERROR = (
     "Резолв не повернув нічого, але трек уже має збережені дані — "
@@ -282,7 +298,10 @@ async def _resolve_and_deliver(
                 year=resolved.year,
                 release_type=resolved.release_type,
                 release_title=resolved.release_title,
-                album_id_spotify=resolved.album_id_spotify,
+                # Both read off the row, not off `resolved`: the album id is
+                # persisted now (D-45) and languages only ever live there (D-61).
+                album_id_spotify=track.album_id_spotify,
+                languages=_languages_from_stored(track.languages),
                 genres=effective_genres,
                 platform_links=resolved.platform_links,
             )
@@ -375,8 +394,14 @@ async def _persist_track_in_own_transaction(
 def _persist_track(track: Track, resolved: ResolvedTrack) -> None:
     """Merges into the stored row instead of overwriting it (D-42): a
     `manual` link and an admin's `artists[].hashtag` are the only data here
-    that a re-resolve can never reproduce on its own."""
+    that a re-resolve can never reproduce on its own. A degraded resolve also
+    keeps the stored `title`/`artists` when the fresh ones are weak (D-58/D-63)."""
     merge.merge_stored_platform_links(resolved, track.platform_links)
+
+    # Before `merge_stored_artists`, which then re-applies the hashtag
+    # overrides onto the restored names — a no-op, since they came from there.
+    merge.keep_stored_title_and_artists_after_source_failure(resolved, track.title, track.artists)
+
     merge.merge_stored_artists(resolved, track.artists)
     merge.merge_stored_scalars(resolved, _stored_scalars(track))
 
@@ -386,6 +411,7 @@ def _persist_track(track: Track, resolved: ResolvedTrack) -> None:
     track.year = resolved.year
     track.release_type = resolved.release_type
     track.release_title = resolved.release_title
+    track.album_id_spotify = resolved.album_id_spotify
     track.cover_url = resolved.cover_url
     track.platform_links = {
         platform: _platform_link_to_dict(link) for platform, link in resolved.platform_links.items()
@@ -428,6 +454,13 @@ def _genres_from_stored(stored: list[object]) -> list[GenreInfo]:
             )
         )
     return genres
+
+
+def _languages_from_stored(stored: list[object]) -> list[str]:
+    """Falls back to the schema default rather than to an empty line: D-61
+    says the language is always shown, and only step 5 can correct it."""
+    languages = [entry for entry in stored if isinstance(entry, str) and entry]
+    return languages or list(DEFAULT_LANGUAGES)
 
 
 def _platform_link_to_dict(link: PlatformLink) -> dict[str, object]:
@@ -640,3 +673,174 @@ async def _rollback_quietly(session: AsyncSession, post_id: int) -> None:
         await session.rollback()
     except Exception:
         logger.exception("resolve_post_cleanup_rollback_failed", post_id=post_id)
+
+
+@celery_app.task(name=PUBLISH_POST_TASK_NAME, bind=True)
+def publish_post(self: Any, post_id: int, published_by_user_id: int) -> None:
+    """Publishes an approved draft into the channel. Terminal on error, like
+    `resolve_post`: FAILED + alert + a manual retry, never a Celery retry."""
+    bind_celery_task_id(self.request.id)
+    bind_post_id(post_id)
+    run_async(_publish_post(post_id, published_by_user_id))
+
+
+async def _publish_post(post_id: int, published_by_user_id: int) -> None:
+    engine = build_engine(
+        settings.database_url, use_null_pool=True, lock_timeout_ms=LOCK_TIMEOUT_MS
+    )
+    try:
+        session_factory = build_session_factory(engine)
+        async with session_factory() as session:
+            try:
+                # Barrier 1: this lock and the two guards under it are the
+                # only real deduplication — see AGENTS.md on the other two.
+                post = await session.get(Post, post_id, with_for_update=True)
+            except DBAPIError as error:
+                await session.rollback()
+                await _fail_publish(
+                    session, post_id, None, f"пост заблоковано іншою задачею: {error}"
+                )
+                return
+
+            if post is None:
+                logger.error("publish_post_post_not_found", post_id=post_id)
+                return
+
+            if post.channel_message_id is not None:
+                logger.info(
+                    "publish_post_already_published",
+                    post_id=post_id,
+                    channel_message_id=post.channel_message_id,
+                )
+                return
+
+            if post.status is not PostStatus.PUBLISHING:
+                logger.info(
+                    "publish_post_task_arrived_at_settled_post",
+                    post_id=post_id,
+                    status=post.status.value,
+                )
+                return
+
+            track = await session.get(Track, post.track_id)
+            assert track is not None
+
+            await _publish_and_confirm(session, post, track, published_by_user_id)
+    finally:
+        await engine.dispose()
+
+
+async def _publish_and_confirm(
+    session: AsyncSession, post: Post, track: Track, published_by_user_id: int
+) -> None:
+    # Read before anything can expire the ORM objects: the failure path below
+    # rolls back, and a later attribute access would be a lazy refresh.
+    post_id = post.id
+    draft_chat_id = post.draft_chat_id
+    draft_message_id = post.draft_message_id
+    cover_url = track.cover_url
+
+    bot = build_bot(settings)
+    try:
+        try:
+            chat = await preflight_channel(bot, settings.channel_id)
+
+            # Barrier 2, the D-38 order mirrored: send, write, commit, with
+            # no network call between. The crash window is accepted (D-47).
+            await publish_to_channel(bot, post, settings.channel_id, cover_url)
+            channel_message_id = post.channel_message_id
+            assert channel_message_id is not None
+
+            post.published_at = datetime.now(UTC)
+            post.published_by_user_id = published_by_user_id
+            set_post_status(post, PostStatus.PUBLISHED)
+            await session.commit()
+        except Exception as error:
+            logger.exception("publish_post_send_failed", post_id=post_id)
+
+            # Rolled back before the handler runs: a half-written channel
+            # reference under a `failed` status would be a lie about Telegram.
+            try:
+                await session.rollback()
+            except Exception:
+                logger.exception("publish_post_rollback_failed", post_id=post_id)
+
+            await _fail_publish(session, post_id, draft_chat_id, describe_publish_error(error))
+            return
+
+        logger.info(
+            "publish_post_published", post_id=post_id, channel_message_id=channel_message_id
+        )
+        await _confirm_publication(
+            bot,
+            post_id,
+            draft_chat_id,
+            draft_message_id,
+            channel_post_url(chat, channel_message_id),
+        )
+    finally:
+        await bot.session.close()
+
+
+async def _confirm_publication(
+    bot: Bot,
+    post_id: int,
+    draft_chat_id: int | None,
+    draft_message_id: int | None,
+    post_url: str,
+) -> None:
+    """D-66: only the button goes away — `channel_chat_id`/`channel_message_id`
+    stay, because step 5 edits the published caption through them."""
+    if draft_chat_id is not None and draft_message_id is not None:
+        try:
+            await bot.edit_message_reply_markup(
+                chat_id=draft_chat_id, message_id=draft_message_id, reply_markup=None
+            )
+        except TelegramAPIError:
+            # The bot already removed it on the tap; this is the second pass,
+            # for the paths (a retry, a redelivery) that never went through one.
+            logger.warning("publish_post_keyboard_removal_failed", post_id=post_id, exc_info=True)
+
+    chat_id = draft_chat_id if draft_chat_id is not None else settings.alert_chat_id
+    await send_alert(bot, chat_id, f"Пост {post_id} опубліковано: {post_url}")
+
+
+async def _fail_publish(
+    session: AsyncSession, post_id: int, draft_chat_id: int | None, error_message: str
+) -> None:
+    """The publish mirror of `_fail_post`: plain values only, never a live
+    `Post`, so it survives the rollback that expires every ORM object."""
+    error_message = _redacted(error_message)
+    logger.error("publish_post_failed", post_id=post_id, error=error_message)
+
+    status_written = True
+    try:
+        await _write_failed_status(session, post_id, error_message)
+    except Exception:
+        logger.exception("publish_post_failed_status_write_retried", post_id=post_id)
+        try:
+            await session.rollback()
+            await _write_failed_status(session, post_id, error_message)
+        except Exception:
+            logger.exception("publish_post_failed_status_write_failed", post_id=post_id)
+            status_written = False
+
+    alert_text = (
+        f"Не вдалося опублікувати пост {post_id}: {error_message}\n"
+        f"Повторити публікацію: /retry {post_id}"
+    )
+    if not status_written:
+        alert_text += (
+            "\nСтатус у базі зафіксувати не вдалося — пост міг лишитись у стані «publishing»."
+        )
+
+    chat_ids = [settings.alert_chat_id]
+    if draft_chat_id is not None and draft_chat_id != settings.alert_chat_id:
+        chat_ids.append(draft_chat_id)
+
+    bot = build_bot(settings)
+    try:
+        for chat_id in chat_ids:
+            await send_alert(bot, chat_id, alert_text)
+    finally:
+        await bot.session.close()

@@ -1,6 +1,6 @@
 """Schema-level guarantees the ORM alone cannot enforce: the status CHECK,
-the fragment-bounds CHECK, the partial unique index, and `ON DELETE
-RESTRICT` on `post.track_id`."""
+the fragment-bounds CHECK, the `languages` default and CHECK, the partial
+unique index, and `ON DELETE RESTRICT` on `post.track_id`."""
 
 from __future__ import annotations
 
@@ -22,6 +22,59 @@ async def make_track(session: AsyncSession) -> Track:
     session.add(track)
     await session.flush()
     return track
+
+
+async def test_a_new_track_gets_the_default_language_from_the_schema(
+    db_session: AsyncSession,
+) -> None:
+    """Nothing in the bot writes `languages` (D-61) — the default is the
+    only thing that puts a language on a post before step 5 exists."""
+    track = await make_track(db_session)
+
+    await db_session.refresh(track)
+
+    assert track.languages == ["українська"]
+
+
+async def test_languages_check_rejects_a_value_that_is_not_an_array(
+    db_session: AsyncSession,
+) -> None:
+    marker = uuid.uuid4().hex
+
+    with pytest.raises(IntegrityError, match="ck_track_languages_is_array"):
+        await db_session.execute(
+            text(
+                "INSERT INTO track (source_url, source_url_normalized, languages) "
+                'VALUES (:url, :url, \'{"name": "українська"}\'::jsonb)'
+            ),
+            {"url": f"test://{marker}"},
+        )
+
+
+async def test_a_post_keeps_the_submitter_and_the_publisher_apart(
+    db_session: AsyncSession,
+) -> None:
+    """D-62: `created_by_user_id` is who sent the link, the new column is
+    who approved and published — with two admins they differ, and until
+    publication happens the second one is simply unknown."""
+    track = await make_track(db_session)
+    post = Post(track_id=track.id, created_by_user_id=111)
+    db_session.add(post)
+    await db_session.flush()
+    await db_session.refresh(post)
+
+    assert post.published_by_user_id is None
+
+    post.published_by_user_id = 222
+    await db_session.flush()
+
+    # Read before `expire_all()`: afterwards `post.id` is a lazy refresh.
+    post_id = post.id
+    db_session.expire_all()
+
+    reloaded = await db_session.get(Post, post_id)
+    assert reloaded is not None
+    assert (reloaded.created_by_user_id, reloaded.published_by_user_id) == (111, 222)
 
 
 async def test_status_check_constraint_rejects_unknown_status(db_session: AsyncSession) -> None:

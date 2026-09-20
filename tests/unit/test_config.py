@@ -5,16 +5,19 @@ the repo root."""
 
 from __future__ import annotations
 
+import json
+import logging
 from typing import Literal
 
 import pydantic
 import pytest
 
 from pisniar.config import Settings, redaction_secrets
+from pisniar.logging import REDACTED_PLACEHOLDER, configure_logging
 
 # conftest.py sets fallbacks for these; "missing field" tests need them
 # genuinely absent, so this fixture removes them from real OS environ.
-REQUIRED_ENV_VARS = ("BOT_TOKEN", "ADMIN_IDS", "ALERT_CHAT_ID", "DATABASE_URL")
+REQUIRED_ENV_VARS = ("BOT_TOKEN", "ADMIN_IDS", "ALERT_CHAT_ID", "CHANNEL_ID", "DATABASE_URL")
 
 
 @pytest.fixture
@@ -28,7 +31,9 @@ def build_settings(
     bot_token: str = "000000000:fake",
     admin_ids: str = "111,222",
     alert_chat_id: str = "111",
+    channel_id: str = "-1001234567890",
     database_url: str = "postgresql+asyncpg://pisniar:pisniar@postgres:5432/pisniar",
+    redis_url: str = "redis://redis:6379/0",
     environment: Literal["dev", "docker"] = "dev",
     log_format: Literal["json", "console"] = "json",
     spotify_client_id: str = "fake-spotify-client-id",
@@ -39,7 +44,9 @@ def build_settings(
         bot_token=bot_token,
         admin_ids=admin_ids,
         alert_chat_id=alert_chat_id,
+        channel_id=channel_id,
         database_url=database_url,
+        redis_url=redis_url,
         environment=environment,
         log_format=log_format,
         spotify_client_id=spotify_client_id,
@@ -53,6 +60,7 @@ def test_missing_bot_token_raises(no_ambient_settings_env: None) -> None:
             _env_file=None,
             admin_ids="111,222",
             alert_chat_id="111",
+            channel_id="-1001234567890",
             database_url="postgresql+asyncpg://pisniar:pisniar@postgres:5432/pisniar",
         )
     assert "bot_token" in str(excinfo.value)
@@ -64,8 +72,29 @@ def test_missing_admin_ids_raises(no_ambient_settings_env: None) -> None:
             _env_file=None,
             bot_token="000000000:fake",
             alert_chat_id="111",
+            channel_id="-1001234567890",
             database_url="postgresql+asyncpg://pisniar:pisniar@postgres:5432/pisniar",
         )
+
+
+def test_missing_channel_id_raises(no_ambient_settings_env: None) -> None:
+    """No default and no fallback: a guessed publish target would mean a post
+    in the wrong channel, and that is not recoverable (S3-R7)."""
+    with pytest.raises(pydantic.ValidationError) as excinfo:
+        Settings(
+            _env_file=None,
+            bot_token="000000000:fake",
+            admin_ids="111,222",
+            alert_chat_id="111",
+            database_url="postgresql+asyncpg://pisniar:pisniar@postgres:5432/pisniar",
+        )
+    assert "channel_id" in str(excinfo.value)
+
+
+def test_channel_id_parses_as_a_negative_chat_id() -> None:
+    settings = build_settings(channel_id="-1001234567890")
+
+    assert settings.channel_id == -1001234567890
 
 
 def test_admin_ids_comma_separated_string_parses_to_int_list() -> None:
@@ -124,6 +153,7 @@ def test_log_format_defaults_to_json(monkeypatch: pytest.MonkeyPatch) -> None:
         bot_token="000000000:fake",
         admin_ids="111,222",
         alert_chat_id="111",
+        channel_id="-1001234567890",
         database_url="postgresql+asyncpg://pisniar:pisniar@postgres:5432/pisniar",
     )
 
@@ -153,3 +183,54 @@ def test_redaction_secrets_includes_spotify_client_secret() -> None:
     settings = build_settings(spotify_client_secret="super-secret-spotify-value")
 
     assert "super-secret-spotify-value" in redaction_secrets(settings)
+
+
+def test_redaction_secrets_includes_the_redis_password() -> None:
+    """Without it the broker password reaches the logs through kombu's own
+    traceback and through `readyz_redis_unavailable`, which logs with
+    `exc_info=True`."""
+    settings = build_settings(redis_url="redis://:super-secret-redis-value@redis:6379/0")
+
+    assert "super-secret-redis-value" in redaction_secrets(settings)
+
+
+def test_redaction_secrets_covers_a_percent_encoded_redis_password() -> None:
+    """A leaked URL carries the encoded form; redis-py unquotes it before it
+    reaches a client-side error message. Both can surface, so both go in."""
+    settings = build_settings(redis_url="redis://:pa%40ss%2Fword@redis:6379/0")
+
+    secrets = redaction_secrets(settings)
+
+    assert "pa%40ss%2Fword" in secrets
+    assert "pa@ss/word" in secrets
+
+
+def test_redaction_secrets_has_nothing_to_add_for_a_passwordless_redis_url() -> None:
+    settings = build_settings(redis_url="redis://redis:6379/0")
+
+    assert "" not in redaction_secrets(settings)
+    assert redaction_secrets(settings) == redaction_secrets(build_settings())
+
+
+def test_the_redis_password_is_redacted_from_a_message_and_a_traceback(
+    capsys: pytest.CaptureFixture[str],
+    preserve_root_logging_state: None,
+) -> None:
+    """The two sinks D-52 named: an event field and a rendered traceback.
+    `format_exc_info` runs before the redaction processor, so the exception
+    text is a plain string by the time the secret list is applied to it."""
+    settings = build_settings(redis_url="redis://:super-secret-redis-value@redis:6379/0")
+    configure_logging(log_format="json", log_level="INFO", secrets=redaction_secrets(settings))
+
+    try:
+        raise ConnectionError("AUTH failed for redis://:super-secret-redis-value@redis:6379/0")
+    except ConnectionError:
+        logging.getLogger("pisniar.api.app").warning(
+            "readyz_redis_unavailable for %s", settings.redis_url, exc_info=True
+        )
+
+    output = capsys.readouterr().out
+    assert "super-secret-redis-value" not in output
+    parsed = json.loads(output)
+    assert REDACTED_PLACEHOLDER in parsed["event"]
+    assert REDACTED_PLACEHOLDER in parsed["exception"]

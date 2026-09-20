@@ -49,6 +49,46 @@ async def test_fetch_and_parse_raises_parse_error_on_missing_next_data_script() 
             await songlink._fetch_and_parse(client, "https://open.spotify.com/track/x")
 
 
+def build_page(page_props: str) -> str:
+    return (
+        '<script id="__NEXT_DATA__" type="application/json">'
+        f'{{"props":{{"pageProps":{page_props}}}}}'
+        "</script>"
+    )
+
+
+async def test_an_in_page_quota_error_raises_instead_of_caching_emptiness() -> None:
+    """D-48, measured live: song.link answers a quota refusal with HTTP 200,
+    a `pageProps.error` and a stub `pageData` — a transport failure wearing
+    the shape of a positive payload."""
+    quota_page = build_page(
+        '{"error":{"statusCode":429},"cookies":{},"pageData":{"facebookPixelId":null}}'
+    )
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, text=quota_page))
+
+    async with make_client(transport) as client:
+        with pytest.raises(songlink.SonglinkParseError, match="in-page error: 429"):
+            await songlink._fetch_and_parse(client, "https://open.spotify.com/track/x")
+
+
+async def test_a_page_without_an_entity_raises_instead_of_a_found_result() -> None:
+    """Same class without the `error` key: only HTTP 404 is a verified miss,
+    so an unconfirmed empty shape must not be cached as one."""
+    empty_page = build_page('{"cookies":{},"pageData":{"facebookPixelId":null}}')
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, text=empty_page))
+
+    async with make_client(transport) as client:
+        with pytest.raises(songlink.SonglinkParseError, match="no entityData"):
+            await songlink._fetch_and_parse(client, "https://open.spotify.com/track/x")
+
+
+def test_a_cached_entityless_payload_raises_rather_than_resolving_to_nothing() -> None:
+    """A row written before the guard existed is still served for its TTL —
+    failing loudly beats handing the worker an all-`None` result (D-48)."""
+    with pytest.raises(songlink.SonglinkParseError, match="no entityData"):
+        songlink._result_from_payload({"found": True, "page_data": {"facebookPixelId": None}})
+
+
 async def test_fetch_and_parse_retries_after_429_then_succeeds() -> None:
     attempts = 0
 
@@ -140,11 +180,14 @@ async def test_a_body_over_the_limit_is_refused_while_streaming() -> None:
             await songlink._fetch_and_parse(client, "https://open.spotify.com/track/x")
 
 
-async def test_a_redirect_off_odesli_is_refused_before_the_body_is_read() -> None:
-    """R2-10: this is the only adapter with `follow_redirects=True`, so it is
-    the only one where a hop can leave Odesli for an internal address."""
+async def test_a_redirect_off_odesli_is_never_requested() -> None:
+    """D-56: the host check has to run *before* the hop is sent. With
+    `follow_redirects=True` httpx walked the chain inside `send()`, so the
+    worker had already contacted the internal address by then."""
+    requested_hosts: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
+        requested_hosts.append(request.url.host)
         if request.url.host == "song.link":
             return httpx.Response(302, headers={"location": "http://169.254.169.254/latest/meta"})
         return httpx.Response(200, text=FIXTURE_HTML)
@@ -154,6 +197,24 @@ async def test_a_redirect_off_odesli_is_refused_before_the_body_is_read() -> Non
             await songlink._fetch_and_parse(client, "https://open.spotify.com/track/x")
 
     assert "169.254.169.254" in str(raised.value)
+    assert requested_hosts == ["song.link"]
+
+
+async def test_a_redirect_downgraded_to_http_is_refused() -> None:
+    """An allowed host over plain http is still a hop we never take."""
+    requested_schemes: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requested_schemes.append(request.url.scheme)
+        if request.url.scheme == "https":
+            return httpx.Response(302, headers={"location": "http://song.link/s/x"})
+        return httpx.Response(200, text=FIXTURE_HTML)
+
+    async with make_client(httpx.MockTransport(handler)) as client:
+        with pytest.raises(songlink.SonglinkParseError, match="non-https"):
+            await songlink._fetch_and_parse(client, "https://open.spotify.com/track/x")
+
+    assert requested_schemes == ["https"]
 
 
 async def test_a_redirect_within_odesli_is_allowed() -> None:
@@ -169,3 +230,45 @@ async def test_a_redirect_within_odesli_is_allowed() -> None:
         payload = await songlink._fetch_and_parse(client, "https://open.spotify.com/track/x")
 
     assert payload["found"] is True
+
+
+async def test_the_measured_live_chain_still_resolves() -> None:
+    """Measured 2026-09-20: `308` to a relative path, then `302` to an
+    absolute one, then `200` — the shape the manual walk has to reproduce."""
+    requested_paths: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requested_paths.append(request.url.path)
+        if len(requested_paths) == 1:
+            return httpx.Response(308, headers={"location": "/https:/open.spotify.com/track/x"})
+        if len(requested_paths) == 2:
+            return httpx.Response(302, headers={"location": "https://song.link/s/x"})
+        return httpx.Response(200, text=FIXTURE_HTML)
+
+    async with make_client(httpx.MockTransport(handler)) as client:
+        payload = await songlink._fetch_and_parse(client, "https://open.spotify.com/track/x")
+
+    assert payload["found"] is True
+    assert requested_paths[1:] == ["/https:/open.spotify.com/track/x", "/s/x"]
+
+
+async def test_an_endless_redirect_chain_stops_at_the_hop_limit() -> None:
+    request_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal request_count
+        request_count += 1
+        return httpx.Response(302, headers={"location": f"https://song.link/s/{request_count}"})
+
+    async with make_client(httpx.MockTransport(handler)) as client:
+        with pytest.raises(songlink.SonglinkParseError, match="redirected more than"):
+            await songlink._fetch_and_parse(client, "https://open.spotify.com/track/x")
+
+    assert request_count == songlink.MAX_REDIRECTS + 1
+
+
+def test_a_hop_httpx_could_not_build_is_refused() -> None:
+    """`next_request` sits beside `has_redirect_location` in httpx, so this
+    guard is the one that keeps the walk from assuming a target it lacks."""
+    with pytest.raises(songlink.SonglinkParseError, match="without a Location"):
+        songlink._validated_redirect_target(httpx.Response(302))

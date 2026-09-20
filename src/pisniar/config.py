@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Annotated, Literal
+from urllib.parse import unquote, urlsplit
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -33,6 +34,9 @@ class Settings(BaseSettings):
     # `split_admin_ids` below ever runs, and that blows up as invalid JSON (D-23).
     admin_ids: Annotated[list[int], NoDecode] = Field(min_length=1)
     alert_chat_id: int
+    # The publish target, and the only source of it (S3-R7). Numeric, not
+    # `@username`: a username can be reassigned to another chat, an id cannot.
+    channel_id: int
 
     database_url: str
     redis_url: str = "redis://redis:6379/0"
@@ -81,9 +85,9 @@ def get_settings() -> Settings:
 
 def redaction_secrets(settings: Settings) -> list[str]:
     """Every raw value that must never appear in a log line — including a
-    traceback. `/readyz`'s Postgres check logs with `exc_info=True`, and an
-    asyncpg connection error can embed the DSN (password included) in its
-    message, so the bot token alone is not enough here.
+    traceback. `/readyz` logs both its checks with `exc_info=True`, and an
+    asyncpg or kombu connection error can embed the DSN (password included)
+    in its message, so the bot token alone is not enough here.
     """
     secrets = [
         settings.bot_token.get_secret_value(),
@@ -92,4 +96,19 @@ def redaction_secrets(settings: Settings) -> list[str]:
     password = make_url(settings.database_url).password
     if password:
         secrets.append(password)
+
+    secrets.extend(_redis_password_forms(settings.redis_url))
     return secrets
+
+
+def _redis_password_forms(redis_url: str) -> list[str]:
+    """Both forms: a leaked URL carries the percent-encoded password, while
+    redis-py/kombu unquote it before it reaches a client-side message."""
+    quoted_password = urlsplit(redis_url).password
+    if not quoted_password:
+        return []
+
+    unquoted_password = unquote(quoted_password)
+    if unquoted_password == quoted_password:
+        return [quoted_password]
+    return [quoted_password, unquoted_password]

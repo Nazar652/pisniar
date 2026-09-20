@@ -1,18 +1,28 @@
 """Assembling a `CaptionDocument` from track data (D-29 template) and, on
 overflow, degrading it deterministically: genres from the tail, then
 platforms from the tail (Spotify/YT Music protected until last), then the
-release title. First line/artist hashtags/channel link are never touched.
+release title. First line/artist hashtags/languages/channel link are never
+touched. Built at the media limit (1024, D-45), not at publish time.
 """
 
 from __future__ import annotations
 
+from pisniar.channel import CHANNEL_LINK_TEXT, CHANNEL_LINK_URL
 from pisniar.post.hashtags import default_hashtag
 from pisniar.post.render import CaptionDocument, visible_length
 from pisniar.resolve.matching import is_valid_spotify_id
-from pisniar.resolve.types import ArtistInfo, GenreInfo, PlatformLink
+from pisniar.resolve.types import ArtistInfo, GenreInfo, MatchClass, PlatformLink
 
-CHANNEL_LINK_TEXT = "Піснярня 🇺🇦"
-CHANNEL_LINK_URL = "https://t.me/pisniarnia"
+# D-45: the post carries a cover, and media drops Telegram's caption limit
+# from 4096 to 1024. Applied while building, so the admin approves the same
+# text subscribers see — a later rebuild would be a silent substitution.
+MEDIA_CAPTION_LIMIT = 1024
+
+# D-64: only a `youtube` link the admin put there by hand is a clip. An
+# automatic `youtube` hit is usually the "— Topic" upload, audio over a
+# still, and labelling that one "(кліп)" would be a lie.
+CLIP_PLATFORM = "youtube"
+CLIP_LABEL_SUFFIX = " (кліп)"
 
 RELEASE_TYPE_NAMES = {"single": "сингл", "album": "альбом", "compilation": "збірка"}
 
@@ -46,10 +56,27 @@ def platform_display_name(platform: str) -> str:
     return PLATFORM_DISPLAY_NAMES.get(platform, platform)
 
 
+def clip_platform(platform_links: dict[str, PlatformLink]) -> str | None:
+    """`MANUAL`, not `source == "user_input"` (D-64): the same rule has to
+    cover the link the admin submits today and the one step 5's Mini App
+    will paste with `source: "manual"`."""
+    link = platform_links.get(CLIP_PLATFORM)
+    if link is None or link.match is not MatchClass.MANUAL:
+        return None
+    return CLIP_PLATFORM
+
+
 def _ordered_platforms(platform_links: dict[str, PlatformLink]) -> list[str]:
+    clip = clip_platform(platform_links)
     ordered = [platform for platform in PLATFORM_DISPLAY_ORDER if platform in platform_links]
-    rest = sorted(platform for platform in platform_links if platform not in PLATFORM_DISPLAY_ORDER)
-    return ordered + rest
+    rest = sorted(
+        platform
+        for platform in platform_links
+        if platform not in PLATFORM_DISPLAY_ORDER and platform != clip
+    )
+
+    head = [clip] if clip is not None else []
+    return head + ordered + rest
 
 
 def _artist_hashtags(artists: list[ArtistInfo], warnings: list[str]) -> list[str]:
@@ -58,6 +85,17 @@ def _artist_hashtags(artists: list[ArtistInfo], warnings: list[str]) -> list[str
         hashtag = artist.hashtag or default_hashtag(artist.name)
         if hashtag is None:
             warnings.append(f"хештег для артиста «{artist.name}» не згенеровано (лише цифри)")
+            continue
+        hashtags.append(f"#{hashtag}")
+    return hashtags
+
+
+def _language_hashtags(languages: list[str], warnings: list[str]) -> list[str]:
+    hashtags: list[str] = []
+    for language in languages:
+        hashtag = default_hashtag(language)
+        if hashtag is None:
+            warnings.append(f"хештег для мови «{language}» не згенеровано")
             continue
         hashtags.append(f"#{hashtag}")
     return hashtags
@@ -82,6 +120,7 @@ def _build_document(
     release_type: str | None,
     release_title: str | None,
     album_id_spotify: str | None,
+    languages: list[str],
     genres: list[GenreInfo],
     platform_links: dict[str, PlatformLink],
     include_release_title: bool,
@@ -114,11 +153,15 @@ def _build_document(
                 document.append_text(release_title)
             document.append_text("»")
 
-    genre_hashtags = _genre_hashtags(genres, warnings)
-    if genre_hashtags:
+    # Languages lead the line and are never dropped (D-61): they are always
+    # present, while genres are the first thing degradation gives up.
+    groups = [_language_hashtags(languages, warnings), _genre_hashtags(genres, warnings)]
+    hashtag_line = " · ".join(" ".join(group) for group in groups if group)
+    if hashtag_line:
         document.append_line_break()
-        document.append_text(" ".join(genre_hashtags))
+        document.append_text(hashtag_line)
 
+    clip = clip_platform(platform_links)
     ordered_platforms = _ordered_platforms(platform_links)
     if ordered_platforms:
         document.append_line_break()
@@ -126,7 +169,11 @@ def _build_document(
         for index, platform in enumerate(ordered_platforms):
             if index > 0:
                 document.append_text(" · ")
-            document.append_link(platform_display_name(platform), platform_links[platform].url)
+
+            label = platform_display_name(platform)
+            if platform == clip:
+                label += CLIP_LABEL_SUFFIX
+            document.append_link(label, platform_links[platform].url)
 
     document.append_line_break()
     document.append_line_break()
@@ -143,9 +190,10 @@ def build_caption(
     release_type: str | None,
     release_title: str | None,
     album_id_spotify: str | None,
+    languages: list[str],
     genres: list[GenreInfo],
     platform_links: dict[str, PlatformLink],
-    limit: int = 4096,
+    limit: int = MEDIA_CAPTION_LIMIT,
 ) -> tuple[CaptionDocument, list[str]]:
     remaining_genres = list(genres)
     remaining_platforms = dict(platform_links)
@@ -160,6 +208,7 @@ def build_caption(
             release_type=release_type,
             release_title=release_title,
             album_id_spotify=album_id_spotify,
+            languages=languages,
             genres=remaining_genres,
             platform_links=remaining_platforms,
             include_release_title=include_release_title,

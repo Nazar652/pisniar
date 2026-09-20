@@ -6,6 +6,8 @@ follows the four-tier `manual > exact_isrc > aggregator > confirmed` order.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 from pisniar.logging import get_logger
 from pisniar.resolve.cache import normalize_key_part
 from pisniar.resolve.types import ArtistInfo, MatchClass, PlatformLink, ResolvedTrack
@@ -15,7 +17,15 @@ logger = get_logger(__name__)
 
 # Scalars a re-resolve may legitimately come back without — a source that
 # timed out means "unknown", never "the stored value is wrong" (R2-4).
-STORED_SCALAR_FIELDS = ("isrc", "title", "year", "release_type", "release_title", "cover_url")
+STORED_SCALAR_FIELDS = (
+    "isrc",
+    "title",
+    "year",
+    "release_type",
+    "release_title",
+    "album_id_spotify",
+    "cover_url",
+)
 
 # Higher number wins. "songlink:spotify"/"songlink:youtube" are qualified —
 # the same adapter's metadata quality differs sharply by source entity.
@@ -27,6 +37,9 @@ TITLE_ARTIST_SOURCE_PRIORITY = {
     "itunes": 2,
     "songlink:youtube": 1,
 }
+# A YouTube entity's title is the uploader's caption — it repeats the artist
+# name and carries tails like "(Official Video)", so it never earns a rewrite.
+WEAK_TITLE_ARTIST_SOURCE_PRIORITY = TITLE_ARTIST_SOURCE_PRIORITY["songlink:youtube"]
 YEAR_RELEASE_SOURCE_PRIORITY = {"spotify": 3, "deezer": 2, "musicbrainz": 1}
 COVER_SOURCE_PRIORITY = {"spotify": 3, "songlink:spotify": 2, "songlink:youtube": 2, "deezer": 1}
 
@@ -110,6 +123,37 @@ def merge_stored_scalars(track: ResolvedTrack, stored: dict[str, object]) -> Non
         logger.warning("stored_scalars_kept_after_empty_resolve", fields=kept)
 
 
+def keep_stored_title_and_artists_after_source_failure(
+    track: ResolvedTrack, stored_title: object, stored_artists: list[object]
+) -> None:
+    """D-58: a resolve that lost a source must come out no worse than what
+    was already stored — the fresh values are present, only lower-priority,
+    so they would overwrite a clean title with a raw clip name. Narrowed by
+    D-63 to the weak fresh value: Spotify still wins while iTunes times out.
+    """
+    if not track.source_failures:
+        return
+
+    kept: list[str] = []
+
+    title = _stored_str(stored_title)
+    if title is not None and _fresh_value_is_weak(track, "title"):
+        track.title = title
+        kept.append("title")
+
+    artists = _artists_from_stored(stored_artists)
+    if artists and _fresh_value_is_weak(track, "artists"):
+        track.artists = artists
+        kept.append("artists")
+
+    if kept:
+        logger.warning(
+            "stored_fields_kept_after_degraded_resolve",
+            fields=kept,
+            source_failures=track.source_failures,
+        )
+
+
 def merge_stored_artists(track: ResolvedTrack, stored: list[object]) -> None:
     """Carries the admin's `hashtag` override (the only one D-29 provides)
     and `spotify_id` across a re-resolve that came back without them."""
@@ -119,7 +163,7 @@ def merge_stored_artists(track: ResolvedTrack, stored: list[object]) -> None:
         if isinstance(entry, dict) and (name := entry.get("name")) and isinstance(name, str)
     }
     if not track.artists:
-        track.artists = _artists_from_stored(overrides)
+        track.artists = _artists_from_stored(overrides.values())
         return
 
     matched_names = {
@@ -137,7 +181,7 @@ def merge_stored_artists(track: ResolvedTrack, stored: list[object]) -> None:
             "артистів збережено зі старого резолву: свіжі імена не збіглися, "
             "а в збережених є ручний хештег"
         )
-        track.artists = _artists_from_stored(overrides)
+        track.artists = _artists_from_stored(overrides.values())
         return
 
     track.artists = [
@@ -146,14 +190,24 @@ def merge_stored_artists(track: ResolvedTrack, stored: list[object]) -> None:
     ]
 
 
-def _artists_from_stored(overrides: dict[str, dict[str, object]]) -> list[ArtistInfo]:
+def _fresh_value_is_weak(track: ResolvedTrack, field_name: str) -> bool:
+    """Unknown provenance counts as weak: `field_priorities` gets an entry
+    only when `merge_field` set the value, so a miss means no source vouched
+    for what is sitting there."""
+    return track.field_priorities.get(field_name, 0) <= WEAK_TITLE_ARTIST_SOURCE_PRIORITY
+
+
+def _artists_from_stored(entries: Iterable[object]) -> list[ArtistInfo]:
+    """Takes raw JSONB entries, so the D-58 guard can read `track.artists`
+    straight off the row without rebuilding the override index first."""
     return [
         ArtistInfo(
-            name=_stored_str(entry.get("name")) or "",
+            name=name,
             hashtag=_stored_str(entry.get("hashtag")),
             spotify_id=_stored_str(entry.get("spotify_id")),
         )
-        for entry in overrides.values()
+        for entry in entries
+        if isinstance(entry, dict) and (name := _stored_str(entry.get("name")))
     ]
 
 

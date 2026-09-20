@@ -9,6 +9,9 @@ from celery import Celery
 
 PING_TASK_NAME = "pisniar.worker.ping"
 RESOLVE_POST_TASK_NAME = "pisniar.worker.resolve_post"
+# Dispatched by name from `bot.handlers`, which must never import the task
+# itself — that import edge is the boundary AGENTS.md keeps closed.
+PUBLISH_POST_TASK_NAME = "pisniar.worker.publish_post"
 
 # A full resolve is ~20s of throttled HTTP; these are the ceiling that stops
 # one wedged socket from owning the single worker slot forever (F-15).

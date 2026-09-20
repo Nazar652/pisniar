@@ -1,10 +1,12 @@
 name: pisniar
 
-# DATABASE_URL/REDIS_URL aren't secrets — fixed service DNS names, set here
-# not in `.env`. Dev-only credentials, intentionally not hardened yet (D-23).
+# Service DNS names are fixed here, not in `.env`. The Redis password is the
+# exception: `compose.override.yml` publishes the broker on a host port, and
+# an unauthenticated broker is a write path around `AdminAllowlistMiddleware`.
+# Postgres' dev-only credentials stay as they are (D-23) — it has no such path.
 x-app-environment: &app-environment
   DATABASE_URL: postgresql+asyncpg://pisniar:pisniar@postgres:5432/pisniar
-  REDIS_URL: redis://redis:6379/0
+  REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0
 
 services:
   postgres:
@@ -23,6 +25,12 @@ services:
 
   redis:
     image: redis:7-alpine
+    command:
+      ["redis-server", "--requirepass", "${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}"]
+    environment:
+      # Not `redis-cli -a <password>`: that leaks the password into the
+      # container's process list and warns about it on stderr every probe.
+      REDISCLI_AUTH: ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s

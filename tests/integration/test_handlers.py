@@ -125,6 +125,119 @@ async def test_handle_link_seeds_user_input_for_youtube_clip(
         assert youtube_link["match"] == "manual"
 
 
+async def test_a_pair_resolves_from_the_platform_link_and_seeds_the_clip(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """D-69: the same song submitted as a clip came back with a raw YouTube
+    title and half the platforms. The pair keeps the clip and resolves from
+    the platform link, which is also the track's canonical identity."""
+    platform_url = f"https://open.spotify.com/track/{uuid.uuid4().hex}"
+    clip_url = f"https://www.youtube.com/watch?v={uuid.uuid4().hex}"
+    message = make_message(f"{platform_url} {clip_url}")
+    celery_client = MagicMock()
+
+    await handle_link(message, session_factory, celery_client)
+
+    async with session_factory() as session:
+        track = await session.scalar(
+            select(Track).where(
+                Track.source_url_normalized == classify_url(platform_url).normalized_url
+            )
+        )
+        assert track is not None
+        assert track.source_url == platform_url
+
+        youtube_link = track.platform_links["youtube"]
+        assert isinstance(youtube_link, dict)
+        assert youtube_link["url"] == classify_url(clip_url).normalized_url
+        assert youtube_link["source"] == "user_input"
+        assert youtube_link["match"] == "manual"
+
+        clip_track = await session.scalar(
+            select(Track).where(
+                Track.source_url_normalized == classify_url(clip_url).normalized_url
+            )
+        )
+        assert clip_track is None
+
+    assert "post_id=" in message.answer.await_args.args[0]
+
+
+async def test_a_reversed_pair_lands_on_the_same_row(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """The order of the two links carries no meaning — only which of them is
+    a clip does."""
+    platform_url = f"https://www.deezer.com/track/{uuid.uuid4().hex}"
+    clip_url = f"https://www.youtube.com/watch?v={uuid.uuid4().hex}"
+    message = make_message(f"{clip_url}\n{platform_url}")
+    celery_client = MagicMock()
+
+    await handle_link(message, session_factory, celery_client)
+
+    async with session_factory() as session:
+        track = await session.scalar(
+            select(Track).where(
+                Track.source_url_normalized == classify_url(platform_url).normalized_url
+            )
+        )
+        assert track is not None
+        youtube_link = track.platform_links["youtube"]
+        assert isinstance(youtube_link, dict)
+        assert youtube_link["url"] == classify_url(clip_url).normalized_url
+
+
+async def test_a_pair_attaches_the_clip_to_an_already_known_track(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """The motivating case is a song already posted from its platform link:
+    without this the pair would be a silent no-op on the second submission."""
+    platform_url = f"https://open.spotify.com/track/{uuid.uuid4().hex}"
+    clip_url = f"https://www.youtube.com/watch?v={uuid.uuid4().hex}"
+    celery_client = MagicMock()
+
+    await handle_link(make_message(platform_url), session_factory, celery_client)
+    await handle_link(make_message(f"{platform_url} {clip_url}"), session_factory, celery_client)
+
+    async with session_factory() as session:
+        track = await session.scalar(
+            select(Track).where(
+                Track.source_url_normalized == classify_url(platform_url).normalized_url
+            )
+        )
+        assert track is not None
+        youtube_link = track.platform_links["youtube"]
+        assert isinstance(youtube_link, dict)
+        assert youtube_link["url"] == classify_url(clip_url).normalized_url
+
+
+async def test_two_platform_links_never_reach_the_database(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    first_url = f"https://open.spotify.com/track/{uuid.uuid4().hex}"
+    second_url = f"https://www.deezer.com/track/{uuid.uuid4().hex}"
+    message = make_message(f"{first_url} {second_url}")
+    celery_client = MagicMock()
+
+    await handle_link(message, session_factory, celery_client)
+
+    assert "кліп" in message.answer.await_args.args[0]
+    celery_client.send_task.assert_not_called()
+
+    async with session_factory() as session:
+        created = await session.scalar(
+            select(Track).where(
+                Track.source_url_normalized.in_(
+                    [
+                        classify_url(first_url).normalized_url,
+                        classify_url(second_url).normalized_url,
+                    ]
+                )
+            )
+        )
+        assert created is None
+
+
 async def test_handle_link_notes_duplicate_on_resubmission(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:

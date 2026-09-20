@@ -15,6 +15,7 @@ from aiogram import Dispatcher
 from pisniar.api.app import create_app
 from pisniar.bot.handlers import router as commands_router
 from pisniar.bot.middlewares import AdminAllowlistMiddleware
+from pisniar.channel import warn_if_alerts_share_the_channel
 from pisniar.config import get_settings, redaction_secrets
 from pisniar.db.session import LOCK_TIMEOUT_MS, build_engine, build_session_factory
 from pisniar.logging import configure_logging, get_logger
@@ -44,6 +45,7 @@ async def run() -> None:
         log_level=settings.log_level,
         secrets=redaction_secrets(settings),
     )
+    warn_if_alerts_share_the_channel(settings.channel_id, settings.alert_chat_id)
 
     bot = build_bot(settings)
     # R2-3 asked for the timeout "on application sessions", and only the

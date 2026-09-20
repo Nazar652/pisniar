@@ -5,11 +5,13 @@ link's metadata, prepare a post, render a karaoke-style video fragment,
 publish. See `AGENTS.md` for a terse, code-facing map of the stack and the
 architectural boundaries that are easy to break without knowing them.
 
-This repository is at **step 2**: an admin sends a link, the bot classifies
+This repository is at **step 3**: an admin sends a link, the bot classifies
 it, the worker resolves it across six external sources (song.link, Spotify,
 Deezer, iTunes, `ytmusicapi`, MusicBrainz) with an ISRC-first matching
 discipline, builds an HTML caption, and delivers a draft back with `/retry`
-on failure. Rendering and channel publishing (steps 3-4) are next.
+on failure. The draft carries an **Опублікувати в канал** button: one tap
+publishes the cover plus that exact caption into the channel, once, and
+records who approved it. Video rendering (step 4) is next.
 
 ## Prerequisites
 
@@ -20,19 +22,48 @@ on failure. Rendering and channel publishing (steps 3-4) are next.
   On Windows, the Makefile hard-requires `sh` on PATH (`SHELL := sh`) —
   Git for Windows (Git Bash) already provides this if `uv`/Make themselves
   are usable from the same shell.
-- A Telegram bot token, two admin `user_id`s, and a chat id for alerts, plus
-  a Spotify Web API client id/secret (Client Credentials flow) — see
+- A Telegram bot token, two admin `user_id`s, a chat id for alerts and the
+  numeric chat id of the channel to publish into, plus a Spotify Web API
+  client id/secret (Client Credentials flow) — see
   [Configuration](#configuration).
+- The bot added to that channel **as an administrator with "post messages"
+  enabled**. Without it every publication fails the post with a Ukrainian
+  explanation instead of a raw `400`/`403`.
 
 ## Configuration
 
 Copy `.env.example` to `.env` and fill in the values only you know: bot
-token, admin ids, alert chat id, `SPOTIFY_CLIENT_ID`/`SPOTIFY_CLIENT_SECRET`.
-`ITUNES_COUNTRY` defaults to `UA`; `MUSICBRAINZ_CONTACT` is optional — the
-`musicbrainz` source stays disabled without it. **Never commit `.env`** — it
-is git-ignored. `DATABASE_URL` / `REDIS_URL` are deliberately not in
-`.env.example`: they are the in-network DNS names of the `postgres` /
-`redis` compose services, fixed in `compose.yaml`, not something you fill in.
+token, admin ids, alert chat id, `CHANNEL_ID`,
+`SPOTIFY_CLIENT_ID`/`SPOTIFY_CLIENT_SECRET`, and a generated
+`REDIS_PASSWORD`. `ITUNES_COUNTRY` defaults to `UA`;
+`MUSICBRAINZ_CONTACT` is optional — the `musicbrainz` source stays disabled
+without it. **Never commit `.env`** — it is git-ignored. `DATABASE_URL` /
+`REDIS_URL` are deliberately not in `.env.example`: they are the in-network
+DNS names of the `postgres` / `redis` compose services, fixed in
+`compose.yaml`, not something you fill in.
+
+`CHANNEL_ID` has no default either: it is the numeric chat id of the
+channel, not an `@username` (a username can be pointed at another chat, an id
+cannot). It is the only source of the publish target — the channel link
+printed in every caption lives in code (`pisniar/channel.py`) and nothing
+derives one from the other, so both are cross-checked at runtime. Two
+warnings, never refusals, come out of that: `alert_chat_is_the_publish_channel`
+when `CHANNEL_ID == ALERT_CHAT_ID` (fine while you are testing against your
+own channel, a leak of error texts and other tracks' URLs to subscribers once
+it is the real one) and `publish_channel_is_not_the_caption_channel` when the
+configured channel is not the one captions link to.
+
+`REDIS_PASSWORD` has no default and no fallback: `compose.yaml` starts Redis
+with `--requirepass` and builds `REDIS_URL` as
+`redis://:<password>@redis:6379/0`, so `docker compose` refuses to start
+until it is set. It is required because `compose.override.yml` publishes the
+broker on `127.0.0.1:56379`, and anything able to enqueue a task there makes
+the worker act without ever passing `AdminAllowlistMiddleware`. The
+container's own healthcheck authenticates through `REDISCLI_AUTH` rather
+than `redis-cli -a`, which would put the password in the process list. After
+changing any `.env` value, recreate the containers
+(`docker compose up -d --force-recreate`) — `restart` keeps the old
+environment.
 
 ## Running
 
@@ -105,6 +136,22 @@ With a real `.env` in place and the stack up (`make up`):
 8. `UPDATE post SET status = 'nonsense';` via `make psql` → rejected by the
    `ck_post_status_valid` CHECK constraint.
 9. `docker compose logs | grep <the real bot token>` → empty output. Do this
-   by hand; never script a check that echoes the token itself.
-10. `git status` stays clean of `.env` and any `__pycache__`/cache
+   by hand; never script a check that echoes the token itself. The same
+   holds for `REDIS_PASSWORD` — `redaction_secrets()` covers it.
+10. Connect to `127.0.0.1:56379` with no password → `NOAUTH Authentication
+    required.`
+11. `git status` stays clean of `.env` and any `__pycache__`/cache
     directories — both are git-ignored.
+12. A delivered draft carries an **Опублікувати в канал** button. Tap it →
+    the button disappears, the post appears in `CHANNEL_ID` as a cover with
+    the same caption, and a confirmation with a link to it comes back. Do
+    this against a **test** channel first.
+13. Tap the button a second time (on an older draft that still shows one) →
+    "уже опубліковано", and no second post in the channel.
+14. Remove the bot's "post messages" right and publish again → the post goes
+    `failed` with a Ukrainian explanation, no traceback in the chat, and
+    `channel_message_id` stays `NULL` (`make psql`).
+15. `/retry <post_id>` on that failed post → it re-publishes, not re-resolves
+    ("Повторюю публікацію поста N").
+16. Tapping the button from a non-admin account → nothing at all, plus a
+    `update_rejected_non_admin` line from `bot`.

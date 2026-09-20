@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import TYPE_CHECKING
 
@@ -31,6 +32,11 @@ if TYPE_CHECKING:
 
 VALID_POST_STATUSES = tuple(status.value for status in PostStatus)
 _VALID_POST_STATUSES_SQL_LIST = ", ".join(f"'{value}'" for value in VALID_POST_STATUSES)
+
+# D-61: language is a property of the recording, not of a publication, and
+# no source reports it — so it is stored with a default and edited by hand.
+DEFAULT_LANGUAGES = ["українська"]
+_DEFAULT_LANGUAGES_SQL = f"'{json.dumps(DEFAULT_LANGUAGES, ensure_ascii=False)}'::jsonb"
 
 
 class PostStatusType(TypeDecorator[PostStatus]):
@@ -60,6 +66,7 @@ class Track(Base):
     __table_args__ = (
         CheckConstraint("jsonb_typeof(artists) = 'array'", name="artists_is_array"),
         CheckConstraint("jsonb_typeof(platform_links) = 'object'", name="platform_links_is_object"),
+        CheckConstraint("jsonb_typeof(languages) = 'array'", name="languages_is_array"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
@@ -88,7 +95,15 @@ class Track(Base):
     year: Mapped[int | None] = mapped_column(SmallInteger)
     release_type: Mapped[str | None] = mapped_column(Text)
     release_title: Mapped[str | None] = mapped_column(Text)
+    # Persisted since D-45: it used to exist only inside the `href` of a
+    # rendered caption, so no caption could be rebuilt without losing it.
+    album_id_spotify: Mapped[str | None] = mapped_column(Text)
     cover_url: Mapped[str | None] = mapped_column(Text)
+    # form: ["українська", ...]; the first one is the primary language and
+    # the order is the admin's (D-61). Only step 5's Mini App writes here.
+    languages: Mapped[list[object]] = mapped_column(
+        JSONB, nullable=False, server_default=text(_DEFAULT_LANGUAGES_SQL)
+    )
     platform_links: Mapped[dict[str, object]] = mapped_column(
         JSONB, nullable=False, server_default=text("'{}'::jsonb")
     )
@@ -184,7 +199,10 @@ class Post(Base):
     draft_message_id: Mapped[int | None] = mapped_column(BigInteger)
     published_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     last_error: Mapped[str | None] = mapped_column(Text)
+    # `created_by_user_id` is who *submitted* the link; this one is who
+    # approved and published it (D-62) — normally two different admins.
     created_by_user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    published_by_user_id: Mapped[int | None] = mapped_column(BigInteger)
 
     track: Mapped[Track] = relationship(back_populates="posts")
 
