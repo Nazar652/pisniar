@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from pisniar.resolve.cache import SourceCache
-from pisniar.resolve.sources import deezer, itunes, musicbrainz, songlink, spotify, ytmusic
+from pisniar.resolve.sources import deezer, itunes, lrclib, musicbrainz, songlink, spotify, ytmusic
 
 
 @pytest.fixture(autouse=True)
@@ -21,6 +21,10 @@ def zero_throttle_intervals(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(spotify.THROTTLE, "min_interval_seconds", 0.0)
     monkeypatch.setattr(ytmusic.THROTTLE, "min_interval_seconds", 0.0)
     monkeypatch.setattr(musicbrainz.THROTTLE, "min_interval_seconds", 0.0)
+
+    # The backoff too, not only the throttle: `lrclib` retries the "did not
+    # answer" class three times, and the sleeps are the test suite's time.
+    monkeypatch.setattr(lrclib, "RETRY_BASE_DELAY_SECONDS", 0.0)
 
 
 @pytest.fixture
