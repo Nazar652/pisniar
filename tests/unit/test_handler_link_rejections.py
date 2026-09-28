@@ -1,6 +1,6 @@
-"""`handle_link`'s three early returns answer the admin and stop. Without a
-log line a message that arrived, was rejected and was answered left no trace
-at all — the gap found during step 2's manual acceptance.
+"""`handle_link`'s three early returns answer the admin and stop. Each one
+logs, or a message that arrived, was rejected and was answered would leave
+no trace at all.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ async def capture_rejection_fields(
     text: str, monkeypatch: pytest.MonkeyPatch
 ) -> list[dict[str, Any]]:
     """The module logger is replaced rather than captured through structlog:
-    `capture_logs()` is defeated by an already-cached bound logger (V12)."""
+    `capture_logs()` is defeated by an already-cached bound logger."""
     fake_logger = MagicMock()
     monkeypatch.setattr(handlers, "logger", fake_logger)
 

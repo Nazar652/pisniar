@@ -1,7 +1,7 @@
-"""YouTube Music via `ytmusicapi` (unauthenticated search): sync, no timeout
-of its own, so every call goes through `asyncio.to_thread` under an explicit
-`wait_for` (F-15). That frees the task, not the thread — a hung socket holds
-a slot in the shared default executor until its own TCP timeout (R2-17).
+"""YouTube Music via `ytmusicapi` (unauthenticated search): sync, with no timeout
+of its own, so every call runs in `asyncio.to_thread` under an explicit `wait_for`.
+That frees the task, not the thread: a hung socket holds a slot in the shared
+default executor until its own TCP timeout.
 """
 
 from __future__ import annotations
@@ -62,7 +62,7 @@ def _candidate_from_result(item: dict[str, object]) -> TrackCandidate:
     return TrackCandidate(
         platform="youtubeMusic",
         # Empty `videoId` would yield a `?v=` URL that passes every scheme
-        # check and permanently fails the post on download (F-10).
+        # check and permanently fails the post on download.
         url=f"https://music.youtube.com/watch?v={video_id}" if video_id else "",
         source=SOURCE_NAME,
         artist_name=artist_name,

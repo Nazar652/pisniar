@@ -56,8 +56,8 @@ async def test_fetch_by_isrc_treats_200_with_error_body_as_not_found() -> None:
 
 
 def test_quota_error_body_raises_instead_of_being_cached_as_not_found() -> None:
-    """R2-5: `{"found": false}` for a quota failure is a lie that then sits
-    in the cache for a whole TTL, blanking every track of that release."""
+    """A quota failure cached as `{"found": false}` would blank every track of
+    that release for a whole TTL."""
     with pytest.raises(deezer.DeezerApiError) as raised:
         deezer._is_not_found_body(QUOTA_ERROR_BODY)
 
@@ -69,8 +69,8 @@ def test_a_body_without_an_error_key_is_not_a_miss() -> None:
 
 
 async def test_search_raises_on_an_error_body_instead_of_caching_empty_results() -> None:
-    """Search answers a genuine miss with an empty `data` list, so an error
-    body here can only be an outage (R2-5)."""
+    """Search answers a genuine miss with an empty `data` list, so an error body
+    here can only be an outage."""
     transport = httpx.MockTransport(lambda request: httpx.Response(200, json=QUOTA_ERROR_BODY))
 
     async with make_client(transport) as client:
@@ -81,16 +81,15 @@ async def test_search_raises_on_an_error_body_instead_of_caching_empty_results()
 
 
 def test_search_item_with_a_null_link_is_dropped_rather_than_becoming_none_string() -> None:
-    """R2-8: `str(item.get("link", ""))` turned JSON `null` into the string
-    `"None"`, which survived the emptiness filter and only failed later."""
+    """`str(item.get("link", ""))` would turn JSON `null` into the string
+    `"None"`, which passes the emptiness filter and fails only later."""
     candidate = deezer._candidate_from_search_item({"title": "X", "link": None})
 
     assert candidate.url == ""
 
 
 def test_search_item_that_is_not_a_dict_does_not_raise() -> None:
-    """R2-8: a non-dict entry in `results` used to be an `AttributeError`,
-    and the whole post went to `failed` because of it."""
+    """One malformed entry must not send the whole post to `failed`."""
     candidate = deezer._candidate_from_search_item("not a dict")
 
     assert candidate.url == ""
@@ -167,8 +166,7 @@ def test_album_result_from_not_found_payload() -> None:
 def test_only_both_marks_together_count_as_the_documented_miss(
     error_body: dict[str, object],
 ) -> None:
-    """S3-5: the live miss carries `DataException` *and* `800` together, so
-    either mark alone is an unverified combination — caching it as "not
-    found" would blank the row for a whole TTL."""
+    """The live miss carries `DataException` and `800` together; either mark alone
+    is unverified, and caching it as a miss would blank the row for a whole TTL."""
     with pytest.raises(deezer.DeezerApiError):
         deezer._is_not_found_body(error_body)

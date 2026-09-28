@@ -1,7 +1,7 @@
-"""`cache.build_request_key`: one normalization for every adapter (F-17),
-an escaped separator, case-sensitive identifiers, and a bounded length so
-an over-long key can never reach the btree limit as a non-IntegrityError
-(F-22)."""
+"""`cache.build_request_key`: one normalization for every adapter, an escaped
+separator, case-sensitive identifiers, and a bounded length, so an over-long key
+never reaches the btree limit as a non-IntegrityError.
+"""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from pisniar.resolve.cache import (
 
 
 def test_internal_whitespace_is_collapsed_not_only_trimmed() -> None:
-    """`strip().casefold()` left `"A  B"` and `"A B"` as two cache rows."""
+    """`strip().casefold()` alone would leave `"A  B"` and `"A B"` as two cache rows."""
     assert build_request_key("deezer:search:", "  Sick   Solution ", "Horn ") == build_request_key(
         "deezer:search:", "Sick Solution", "Horn"
     )

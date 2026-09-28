@@ -27,7 +27,6 @@ def buttons(markup: InlineKeyboardMarkup) -> list[tuple[str, str | None]]:
 
 
 def test_the_draft_carries_publish_and_render_in_that_order() -> None:
-    """D-77: the second button sits next to the first one, under the draft."""
     assert buttons(draft_keyboard(42)) == [
         (PUBLISH_BUTTON_TEXT, "publish:42"),
         (RENDER_BUTTON_TEXT, "render:42"),
@@ -59,8 +58,8 @@ def test_every_button_s_own_payload_round_trips() -> None:
 
 
 def test_the_render_prefix_is_parsed_as_render_and_not_as_publish() -> None:
-    """The whole point of the second prefix: a render tap must never be
-    routed into the publication path, which D-65 makes irreversible."""
+    """A render tap must never be routed into the publication path, which
+    cannot be undone."""
     parsed = parse_callback("render:7")
 
     assert parsed is not None

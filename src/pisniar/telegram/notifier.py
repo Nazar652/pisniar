@@ -1,7 +1,5 @@
-"""Alert notifier: sends operational alerts to a private admin chat.
-
-A delivery failure here must never break the caller's business logic —
-every exception is caught, logged, and swallowed.
+"""Operational alerts to a private admin chat. A delivery failure never
+breaks the caller's business logic: every exception is logged and swallowed.
 """
 
 from __future__ import annotations
@@ -16,11 +14,6 @@ logger = get_logger(__name__)
 
 
 async def send_alert(bot: Bot, chat_id: int, text: str) -> bool:
-    """Send `text` to `chat_id`. Returns whether it was delivered.
-
-    Never raises: any Telegram API or network error is logged as a WARNING
-    and swallowed, so alerting can never take down the caller.
-    """
     try:
         # An alert regularly carries a URL; a preview card would push the
         # next alert off screen and make the channel unscannable.

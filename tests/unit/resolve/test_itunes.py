@@ -56,9 +56,8 @@ def test_search_limit_is_five() -> None:
 
 
 def test_result_with_a_null_track_view_url_is_dropped_rather_than_stringified() -> None:
-    """R2-8: `str(item.get("trackViewUrl", ""))` turned JSON `null` into the
-    string `"None"`, which passed the emptiness filter and only tripped
-    `is_safe_url` later, with a warning that pointed nowhere useful."""
+    """`str()` would turn JSON `null` into `"None"`, which passes the emptiness
+    filter and trips `is_safe_url` only later, far from the cause."""
     candidate = itunes._candidate_from_result({"trackName": "X", "trackViewUrl": None})
 
     assert candidate.url == ""

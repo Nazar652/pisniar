@@ -1,6 +1,6 @@
 """Schema-level guarantees the ORM alone cannot enforce: the status CHECKs,
 the fragment-bounds CHECK, the `languages` default and CHECK, the partial
-unique index, `ON DELETE RESTRICT` on `post.track_id`, and step 4A's media
+unique index, `ON DELETE RESTRICT` on `post.track_id`, and the media
 artifact tables (positive-size CHECKs, idempotency keys, `ON DELETE CASCADE`)."""
 
 from __future__ import annotations
@@ -29,8 +29,8 @@ async def make_track(session: AsyncSession) -> Track:
 async def test_a_new_track_gets_the_default_language_from_the_schema(
     db_session: AsyncSession,
 ) -> None:
-    """Nothing in the bot writes `languages` (D-61) — the default is the
-    only thing that puts a language on a post before step 5 exists."""
+    """Nothing in the bot writes `languages`, so the schema default is what puts a
+    language on every post."""
     track = await make_track(db_session)
 
     await db_session.refresh(track)
@@ -56,9 +56,8 @@ async def test_languages_check_rejects_a_value_that_is_not_an_array(
 async def test_a_post_keeps_the_submitter_and_the_publisher_apart(
     db_session: AsyncSession,
 ) -> None:
-    """D-62: `created_by_user_id` is who sent the link, the new column is
-    who approved and published — with two admins they differ, and until
-    publication happens the second one is simply unknown."""
+    """With two admins the submitter and the publisher differ, and the publisher
+    stays unknown until publication."""
     track = await make_track(db_session)
     post = Post(track_id=track.id, created_by_user_id=111)
     db_session.add(post)
@@ -166,10 +165,8 @@ async def test_partial_unique_index_allows_multiple_null_channel_message(
 
 
 async def test_channel_ref_check_rejects_a_one_sided_pair(db_session: AsyncSession) -> None:
-    """Same one-sided-pair hazard as the fragment bounds: `channel_chat_id`
-    alone (or `channel_message_id` alone) would otherwise pass the partial
-    unique index untouched — its predicate only fires once *both* columns
-    are non-NULL — and silently leave a post with half a channel reference."""
+    """The partial unique index fires only once both columns are non-NULL, so
+    without this CHECK half a channel reference would pass silently."""
     track = await make_track(db_session)
     post = Post(track_id=track.id, created_by_user_id=1, channel_chat_id=1)
 
@@ -195,8 +192,8 @@ async def test_partial_unique_index_rejects_duplicate_draft_message(
 
 
 async def test_draft_ref_check_rejects_a_one_sided_pair(db_session: AsyncSession) -> None:
-    """Same one-sided-pair hazard as `channel_ref_complete`, applied to the
-    draft delivery columns (idempotency guard for redelivery, D-28)."""
+    """Same one-sided-pair hazard as `channel_ref_complete`, on the draft columns
+    that guard redelivery."""
     track = await make_track(db_session)
     post = Post(track_id=track.id, created_by_user_id=1, draft_chat_id=1)
 
@@ -208,8 +205,8 @@ async def test_draft_ref_check_rejects_a_one_sided_pair(db_session: AsyncSession
 async def test_partial_unique_index_rejects_duplicate_preview_message(
     db_session: AsyncSession,
 ) -> None:
-    """Migration 0005. Two posts claiming one preview message would mean two
-    publish buttons pointing at different rows in the same chat."""
+    """Two posts claiming one preview message would put two publish buttons for
+    different rows into one chat."""
     track = await make_track(db_session)
     db_session.add(
         Post(track_id=track.id, created_by_user_id=1, preview_chat_id=1, preview_message_id=42)
@@ -265,7 +262,7 @@ async def test_track_deletion_is_restricted_while_a_post_references_it(
     await db_session.flush()
 
     # Raw SQL, not `session.delete(track)`: asserts the database constraint
-    # directly, independent of the ORM's `passive_deletes` configuration (D-23).
+    # directly, independent of the ORM's `passive_deletes` configuration.
     with pytest.raises(IntegrityError, match="fk_post_track_id_track"):
         await db_session.execute(text("DELETE FROM track WHERE id = :id"), {"id": track.id})
 
@@ -301,8 +298,8 @@ def make_render(post: Post, **overrides: object) -> Render:
 
 
 async def test_audio_asset_check_rejects_an_empty_file(db_session: AsyncSession) -> None:
-    """A zero-byte artifact is the shape a silent yt-dlp failure takes — the
-    row for one must not be insertable at all (S4-A7's class)."""
+    """A zero-byte artifact is the shape a silent yt-dlp failure takes, so a row
+    for one must not be insertable at all."""
     track = await make_track(db_session)
     db_session.add(make_audio_asset(track, size_bytes=0))
 
@@ -345,9 +342,8 @@ async def test_a_second_video_for_the_same_track_is_allowed(db_session: AsyncSes
 
 
 async def test_deleting_a_track_cascades_to_its_audio(db_session: AsyncSession) -> None:
-    """CASCADE, not the RESTRICT `post.track_id` carries: an artifact is no
-    reason to refuse the delete, and a file without a row is the safe side
-    of S4-R16 — the reverse, a row without its file, is not."""
+    """CASCADE, not `post.track_id`'s RESTRICT: a file without a row is harmless,
+    while a row without its file is not."""
     track = await make_track(db_session)
     db_session.add(make_audio_asset(track))
     await db_session.flush()
@@ -361,8 +357,8 @@ async def test_deleting_a_track_cascades_to_its_audio(db_session: AsyncSession) 
 
 
 async def test_render_check_rejects_an_empty_video(db_session: AsyncSession) -> None:
-    """ffmpeg exiting 0 on an unusable file is step 4's main silent failure
-    (S4-R1); the schema refuses to record its result as a render."""
+    """ffmpeg can exit 0 on an unusable file; the schema refuses to record such a
+    result as a render."""
     track = await make_track(db_session)
     post = await make_post(db_session, track)
     db_session.add(make_render(post, size_bytes=0))
@@ -381,8 +377,8 @@ async def test_render_check_rejects_a_zero_length_video(db_session: AsyncSession
 
 
 async def test_render_is_unique_per_post_and_params_hash(db_session: AsyncSession) -> None:
-    """What lets a redelivered render task find the existing artifact instead
-    of running ffmpeg a second time (V36)."""
+    """What lets a redelivered render task find the existing artifact instead of
+    running ffmpeg a second time."""
     track = await make_track(db_session)
     post = await make_post(db_session, track)
     db_session.add(make_render(post))
@@ -396,8 +392,8 @@ async def test_render_is_unique_per_post_and_params_hash(db_session: AsyncSessio
 async def test_a_render_with_different_params_is_a_different_row(
     db_session: AsyncSession,
 ) -> None:
-    """The 4B seam: a text version changes `params_hash`, so the same post
-    gets a second render rather than overwriting the approved one."""
+    """A text version changes `params_hash`, so the same post gets a second render
+    instead of overwriting the approved one."""
     track = await make_track(db_session)
     post = await make_post(db_session, track)
     db_session.add(make_render(post))
@@ -425,8 +421,8 @@ async def test_deleting_a_post_cascades_to_its_renders(db_session: AsyncSession)
 async def test_failed_from_status_check_rejects_a_value_that_is_not_a_status(
     db_session: AsyncSession,
 ) -> None:
-    """The column is TEXT like `status` itself (D-6: no native enum), so the
-    CHECK is the only thing keeping a typo out of `/retry`'s routing."""
+    """The column is TEXT like `status` itself (no native enum), so the CHECK is
+    the only thing keeping a typo out of `/retry`'s routing."""
     track = await make_track(db_session)
 
     with pytest.raises(IntegrityError, match="ck_post_failed_from_status_valid"):

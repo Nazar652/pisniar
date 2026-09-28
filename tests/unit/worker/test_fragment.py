@@ -1,6 +1,6 @@
-"""D-76's rule, pinned down: start at zero, 45 seconds, a shorter track taken
-whole — and the bounds absolute from the start of the full track (D-5), which
-is the seam step 6 and 4B both read (V31).
+"""The fragment rule: start at zero, 45 seconds, a shorter track taken whole,
+and the bounds absolute from the start of the full track, which is what the
+subtitle timing and hand-set bounds both read.
 """
 
 from __future__ import annotations
@@ -36,8 +36,8 @@ def test_the_rule_is_deterministic_for_the_same_duration() -> None:
 
 
 def test_the_start_is_always_absolute_zero_never_a_percentage() -> None:
-    """D-5/§1.1: `ass_t = lyric.start_ms - fragment_start_ms` in 4B, so a
-    fragment-local offset here would silently invalidate manual sync."""
+    """`ass_t = lyric.start_ms - fragment_start_ms`, so a fragment-local offset
+    here would silently shift every subtitle."""
     for duration_ms in (10_000, 45_000, 60_000, 480_000):
         assert fragment_rule.choose_fragment_bounds(duration_ms).start_ms == 0
 
@@ -76,8 +76,8 @@ def test_bounds_inside_the_file_are_accepted() -> None:
 
 
 def test_bounds_past_the_end_of_the_file_are_rejected() -> None:
-    """S4-A4: the bounds must fit the audio that is actually on disk, not the
-    duration some source once reported."""
+    """The bounds must fit the audio that is actually on disk, not the duration
+    some source once reported."""
     bounds = fragment_rule.FragmentBounds(start_ms=0, end_ms=45_000)
 
     assert fragment_rule.bounds_within_track(bounds, 31_000) is False

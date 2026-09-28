@@ -1,7 +1,6 @@
-"""URL normalization and syntactic classification — the single bridge
-between `bot` and `resolve` (contract p.11). `normalized_url` becomes
-`track.source_url_normalized`, a UNIQUE key: changing this logic later
-means a data migration, not just a code change.
+"""URL normalization and syntactic classification, the single bridge between
+`bot` and `resolve`. `normalized_url` becomes the UNIQUE `source_url_normalized`,
+so changing this logic means a data migration, not just a code change.
 """
 
 from __future__ import annotations
@@ -23,9 +22,8 @@ MAX_NORMALIZED_URL_BYTES = 2000
 
 
 def is_safe_url(url: str) -> bool:
-    """Only `http`/`https`. Canonical for the whole project: the resolver
-    checks candidates with it on the way in, `post.sanitize.is_safe_href`
-    re-checks at render time as the last line of defense."""
+    """Canonical for the whole project: checked on a candidate's way in and
+    again by `post.sanitize.is_safe_href` at render time."""
     try:
         scheme = urlsplit(url).scheme.lower()
     except ValueError:
@@ -230,9 +228,7 @@ _HOST_CLASSIFIERS: dict[str, Callable[[str, str, dict[str, list[str]]], Classifi
 
 
 def classify_url(raw_url: str) -> ClassifiedUrl:
-    """Parse, normalize, and syntactically classify `raw_url`. Never raises:
-    unparseable or unrecognized input comes back as `UNKNOWN`.
-    """
+    """Never raises: unparseable or unrecognized input comes back as `UNKNOWN`."""
     trimmed = raw_url.strip()
     try:
         split = urlsplit(trimmed)
@@ -254,6 +250,4 @@ def classify_url(raw_url: str) -> ClassifiedUrl:
 
 
 def normalize_url(raw_url: str) -> str:
-    """Convenience wrapper around `classify_url()` for callers that only
-    need the canonical form (e.g. a cache key or duplicate check)."""
     return classify_url(raw_url).normalized_url

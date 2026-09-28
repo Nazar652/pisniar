@@ -44,8 +44,8 @@ def test_celery_logging_bootstrap_does_not_wipe_our_handler(
 
 
 def test_tasks_have_both_a_soft_and_a_hard_time_limit() -> None:
-    """F-15: `ytmusicapi` has no timeout of its own, so without these a
-    wedged TCP connection owns the only worker slot until a manual restart."""
+    """`ytmusicapi` has no timeout of its own, so without these a wedged TCP
+    connection owns the only worker slot until a manual restart."""
     app = build_celery_app("redis://localhost:6379/0")
 
     assert app.conf.task_soft_time_limit == TASK_SOFT_TIME_LIMIT_SECONDS

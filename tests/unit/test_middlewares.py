@@ -50,9 +50,8 @@ async def test_admin_update_reaches_the_handler() -> None:
 
 
 async def test_update_with_no_event_from_user_is_dropped() -> None:
-    """`UserContextMiddleware` (registered ahead of this one) does not
-    populate `event_from_user` for every update type (e.g. a poll answer
-    with an anonymous voter) — no user must mean no access, not a crash."""
+    """`UserContextMiddleware` leaves `event_from_user` unset for some updates (an
+    anonymous poll answer): no user must mean no access, not a crash."""
     middleware = AdminAllowlistMiddleware(frozenset({ADMIN_ID}))
     handler = AsyncMock()
     event: TelegramObject = make_update()

@@ -1,7 +1,6 @@
 """`worker.lyrics`, the database-free half: which lines are written (timed
-ones only, D-96) and what happens to a line past the 500-character CHECK.
-The lock and the guard are proven against Postgres in
-`tests/integration/test_lyrics_persist.py`.
+ones only) and what happens to a line past the 500-character CHECK. The lock
+and the guard are proven against Postgres in `test_lyrics_persist.py`.
 """
 
 from __future__ import annotations
@@ -60,7 +59,7 @@ def test_a_pause_marker_is_kept_because_it_ends_the_line_before_it() -> None:
     ],
 )
 def test_nothing_but_synced_lyrics_is_ever_written(outcome: LyricsOutcome) -> None:
-    """D-96: untimed text stays a log class until step 7 drops NOT NULL."""
+    """Untimed text stays a log class while `start_ms` is NOT NULL."""
     result = LyricsResult(outcome=outcome, lines=(LyricsLine(start_ms=None, text="голий текст"),))
 
     assert lyrics.rows_to_write(TRACK_ID, result) == ([], 0)
@@ -69,8 +68,8 @@ def test_nothing_but_synced_lyrics_is_ever_written(outcome: LyricsOutcome) -> No
 def test_a_line_past_the_check_is_cut_to_it_and_logged_without_its_text(
     persist_logger: MagicMock,
 ) -> None:
-    """Cut, not dropped: a gap in `line_index` would read in step 7's editor
-    like a line deleted by hand (D-96)."""
+    """Cut, not dropped: a gap in `line_index` would read like a line deleted by
+    hand."""
     long_text = "й" * (MAX_LYRIC_TEXT_LENGTH + 37)
 
     rows, truncated = lyrics.rows_to_write(TRACK_ID, synced((1_000, "раз"), (2_000, long_text)))

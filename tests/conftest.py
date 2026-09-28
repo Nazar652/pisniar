@@ -1,7 +1,7 @@
-"""Shared test setup: deterministic fake `Settings` values (some modules call
-`get_settings()` at import time). `os.environ` outranks `.env`, so these
-never leak real secrets on the host; inside Docker `.env` is already real
-process env, so `setdefault` is a no-op there — which is what V12 needs.
+"""Shared test setup: deterministic fake `Settings` values, since some modules call
+`get_settings()` at import time. `os.environ` outranks `.env`, so these never leak
+real secrets on the host; inside Docker `.env` is already the process env, so
+`setdefault` is a no-op there.
 """
 
 import logging

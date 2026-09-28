@@ -1,8 +1,8 @@
 """`Settings`: required fields, comma-separated admin ids, the
-`postgresql+asyncpg://` DSN guard and step 4A's media/task-limit settings.
-Every test builds `Settings` with
-`_env_file=None` and explicit values, so it never reads the real `.env` in
-the repo root."""
+`postgresql+asyncpg://` DSN guard and the media/task-limit settings. Every test
+builds `Settings` with `_env_file=None` and explicit values, so it never reads
+the real `.env` in the repo root.
+"""
 
 from __future__ import annotations
 
@@ -84,7 +84,7 @@ def test_missing_admin_ids_raises(no_ambient_settings_env: None) -> None:
 
 def test_missing_channel_id_raises(no_ambient_settings_env: None) -> None:
     """No default and no fallback: a guessed publish target would mean a post
-    in the wrong channel, and that is not recoverable (S3-R7)."""
+    in the wrong channel, and that is not recoverable."""
     with pytest.raises(pydantic.ValidationError) as excinfo:
         Settings(
             _env_file=None,
@@ -135,10 +135,8 @@ def test_environment_docker_sets_is_docker() -> None:
 
 
 def test_log_format_is_independent_of_environment() -> None:
-    """`LOG_FORMAT` must not be coupled to `ENVIRONMENT` — M11 (JSON logs in
-    the docker/prod path) and the console output `make up` gives a developer
-    both rely on that independence being real, not just the code's default
-    happening to agree with what each path wants."""
+    """JSON logs in Docker and the console output `make up` gives both rely on
+    `LOG_FORMAT` being truly independent of `ENVIRONMENT`."""
     dev_with_json = build_settings(environment="dev", log_format="json")
     assert dev_with_json.environment == "dev"
     assert dev_with_json.log_format == "json"
@@ -149,9 +147,8 @@ def test_log_format_is_independent_of_environment() -> None:
 
 
 def test_log_format_defaults_to_json(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Isolated from ambient `LOG_FORMAT` (e.g. "console" set by
-    # compose.override.yml for dev containers) — this asserts the pydantic
-    # default, not whatever happens to be in the process environment.
+    # Isolated from an ambient `LOG_FORMAT` (compose.override.yml sets "console"):
+    # this asserts the pydantic default.
     monkeypatch.delenv("LOG_FORMAT", raising=False)
     settings = Settings(
         _env_file=None,
@@ -230,12 +227,11 @@ def test_a_render_soft_limit_at_or_above_the_hard_limit_is_refused() -> None:
     assert "render" in str(excinfo.value)
 
 
-def test_step_four_limits_are_separate_from_the_resolve_ones(
+def test_media_task_limits_are_separate_from_the_resolve_ones(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """§3: `TASK_TIME_LIMIT_SECONDS` is also how `/retry` decides a resolve
-    has gone stale (R2-2), so raising a limit for a render must never reach
-    it. This pins both sides of that separation."""
+    """`TASK_TIME_LIMIT_SECONDS` is also how `/retry` decides a resolve has gone
+    stale, so raising a render limit must never reach it."""
     for name in (
         "DOWNLOAD_TASK_SOFT_TIME_LIMIT_SECONDS",
         "DOWNLOAD_TASK_TIME_LIMIT_SECONDS",
@@ -257,9 +253,8 @@ def test_redaction_secrets_includes_spotify_client_secret() -> None:
 
 
 def test_redaction_secrets_includes_the_redis_password() -> None:
-    """Without it the broker password reaches the logs through kombu's own
-    traceback and through `readyz_redis_unavailable`, which logs with
-    `exc_info=True`."""
+    """Without it the broker password leaks through kombu's traceback and through
+    `readyz_redis_unavailable`, which logs with `exc_info=True`."""
     settings = build_settings(redis_url="redis://:super-secret-redis-value@redis:6379/0")
 
     assert "super-secret-redis-value" in redaction_secrets(settings)
@@ -287,9 +282,8 @@ def test_the_redis_password_is_redacted_from_a_message_and_a_traceback(
     capsys: pytest.CaptureFixture[str],
     preserve_root_logging_state: None,
 ) -> None:
-    """The two sinks D-52 named: an event field and a rendered traceback.
-    `format_exc_info` runs before the redaction processor, so the exception
-    text is a plain string by the time the secret list is applied to it."""
+    """An event field and a rendered traceback: `format_exc_info` runs before the
+    redaction processor, so the traceback is already a plain string."""
     settings = build_settings(redis_url="redis://:super-secret-redis-value@redis:6379/0")
     configure_logging(log_format="json", log_level="INFO", secrets=redaction_secrets(settings))
 

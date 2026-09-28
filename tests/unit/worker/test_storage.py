@@ -1,6 +1,5 @@
-"""Paths built only from numeric ids, a validated video id and a hex hash
-(§5), the free-space refusal that happens *before* a download, and the
-atomic publish V35 pins down.
+"""Paths built only from numeric ids, a validated video id and a hex hash, the
+free-space refusal that happens *before* a download, and the atomic publish.
 """
 
 from __future__ import annotations
@@ -43,9 +42,8 @@ def test_the_subtitle_file_sits_in_the_post_tmp_directory_under_a_constant_name(
 
 
 def test_the_subtitle_path_carries_nothing_the_filtergraph_would_read(tmp_path: Path) -> None:
-    """§4 p.8: `render._escape_filter_path` covers a backslash, `:` and `'`
-    but not `,`, `;`, `[` or `]` — a numeric id and a constant name is what
-    keeps those four out of the `subtitles=` argument in the first place."""
+    """`render._escape_filter_path` misses `,`, `;`, `[` and `]`, so only a numeric
+    id and a constant name keep them out of the `subtitles=` argument."""
     path = media_storage.subtitles_file_path(tmp_path, 12345).as_posix()
 
     assert not set(path) & set(",;[]")
@@ -70,8 +68,8 @@ def test_a_non_positive_id_never_becomes_a_path_component(tmp_path: Path, track_
 def test_a_video_id_that_is_not_eleven_url_safe_characters_is_refused(
     tmp_path: Path, video_id: str
 ) -> None:
-    """V29: the same validation the URL goes through, applied again where the
-    value would become a filename."""
+    """The same validation the URL goes through, applied again where the value
+    would become a filename."""
     with pytest.raises(media_storage.MediaPathError):
         media_storage.audio_file_path(tmp_path, 1, video_id, "webm")
 
@@ -133,8 +131,8 @@ def test_publishing_moves_the_file_under_its_final_name(tmp_path: Path) -> None:
 def test_a_crash_between_writing_and_renaming_leaves_no_file_with_the_final_name(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """V35: the `.partial` name is what makes "the final name exists" mean
-    "the file is complete" — the guard moved from the lock to the filesystem."""
+    """The `.partial` name is what makes "the final name exists" mean "the file
+    is complete"."""
     staging = tmp_path / "tmp" / "video.mp4.partial"
     staging.parent.mkdir(parents=True)
     staging.write_bytes(b"half a render")

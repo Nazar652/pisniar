@@ -102,9 +102,8 @@ async def test_resolve_post_persists_track_and_marks_resolved(
 async def test_the_caption_is_built_from_the_row_not_from_the_resolve(
     db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch, deliver_draft_mock: AsyncMock
 ) -> None:
-    """The seam D-45 and D-61 both land on: the album id must reach its new
-    column and come back out of it, and the languages the admin will set on
-    step 5 must beat the schema default no resolve ever overwrites."""
+    """The album id must round-trip through its column, and the languages the
+    admin sets must beat the schema default no resolve overwrites."""
     resolved = ResolvedTrack(
         title="Сумніви",
         artists=[ArtistInfo(name="Тол")],
@@ -142,8 +141,8 @@ async def test_the_caption_is_built_from_the_row_not_from_the_resolve(
 async def test_resolve_post_cleans_up_a_track_that_was_never_resolved(
     db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch, deliver_draft_mock: AsyncMock
 ) -> None:
-    """R2-1, half one: with no `resolved_at` and no stored links there is
-    nothing to lose, so the first empty resolve still removes the row."""
+    """With no `resolved_at` and no stored links there is nothing to lose, so an
+    empty first resolve removes the row."""
     monkeypatch.setattr(worker_tasks, "resolve_track", AsyncMock(return_value=ResolvedTrack()))
     monkeypatch.setattr(worker_tasks, "resolve_genres", AsyncMock(return_value=[]))
 
@@ -169,10 +168,8 @@ async def test_an_empty_re_resolve_fails_the_post_instead_of_deleting_the_track(
     deliver_draft_mock: AsyncMock,
     point_task_at_test_database: AsyncMock,
 ) -> None:
-    """R2-1, half two: the D-40 TTL made a re-fetch routine, so one song.link
-    404 used to delete an already-resolved track along with the admin's
-    manual link and hashtag — irreversibly, with no post left to `/retry`.
-    """
+    """With the one-hour TTL a re-fetch is routine, and deleting here would take a
+    resolved track's manual link and hashtag with it, irreversibly."""
     post_id = await make_resolving_post(db_session)
     post = await db_session.get(Post, post_id)
     assert post is not None
@@ -214,7 +211,7 @@ async def test_an_empty_re_resolve_fails_the_post_instead_of_deleting_the_track(
     assert stored_artist["hashtag"] == "ZeroPercentMercury"
     point_task_at_test_database.assert_awaited()
 
-    # The other half of P3-3: this track really was resolved once before.
+    # This track really was resolved once before, so the re-resolve wording applies.
     assert reloaded_post.last_error is not None
     assert "збережені дані" in reloaded_post.last_error
 
@@ -266,11 +263,8 @@ async def test_delivery_failure_leaves_the_post_failed_with_its_caption(
     monkeypatch: pytest.MonkeyPatch,
     point_task_at_test_database: AsyncMock,
 ) -> None:
-    """A1/D-38/F-1: RESOLVED now means "the draft is in the admin's chat".
-    A delivery failure happens while the post is still RESOLVING, whose edge
-    to FAILED is legal — the old order raised IllegalStatusTransitionError
-    from inside the error handler and rolled everything back with no alert.
-    """
+    """RESOLVED means the draft is in the admin's chat, so a delivery failure
+    happens while the post is still RESOLVING, which may legally fail."""
     resolved = ResolvedTrack(
         isrc="GBAYE9200070",
         title="Creep",
@@ -308,8 +302,8 @@ async def test_delivery_failure_leaves_the_post_failed_with_its_caption(
 async def test_cleanup_removes_only_the_post_when_the_track_has_another_one(
     db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch, deliver_draft_mock: AsyncMock
 ) -> None:
-    """F-26: `ON DELETE RESTRICT` protects the track, but the COUNT guard is
-    what has to notice — and the second post must be left untouched."""
+    """`ON DELETE RESTRICT` protects the track, but the COUNT guard is what has
+    to notice, and the second post must be left untouched."""
     monkeypatch.setattr(worker_tasks, "resolve_track", AsyncMock(return_value=ResolvedTrack()))
     monkeypatch.setattr(worker_tasks, "resolve_genres", AsyncMock(return_value=[]))
 
@@ -335,10 +329,8 @@ async def test_cleanup_removes_only_the_post_when_the_track_has_another_one(
 async def test_re_resolve_keeps_the_manual_link_and_the_artist_hashtag(
     db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch, deliver_draft_mock: AsyncMock
 ) -> None:
-    """B2/D-42/F-3: the stored row holds the only two things automation can
-    never reproduce — a `manual` link and the admin's hashtag override. The
-    fresh resolve deliberately returns neither, plus loses Deezer entirely.
-    """
+    """A `manual` link and the admin's hashtag are what automation never
+    reproduces; the fresh resolve returns neither and loses Deezer too."""
     post_id = await make_resolving_post(db_session)
     post = await db_session.get(Post, post_id)
     assert post is not None
@@ -409,9 +401,8 @@ async def test_duplicate_isrc_raises_an_admin_warning(
     deliver_draft_mock: AsyncMock,
     point_task_at_test_database: AsyncMock,
 ) -> None:
-    """B3/D-41/M23: a Spotify link today and a YouTube link for the same
-    recording tomorrow produce two tracks that `source_url_normalized` can
-    never connect — only the ISRC can."""
+    """A Spotify link and a YouTube link of one recording make two tracks that
+    `source_url_normalized` never connects; only the ISRC can."""
     shared_isrc = f"UA{uuid.uuid4().hex[:3].upper()}2500001"
     earlier_url = f"https://open.spotify.com/track/{uuid.uuid4().hex}"
     earlier_track = Track(
@@ -481,8 +472,8 @@ async def test_redelivery_failure_alerts_instead_of_stranding_the_post(
     monkeypatch: pytest.MonkeyPatch,
     point_task_at_test_database: AsyncMock,
 ) -> None:
-    """F-14: RESOLVED has no edge back to RESOLVING and `/retry` is closed
-    there, so swallowing this left the post with no draft and no way out."""
+    """RESOLVED has no edge back to RESOLVING and `/retry` is closed there, so
+    swallowing this would leave the post with no draft and no way out."""
     monkeypatch.setattr(
         worker_tasks, "deliver_draft", AsyncMock(side_effect=RuntimeError("telegram down"))
     )
@@ -507,11 +498,8 @@ async def test_a_commit_failure_after_delivery_still_reaches_failed_with_an_aler
     deliver_draft_mock: AsyncMock,
     point_task_at_test_database: AsyncMock,
 ) -> None:
-    """R2-2: SQLAlchemy rolls back a failed commit, which expires every ORM
-    object — the old `_fail_post(post, ...)` then raised `MissingGreenlet`
-    from inside the error handler itself, and D-43 had closed `/retry` from
-    `RESOLVING`, so the post was stranded with a draft already in the chat.
-    """
+    """A failed commit expires every ORM object; touching the expired post in the
+    error handler raises `MissingGreenlet` and strands a post whose draft is out."""
     resolved = ResolvedTrack(
         isrc="GBAYE9200070",
         title="Creep",
@@ -554,9 +542,8 @@ async def test_a_commit_failure_after_delivery_still_reaches_failed_with_an_aler
 async def test_an_empty_re_resolve_never_nulls_the_stored_isrc(
     db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch, deliver_draft_mock: AsyncMock
 ) -> None:
-    """R2-4: scalars were assigned straight from the fresh result, `None`
-    included, so a transient source failure wrote `isrc = NULL` and the D-41
-    duplicate warning for that track could then never fire again."""
+    """A transient source failure must not write `isrc = NULL`: the duplicate-ISRC
+    warning for that track could then never fire again."""
     stored_isrc = f"UA{uuid.uuid4().hex[:3].upper()}2500004"
     post_id = await make_resolving_post(db_session)
     post = await db_session.get(Post, post_id)
@@ -571,7 +558,6 @@ async def test_an_empty_re_resolve_never_nulls_the_stored_isrc(
     track.resolved_at = datetime.now(UTC)
     await db_session.commit()
 
-    # Only a link comes back this time: no ISRC, no title, no year.
     resolved = ResolvedTrack(
         platform_links={
             "deezer": PlatformLink(
@@ -598,8 +584,8 @@ async def test_an_empty_re_resolve_never_nulls_the_stored_isrc(
 async def test_an_empty_genre_result_does_not_wipe_the_stored_genre_line(
     db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch, deliver_draft_mock: AsyncMock
 ) -> None:
-    """R2-4, the `post.genres` half: Deezer not answering is not the same
-    statement as "this release has no genres"."""
+    """Deezer not answering is not the same statement as "this release has no
+    genres"."""
     resolved = ResolvedTrack(
         title="Creep",
         artists=[ArtistInfo(name="Radiohead")],
@@ -627,8 +613,8 @@ async def test_an_empty_genre_result_does_not_wipe_the_stored_genre_line(
     assert reloaded_post is not None
 
     assert reloaded_post.genres == [{"name": "рок", "hashtag": None, "source": "deezer"}]
-    # R3-9: the caption was rebuilt from the empty fresh list, so the two
-    # columns of one row contradicted each other about the same fact.
+    # The caption is built from the kept genres too, or the two columns of one
+    # row would contradict each other.
     assert reloaded_post.caption is not None
     assert "#рок" in reloaded_post.caption
 
@@ -636,11 +622,8 @@ async def test_an_empty_genre_result_does_not_wipe_the_stored_genre_line(
 async def test_the_track_lock_does_not_block_a_concurrent_post_insert(
     db_session: AsyncSession, migrated_test_database_url: str
 ) -> None:
-    """R2-3: Postgres takes `FOR KEY SHARE` on the parent row for every
-    `INSERT INTO post`, and that conflicts with `FOR UPDATE` but not with
-    `FOR NO KEY UPDATE`. Held for a whole resolve, the old lock left the
-    admin without any answer for up to the 360 s task ceiling.
-    """
+    """Every `INSERT INTO post` takes `FOR KEY SHARE` on the track, which conflicts
+    with `FOR UPDATE` but not with `FOR NO KEY UPDATE`."""
     marker_url = f"https://open.spotify.com/track/{uuid.uuid4().hex}"
     track = Track(source_url=marker_url, source_url_normalized=marker_url)
     db_session.add(track)
@@ -672,9 +655,8 @@ async def test_a_permanent_commit_failure_still_reaches_the_admin_with_an_alert(
     deliver_draft_mock: AsyncMock,
     point_task_at_test_database: AsyncMock,
 ) -> None:
-    """R3-1: the alert sat after both status-write attempts, so a Postgres
-    that is down for good (a restart is a documented procedure here) took the
-    alert with it — though Telegram does not depend on Postgres at all."""
+    """Telegram does not depend on Postgres, so a Postgres that is down for good
+    must not take the alert with it."""
     resolved = ResolvedTrack(
         isrc="GBAYE9200070",
         title="Creep",
@@ -710,9 +692,8 @@ async def test_a_locked_post_row_fails_fast_and_still_alerts(
     migrated_test_database_url: str,
     point_task_at_test_database: AsyncMock,
 ) -> None:
-    """R3-7: the post lock was the one acquisition left unwrapped, so once
-    `lock_timeout` existed the exception flew past `_fail_post` — no status,
-    no alert, exactly what the comment next to `LOCK_TIMEOUT_MS` denies."""
+    """With `lock_timeout` every lock acquisition can raise, the post lock
+    included, and it must still end in a status and an alert."""
     monkeypatch.setattr(worker_tasks, "LOCK_TIMEOUT_MS", 300)
 
     post_id = await make_resolving_post(db_session)
@@ -740,9 +721,8 @@ async def test_a_youtube_input_whose_resolve_found_nothing_delivers_no_draft(
     deliver_draft_mock: AsyncMock,
     point_task_at_test_database: AsyncMock,
 ) -> None:
-    """R3-2: the clip the admin sent is seeded into `platform_links` before
-    any network call, so a completely empty resolve looked non-empty — and
-    the post reached RESOLVED with a draft holding no title and no artists."""
+    """The clip is seeded into `platform_links` before any network call, so it
+    must not make an empty resolve look like a result."""
     video_url = f"https://www.youtube.com/watch?v={uuid.uuid4().hex[:11]}"
     track = Track(source_url=video_url, source_url_normalized=video_url)
     track.platform_links = {
@@ -783,8 +763,8 @@ async def test_a_youtube_input_whose_resolve_found_nothing_delivers_no_draft(
     assert reloaded_post.last_error is not None
     assert "не повернув нічого" in reloaded_post.last_error
 
-    # P3-3: on a first resolve the only stored link is the admin's own URL,
-    # so the re-resolve wording ("трек уже має збережені дані") lied.
+    # On a first resolve the only stored link is the admin's own URL, so the
+    # re-resolve wording ("трек уже має збережені дані") would be false.
     assert "ваше власне посилання" in reloaded_post.last_error
     assert "збережені дані" not in reloaded_post.last_error
 
@@ -795,8 +775,8 @@ async def test_a_resolve_without_a_title_is_not_delivered_as_a_draft(
     deliver_draft_mock: AsyncMock,
     point_task_at_test_database: AsyncMock,
 ) -> None:
-    """R3-2, the other half: links but no track name is a failed resolve, and
-    marking it RESOLVED made that failure indistinguishable from success."""
+    """Links without a track name are a failed resolve; marking it RESOLVED would
+    make that failure indistinguishable from success."""
     resolved = ResolvedTrack(
         platform_links={
             "spotify": PlatformLink(
@@ -826,9 +806,8 @@ async def test_cleanup_releases_the_track_lock_before_talking_to_telegram(
     migrated_test_database_url: str,
     deliver_draft_mock: AsyncMock,
 ) -> None:
-    """R3-3: the `remaining_posts != 0` branch neither committed nor rolled
-    back, so the row lock lived through `build_bot()` and `send_alert()` —
-    two network calls, with the bot's own `INSERT INTO post` behind them."""
+    """The `remaining_posts != 0` branch must end its transaction before
+    `build_bot()` and `send_alert()`, or the bot's `INSERT INTO post` waits behind it."""
     monkeypatch.setattr(worker_tasks, "resolve_track", AsyncMock(return_value=ResolvedTrack()))
     monkeypatch.setattr(worker_tasks, "resolve_genres", AsyncMock(return_value=[]))
 
@@ -866,9 +845,8 @@ async def test_cleanup_releases_the_track_lock_before_talking_to_telegram(
 async def test_two_posts_of_the_same_track_both_resolve_successfully(
     db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch, deliver_draft_mock: AsyncMock
 ) -> None:
-    """R3-6/D-54: the track lock used to be held across the whole resolve, so
-    the second post of the same track hit `lock_timeout` and failed in five
-    seconds — a scenario D-28 Q4.2 explicitly allows."""
+    """Holding the track lock across the whole resolve would make the second post
+    of the same track hit `lock_timeout`."""
     monkeypatch.setattr(worker_tasks, "LOCK_TIMEOUT_MS", 300)
     shared_isrc = f"UA{uuid.uuid4().hex[:3].upper()}2500007"
 
@@ -921,9 +899,8 @@ async def test_a_failed_source_is_reported_to_the_admin_after_delivery(
     deliver_draft_mock: AsyncMock,
     point_task_at_test_database: AsyncMock,
 ) -> None:
-    """D-55: isolating a failing source trades a loud failure for a poorer
-    post, and that trade only holds while the admin still hears about it —
-    the logs alone are where this project keeps losing things."""
+    """Isolating a failing source trades a loud failure for a poorer post, which
+    is acceptable only while the admin still hears about it."""
     resolved = ResolvedTrack(
         title="Creep",
         artists=[ArtistInfo(name="Radiohead")],
@@ -950,8 +927,8 @@ async def test_a_failed_source_is_reported_to_the_admin_after_delivery(
     alert_texts = [call.args[2] for call in point_task_at_test_database.await_args_list]
     assert any("quota limit exceeded" in text for text in alert_texts)
 
-    # P3-8: `/retry` from RESOLVED is refused (D-43), so the alert has to name
-    # the one route that does work — otherwise it reports without a remedy.
+    # `/retry` from RESOLVED is refused, so the alert has to name the one route
+    # that does work, otherwise it reports without a remedy.
     assert any("надішліть посилання ще раз" in text for text in alert_texts)
 
 
@@ -961,10 +938,8 @@ async def test_a_cleanup_whose_database_write_fails_still_reaches_the_admin(
     deliver_draft_mock: AsyncMock,
     point_task_at_test_database: AsyncMock,
 ) -> None:
-    """P1, the channel R3-1 closed and D-55 reopened: `_clean_up_non_track`
-    runs outside the task's `try`, and its first `commit()` sat before the
-    inner guard — a Postgres restart (a documented procedure here) left the
-    post in `resolving` with no `last_error` and no alert at all."""
+    """`_clean_up_non_track` runs outside the task's `try`, so a Postgres restart
+    must not leave the post `resolving` with no `last_error` and no alert."""
     monkeypatch.setattr(worker_tasks, "resolve_track", AsyncMock(return_value=ResolvedTrack()))
     monkeypatch.setattr(worker_tasks, "resolve_genres", AsyncMock(return_value=[]))
 
@@ -994,8 +969,8 @@ async def test_a_failed_source_is_named_in_the_cleanup_alert_too(
     deliver_draft_mock: AsyncMock,
     point_task_at_test_database: AsyncMock,
 ) -> None:
-    """P3-2: deletion is the loudest outcome this task has, and it was the
-    one that never said which source's silence produced it."""
+    """Deletion is the loudest outcome this task has, so it must say which
+    source's silence produced it."""
     resolved = ResolvedTrack(source_failures=["deezer:isrc: quota limit exceeded"])
     monkeypatch.setattr(worker_tasks, "resolve_track", AsyncMock(return_value=resolved))
     monkeypatch.setattr(worker_tasks, "resolve_genres", AsyncMock(return_value=[]))
@@ -1013,10 +988,8 @@ async def test_a_slow_draft_delivery_does_not_fail_the_second_post_of_the_track(
     monkeypatch: pytest.MonkeyPatch,
     point_task_at_test_database: AsyncMock,
 ) -> None:
-    """D-54 completed: the track lock moved off the network part, but
-    `deliver_draft` still stood between the lock and the commit — and
-    aiogram's default session timeout is 60 s, not the "milliseconds" the
-    comment there claimed."""
+    """`deliver_draft` must not run between the track lock and its commit:
+    aiogram's default session timeout is 60 s."""
     monkeypatch.setattr(worker_tasks, "LOCK_TIMEOUT_MS", 300)
     shared_isrc = f"UA{uuid.uuid4().hex[:3].upper()}2500011"
 
@@ -1075,8 +1048,8 @@ async def test_a_re_resolve_without_a_fresh_title_uses_the_stored_one(
     deliver_draft_mock: AsyncMock,
     point_task_at_test_database: AsyncMock,
 ) -> None:
-    """P3-1: the title guard ran before `merge_stored_scalars`, so a source
-    that answered without a name failed a post whose track already had one."""
+    """The title guard runs after `merge_stored_scalars`, or a nameless answer
+    would fail a post whose track already has a title."""
     post_id = await make_resolving_post(db_session)
     post = await db_session.get(Post, post_id)
     assert post is not None
@@ -1116,8 +1089,8 @@ async def test_the_duplicate_warning_closes_its_read_transaction_before_telegram
     db_session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """P3-4, the R3-3 pattern again: this SELECT opened a transaction that
-    then lived through `build_bot()` and two `send_alert` calls."""
+    """The duplicate check's SELECT opens a transaction, which must not stay open
+    through `build_bot()` and two `send_alert` calls."""
     shared_isrc = f"UA{uuid.uuid4().hex[:3].upper()}2500012"
     marker = uuid.uuid4().hex
     earlier_url = f"https://open.spotify.com/track/earlier{marker}"
@@ -1153,9 +1126,8 @@ async def test_a_degraded_re_resolve_does_not_downgrade_the_stored_title(
     deliver_draft_mock: AsyncMock,
     point_task_at_test_database: AsyncMock,
 ) -> None:
-    """D-58: Spotify raised, so the fresh title is the `songlink:youtube`
-    one — an uploader's clip name over a clean stored title. Not `None`, so
-    `merge_stored_scalars` waves it through; only the D-58 guard stops it."""
+    """The fresh title is the `songlink:youtube` clip name, not `None`, so
+    `merge_stored_scalars` would take it; only the degraded-resolve guard stops it."""
     post_id = await make_resolving_post(db_session)
     post = await db_session.get(Post, post_id)
     assert post is not None

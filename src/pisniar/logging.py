@@ -38,10 +38,8 @@ EventDictProcessor = Callable[[Any, str, MutableMapping[str, Any]], MutableMappi
 
 
 def redact_secrets_in_text(value: str, secrets: Iterable[str] = ()) -> str:
-    """Redaction as a plain function, usable outside the log pipeline: an
-    error message also reaches the admin through `send_alert` and
-    `post.last_error`, neither of which passes a processor (S3-3).
-    """
+    """Also used outside the log pipeline: `send_alert` and `post.last_error`
+    pass through no processor."""
     redacted = value
     for secret in [*[secret for secret in secrets if secret], *_runtime_secrets.values()]:
         if secret in redacted:
@@ -50,10 +48,6 @@ def redact_secrets_in_text(value: str, secrets: Iterable[str] = ()) -> str:
 
 
 def make_redact_secrets_processor(secrets: Iterable[str]) -> EventDictProcessor:
-    """Replace `secrets` in event dict values, recursing into dict/list/tuple
-    and `str()`-ing unrecognized types (e.g. `error=exc`) first. Leaves
-    bool/int/float/None alone — a secret can't be a substring of a number.
-    """
     configured_secrets = [secret for secret in secrets if secret]
 
     def all_secrets() -> list[str]:
@@ -96,10 +90,6 @@ def configure_logging(
     log_level: str = "INFO",
     secrets: Iterable[str] = (),
 ) -> None:
-    """Configure structlog + stdlib `logging` as one pipeline. `"json"`
-    (docker/prod default) renders one object per line; `"console"` is for
-    local development.
-    """
     level = logging.getLevelNamesMapping()[log_level.upper()]
 
     shared_processors: list[structlog.types.Processor] = [

@@ -1,8 +1,7 @@
-"""`yt-dlp` as a subprocess. The `videoId` comes from
-`platform_links["youtubeMusic"]` and from nowhere else — `["youtube"]` may
-hold a clip with an intro, an outro or a different mastering, and there is no
-fallback under any condition (AGENTS.md, AS3). The URL is built here, from a
-validated id, and never taken as a string out of the database.
+"""`yt-dlp` as a subprocess. The `videoId` comes only from
+`platform_links["youtubeMusic"]`, with no fallback: `["youtube"]` may hold a clip
+with an intro, an outro or a different mastering. The watch URL is built from the
+validated id, never taken as a string out of the database.
 """
 
 from __future__ import annotations
@@ -34,13 +33,11 @@ AUDIO_FORMAT_SELECTOR = "bestaudio/best"
 
 
 class AudioDownloadError(RuntimeError):
-    """Base for every download failure. No `isolated_source_call` here: a
-    download that fails means there is no product, so it is loud (§4)."""
+    """Never isolated like a metadata source: without the audio there is no product."""
 
 
 class MissingYouTubeMusicLinkError(AudioDownloadError):
-    """No `youtubeMusic` link — `failed` + an alert, and the network is never
-    touched. Falling back to `["youtube"]` is what this class forbids."""
+    """Raised before any network call; there is deliberately no `["youtube"]` fallback."""
 
 
 class InvalidYouTubeVideoIdError(AudioDownloadError):
@@ -48,8 +45,8 @@ class InvalidYouTubeVideoIdError(AudioDownloadError):
 
 
 class YtdlpExtractorBrokenError(AudioDownloadError):
-    """D-80: the extraction path is deprecated upstream. When it goes, every
-    track fails at once — and that must not read as "this song is missing"."""
+    """The extraction path is deprecated upstream. When it breaks, every track
+    fails at once — and that must not read as "this song is missing"."""
 
 
 class YtdlpVideoUnavailableError(AudioDownloadError):
@@ -61,7 +58,7 @@ class DownloadedAudioMismatchError(AudioDownloadError):
 
 
 # Checked first, on purpose: the expensive misdiagnosis is a mass extractor
-# failure read as a per-track problem, never the other way round (D-80).
+# failure read as a per-track problem, never the other way round.
 _EXTRACTOR_BROKEN_MARKERS = (
     "unable to extract",
     "failed to extract any player response",
@@ -97,8 +94,6 @@ class DownloadedAudio:
 
 
 def youtube_music_video_id(platform_links: dict[str, object]) -> str:
-    """Reads `["youtubeMusic"]` and nothing else. Mutating this to look at
-    `["youtube"]` must fail a test — that is what V27 pins down."""
     link = platform_links.get(YOUTUBE_MUSIC_PLATFORM)
     if not isinstance(link, dict):
         raise MissingYouTubeMusicLinkError(
@@ -124,23 +119,19 @@ def youtube_music_video_id(platform_links: dict[str, object]) -> str:
 
 
 def build_watch_url(video_id: str) -> str:
-    """Built by us from the validated id, never read back as a string from the
-    database — the id is the only part of it a source ever supplied."""
     if not is_valid_youtube_video_id(video_id):
         raise InvalidYouTubeVideoIdError(f"videoId не пройшов валідацію: {video_id!r}")
     return f"https://www.youtube.com/watch?v={video_id}"
 
 
 def read_ytdlp_version(*, timeout_seconds: float = VERSION_TIMEOUT_SECONDS) -> str:
-    """Stored on the `audio_asset` row: when the extractor breaks, the version
-    that was running is the first thing diagnosis needs (D-80)."""
+    """Stored on `audio_asset`: a broken extractor is diagnosed by the version that ran."""
     completed = run_media_tool_checked(YTDLP_BINARY, ["--version"], timeout_seconds=timeout_seconds)
     return completed.stdout.strip() or "unknown"
 
 
 def build_ytdlp_arguments(url: str, output_template: str) -> list[str]:
-    """An argument list, never a shell string. `--no-update` is explicit:
-    a runtime self-update is prohibited (AS10), not merely not asked for."""
+    """`--no-update` is explicit: a runtime self-update is prohibited, not merely unasked."""
     return [
         "--no-update",
         "--no-playlist",
@@ -185,8 +176,7 @@ def classify_ytdlp_failure(exit_code: int, stderr: str) -> AudioDownloadError:
 def download_audio(
     video_id: str, destination_directory: Path, *, timeout_seconds: float
 ) -> tuple[Path, str]:
-    """Downloads into `destination_directory` (a tmp dir) and returns the
-    file plus the yt-dlp version that produced it. Nothing is published here."""
+    """Only downloads into the tmp dir; publishing the file is the caller's job."""
     url = build_watch_url(video_id)
     ytdlp_version = read_ytdlp_version()
 
@@ -222,9 +212,8 @@ def download_audio(
 
 
 def verify_downloaded_audio(path: Path, track_duration_ms: int | None) -> MediaProbe:
-    """The loud check against a stub or a different recording (§4). The 23
-    posts already in the database have `duration_ms IS NULL`, so that branch
-    is explicit: the file is still probed, only the comparison is skipped."""
+    """Catches a stub or a different recording. A track without `duration_ms` is
+    still probed; only the comparison is skipped."""
     probe = verify_media(path, require_audio=True)
 
     if track_duration_ms is None or track_duration_ms <= 0:

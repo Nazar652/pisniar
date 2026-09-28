@@ -1,6 +1,5 @@
-"""Migrations must be reversible and match the models — same guarantees
-V4/V11/V13 check manually. Both tests use the disposable
-`migrations_test_database_url`, not the shared `pisniar_test`.
+"""Migrations must be reversible and match the models. Both tests use the
+disposable `migrations_test_database_url`, not the shared `pisniar_test`.
 """
 
 from __future__ import annotations

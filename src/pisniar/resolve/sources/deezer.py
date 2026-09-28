@@ -1,7 +1,6 @@
-"""Deezer (contract p.1/p.30): ISRC-exact track lookup, name-search
-fallback, and album genres. **Pitfall**: a not-found ISRC lookup answers
-`HTTP 200` with `{"error": {...}}` in the body — never trust the status
-code alone here.
+"""Deezer: ISRC-exact track lookup, name-search fallback, and album genres.
+**Pitfall**: a not-found lookup answers `HTTP 200` with `{"error": {...}}` in
+the body, so the status code alone is never trusted.
 """
 
 from __future__ import annotations
@@ -20,10 +19,8 @@ THROTTLE = Throttler(min_interval_seconds=1.0)
 SEARCH_LIMIT = 5
 SOURCE_NAME = "deezer"
 
-# Whitelist, verified live against api.deezer.com on 2026-09-19: a missing
-# ISRC and a missing album both answer `type: DataException, code: 800`.
-# Anything else (quota, busy service, bad parameters) is an outage, not a
-# miss — it raises instead of being cached as "not found" (R2-5).
+# A missing ISRC or album answers `DataException`, code 800. Anything else is
+# an outage, not a miss, and raises instead of being cached as "not found".
 NOT_FOUND_ERROR_CODES = frozenset({800})
 NOT_FOUND_ERROR_TYPES = frozenset({"DataException"})
 
@@ -50,9 +47,8 @@ class DeezerAlbumResult:
 
 
 class DeezerApiError(RuntimeError):
-    """A 200 response whose error body is not the documented "no data" miss.
-    Raised rather than cached, the same way `SonglinkParseError` is: caching
-    a quota failure as `{"found": false}` blanks the row for a whole TTL."""
+    """A 200 whose error body is not the documented miss. Raised, not cached:
+    a quota failure cached as `{"found": false}` blanks the row for a whole TTL."""
 
 
 def _is_not_found_body(data: object) -> bool:
@@ -189,8 +185,8 @@ def _album_result_from_payload(payload: dict[str, object]) -> DeezerAlbumResult:
 
 
 def _candidate_from_search_item(raw_item: object) -> TrackCandidate:
-    """Every field through `json_utils`: a `null` link used to become the
-    string `"None"`, and a non-dict entry an `AttributeError` (R2-8)."""
+    """Every field through `json_utils`, so a `null` link never becomes the
+    string `"None"`, nor a non-dict entry an `AttributeError`."""
     item = as_dict(raw_item)
     duration_seconds = as_int(item.get("duration"))
     return TrackCandidate(

@@ -1,9 +1,6 @@
-"""Draft delivery — NOT `send_alert()` (contract p.10): a draft is the
-product, so a delivery failure must propagate (-> `failed` + `/retry`),
-never be swallowed. `parse_mode="HTML"` is passed per-call here only —
-the shared `Bot` stays `parse_mode=None` everywhere else (D-2 in contract).
-The draft also carries both triggers — publish (D-46) and «Зробити відео»
-(D-77) — which is why this step-2 module is the one steps 3 and 4A touch.
+"""Draft delivery, not `send_alert()`: a draft is the product, so a failure
+propagates (-> `failed` + `/retry`). `parse_mode="HTML"` is per-call only; the
+shared `Bot` stays `parse_mode=None`. Carries both triggers, publish and render.
 """
 
 from __future__ import annotations
@@ -17,7 +14,7 @@ from pisniar.telegram.keyboards import draft_keyboard
 
 async def deliver_draft(bot: Bot, post: Post, chat_id: int) -> None:
     """Idempotent: a `post` with `draft_message_id` already set is a no-op —
-    this is what makes Celery's at-least-once redelivery safe (D-28/M32)."""
+    this is what makes Celery's at-least-once redelivery safe."""
     if post.draft_message_id is not None:
         return
     if post.caption is None:

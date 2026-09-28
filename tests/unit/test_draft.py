@@ -1,7 +1,7 @@
 """`deliver_draft`: idempotent (draft_message_id set -> no-op), sends with
-explicit `parse_mode="HTML"` and no link preview, and — unlike `send_alert` —
-never swallows a delivery failure (contract p.10: недоставка -> ретрай ->
-failed)."""
+explicit `parse_mode="HTML"` and no link preview, and, unlike `send_alert`,
+never swallows a delivery failure.
+"""
 
 from __future__ import annotations
 
@@ -39,8 +39,7 @@ async def test_deliver_draft_sends_html_and_sets_draft_reference() -> None:
 
 
 async def test_deliver_draft_attaches_both_triggers() -> None:
-    """The draft is the whole trigger for steps 3 and 4A (D-46 + D-77):
-    without these buttons a delivered draft goes nowhere by any route."""
+    """Without these buttons a delivered draft goes nowhere by any route."""
     bot = AsyncMock()
     bot.send_message.return_value.message_id = 42
     post = make_post()

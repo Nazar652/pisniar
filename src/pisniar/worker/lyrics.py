@@ -1,9 +1,6 @@
-"""Lyrics persistence (4B.6): the adapter's finished lines into `lyric`, in a
-short transaction of its own. The LRCLIB request happens before it, never
-inside — holding a lock across the network is R2-3/D-54/R3-3.
-
-Only timed lines are written (D-96); untimed text stays a log class until
-step 7. The automaton never writes over existing lines of any `source`.
+"""Lyrics persistence in a short transaction of its own; the LRCLIB request runs
+before it, never inside, so no lock is held across the network. Only timed
+lines are written, and never over existing lines of any `source`.
 """
 
 from __future__ import annotations
@@ -36,8 +33,8 @@ class LyricsPersistError(RuntimeError):
 
 @dataclass(frozen=True)
 class LyricsPersistResult:
-    """`source_outcome` is the adapter's class, carried through unchanged so
-    4B.8 can name it (`lyrics_unsynced` writes nothing and says why)."""
+    """`source_outcome` is the adapter's class, carried through so the admin can
+    be told why nothing was written (e.g. `lyrics_unsynced`)."""
 
     outcome: LyricsPersistOutcome
     source_outcome: LyricsOutcome
@@ -53,9 +50,8 @@ class LyricRow:
 
 
 def rows_to_write(track_id: int, result: LyricsResult) -> tuple[list[LyricRow], int]:
-    """Timed lines only, indexed in the adapter's (time) order. A line past
-    the CHECK is cut to it rather than dropped: a gap in `line_index` would
-    read in step 7's editor like a line deleted by hand (D-96)."""
+    """A line past the CHECK is cut, not dropped: a `line_index` gap would read
+    like a line deleted by hand."""
     if result.outcome is not LyricsOutcome.SYNCED:
         return [], 0
 
@@ -88,13 +84,8 @@ async def persist_lyrics_in_own_transaction(
     track_id: int,
     result: LyricsResult,
 ) -> LyricsPersistResult:
-    """Lock, guard, write, commit — nothing else, `_persist_track_in_own_
-    transaction`'s pattern. The track lock is what makes the guard atomic:
-    `UNIQUE (track_id, line_index)` stops a duplicate index, not a mixed set
-    (writer A's lines 0-9 plus writer B's 10-11, or `lrclib` beside `manual`).
-    Under READ COMMITTED the second writer's count runs after the first one's
-    commit, so it sees those lines and writes nothing.
-    """
+    """The track lock makes the count guard atomic: the unique pair stops a
+    duplicate index, not a mix of two writers' lines (or `lrclib` beside `manual`)."""
     rows, truncated_count = rows_to_write(track_id, result)
 
     if not rows:
@@ -124,7 +115,7 @@ async def _persist_under_track_lock(
     truncated_count: int,
 ) -> LyricsPersistResult:
     # FOR NO KEY UPDATE, the lock `_persist_track_in_own_transaction` takes:
-    # `INSERT INTO post` (FOR KEY SHARE) still passes. Step 7 takes it too.
+    # `INSERT INTO post` (FOR KEY SHARE) still passes. Any other lyric writer must take it too.
     track = await session.get(Track, track_id, with_for_update={"key_share": True})
     if track is None:
         raise LyricsPersistError(f"трек {track_id} не знайдено — текст нікуди писати")

@@ -14,9 +14,8 @@ from pisniar.channel import CHANNEL_LINK_URL, CHANNEL_USERNAME, warn_if_alerts_s
 
 @pytest.fixture
 def channel_logger(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
-    """Not `capture_logs()`: `worker.tasks` calls this function at import
-    time, which caches the structlog proxy and makes capturing silently
-    return nothing for the rest of the session."""
+    """Not `capture_logs()`: `worker.tasks` calls this at import time, and the cached
+    structlog proxy then captures nothing for the rest of the session."""
     fake_logger = MagicMock()
     monkeypatch.setattr(channel, "logger", fake_logger)
     return fake_logger

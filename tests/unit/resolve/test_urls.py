@@ -1,5 +1,6 @@
 """`classify_url()`/`normalize_url()`: syntactic track/not-track detection
-and the UNIQUE-key normalization contract (p.11 of the step 2 contract)."""
+and the UNIQUE-key normalization contract.
+"""
 
 from __future__ import annotations
 

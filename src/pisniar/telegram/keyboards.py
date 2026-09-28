@@ -14,7 +14,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 PUBLISH_CALLBACK_PREFIX = "publish"
 PUBLISH_BUTTON_TEXT = "Опублікувати в канал"
 
-# D-77: the media chain is started by a second button, never automatically —
+# The media chain is started by a second button, never automatically —
 # disk and minutes of CPU are spent only on a draft the admin approved.
 RENDER_CALLBACK_PREFIX = "render"
 RENDER_BUTTON_TEXT = "Зробити відео"
@@ -37,7 +37,7 @@ class ParsedCallback:
 
 def draft_keyboard(post_id: int) -> InlineKeyboardMarkup:
     """Both triggers under a text draft: publish the cover as a photo, or
-    spend the disk and the minutes on a video first (D-46 + D-77)."""
+    spend the disk and the minutes on a video first."""
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [_button(PUBLISH_BUTTON_TEXT, CallbackAction.PUBLISH, post_id)],
@@ -48,17 +48,15 @@ def draft_keyboard(post_id: int) -> InlineKeyboardMarkup:
 
 def preview_keyboard(post_id: int) -> InlineKeyboardMarkup:
     """The video preview carries publication alone — there is nothing left to
-    render, and the old draft's keyboard is removed when this one arrives."""
+    render, and the text draft's keyboard is removed when this one arrives."""
     return InlineKeyboardMarkup(
         inline_keyboard=[[_button(PUBLISH_BUTTON_TEXT, CallbackAction.PUBLISH, post_id)]]
     )
 
 
 def parse_callback(callback_data: str | None) -> ParsedCallback | None:
-    """The action and the post id, or `None` for anything that is not exactly
-    `<known prefix>:<ascii digits>`. The payload arrives from a Telegram
-    client, so it is arbitrary input — and it selects the row to act on.
-    """
+    """`None` for anything but `<known prefix>:<ascii digits>`: the payload is
+    arbitrary client input, and it selects the row to act on."""
     if callback_data is None:
         return None
 

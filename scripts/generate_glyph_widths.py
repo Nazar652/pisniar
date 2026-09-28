@@ -1,16 +1,7 @@
-"""Bakes `pisniar.worker.noto_sans_widths` from the very font file that sits
-in the worker image (D-94).
-
-Run it on the host after copying the font out of the container:
-
-    docker compose cp worker:$(the path in `noto_sans_widths.SOURCE_FONT_FILE`) ./noto.ttf
-    uv run python scripts/generate_glyph_widths.py ./noto.ttf
-
-`fontTools` is a **dev** dependency and this file never reaches the image
-(the Dockerfile copies `src`, `alembic` and `alembic.ini`, nothing else), so
-the worker keeps running without a single new runtime dependency — the table
-is data, and `tests/integration/test_ass_font.py` pins it back against the
-font inside the container.
+"""Bakes `pisniar.worker.noto_sans_widths` from the font file in the worker image.
+Copy it out first (`docker compose cp worker:<SOURCE_FONT_FILE> ./noto.ttf`), then
+`uv run python scripts/generate_glyph_widths.py ./noto.ttf`. `fontTools` stays a dev
+dependency; `tests/integration/test_ass_font.py` pins the table to the font.
 """
 
 from __future__ import annotations
@@ -24,9 +15,8 @@ from fontTools.ttLib import TTFont
 REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 OUTPUT_PATH = REPOSITORY_ROOT / "src" / "pisniar" / "worker" / "noto_sans_widths.py"
 
-# The coverage D-94 asks for, plus the neighbours that cost nothing once the
-# block is open. Song text is Ukrainian first, but artist names and inserts
-# are not, so Latin and the European diacritics travel with it.
+# Song text is Ukrainian first, but artist names and inserts are not, so Latin
+# and the European diacritics travel with it.
 CODEPOINT_RANGES: tuple[tuple[int, int, str], ...] = (
     (
         0x0020,
@@ -97,13 +87,10 @@ def _header(font: TTFont, font_path: Path, covered: int) -> str:
     horizontal_header = font["hhea"]
     generated_on = dt.datetime.now(tz=dt.UTC).date().isoformat()
 
-    return f'''"""Advance widths of `{font_path.name}`, in font units, baked by
+    return f'''"""Advance widths of `{font_path.name}` in font units, baked by
 `scripts/generate_glyph_widths.py` on {generated_on}. **Generated — do not edit
-by hand**; regenerate it and let `make test-fonts` pin the result.
-
-{covered} codepoints, chosen by `CODEPOINT_RANGES` in that script. Anything
-outside them is not missing data — it is what
-`text_metrics.FALLBACK_ADVANCE_UNITS` exists for.
+by hand.** {covered} codepoints from `CODEPOINT_RANGES`; any other codepoint
+is measured as `text_metrics.FALLBACK_ADVANCE_UNITS`.
 """
 
 from __future__ import annotations
@@ -112,9 +99,8 @@ SOURCE_FONT_FILE = "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf"
 
 UNITS_PER_EM = {head.unitsPerEm}
 
-# libass reads the ASS `Fontsize` as the ascender-to-descender cell height
-# rather than as the em square, so these two are not decoration: they are
-# what turns a font unit into a pixel (`text_metrics.FONT_SIZE_TO_EM_SCALE`).
+# libass reads `Fontsize` as the ascender-to-descender cell height, so these two
+# turn a font unit into a pixel (`text_metrics.FONT_SIZE_TO_EM_SCALE`).
 HHEA_ASCENDER = {horizontal_header.ascender}
 HHEA_DESCENDER = {horizontal_header.descender}
 

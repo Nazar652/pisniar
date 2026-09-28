@@ -1,5 +1,6 @@
-"""`musicbrainz`: disabled without a contact (D-30/gate 2.0.4), url-rels ->
-platform_links mapping — via `httpx.MockTransport`, trimmed real shape."""
+"""`musicbrainz`: disabled without a contact, and url-rels -> platform_links
+mapping, via `httpx.MockTransport` and a trimmed real shape.
+"""
 
 from __future__ import annotations
 
@@ -75,9 +76,8 @@ def test_result_from_payload_ignores_unrecognized_hosts() -> None:
 
 
 def test_a_broken_url_rel_is_skipped_instead_of_failing_the_whole_recording() -> None:
-    """R2-7: `httpx.URL()` raises on a control character, and MusicBrainz is
-    publicly editable — one bad url-rel used to fail the post despite the
-    good links sitting right next to it, reproducibly for the cache hour."""
+    """`httpx.URL()` raises on a control character, and one bad url-rel in a publicly
+    editable database must not fail the good links next to it."""
     recording: dict[str, object] = {
         "id": "recording-456",
         "relations": [
@@ -100,8 +100,6 @@ def test_a_broken_url_rel_is_skipped_instead_of_failing_the_whole_recording() ->
 def test_an_unparsable_url_rel_is_logged_without_its_control_characters(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """S3-7: a control character is exactly what gets a url-rel here, and
-    the raw value went straight into the log line."""
     logger_mock = MagicMock()
     monkeypatch.setattr(musicbrainz, "logger", logger_mock)
 

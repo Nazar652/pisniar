@@ -1,6 +1,4 @@
-"""Shared domain types for the resolver: match classes (contract p.12),
-platform links, and the in-progress track being assembled by `merge.py`.
-"""
+"""Shared domain types for the resolver."""
 
 from __future__ import annotations
 
@@ -13,10 +11,8 @@ USER_INPUT_SOURCE = "user_input"
 
 
 class MatchClass(StrEnum):
-    """`EXACT_ISRC`/`MANUAL` carry no name-search risk; `AGGREGATOR` trusts
-    song.link's clustering; `CONFIRMED` passed `matching.is_match()`.
-    `REJECTED` is deliberately absent — a rejected candidate is never
-    written to `platform_links` at all (contract p.12, D-39)."""
+    """`REJECTED` is deliberately absent: a rejected candidate is never written
+    to `platform_links` at all."""
 
     EXACT_ISRC = "exact_isrc"
     AGGREGATOR = "aggregator"
@@ -61,8 +57,7 @@ class TrackCandidate:
 
 @dataclass
 class ResolvedTrack:
-    """Mutable accumulator `merge.py` folds source results into, one field
-    at a time, respecting the per-field priority order (contract p.15)."""
+    """Mutable accumulator `merge.py` folds source results into, field by field."""
 
     isrc: str | None = None
     title: str | None = None
@@ -76,7 +71,7 @@ class ResolvedTrack:
     deezer_album_id: int | None = None
     platform_links: dict[str, PlatformLink] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
-    # Sources that raised instead of answering (D-55). Kept apart from
+    # Sources that raised instead of answering. Kept apart from
     # `warnings` because the admin is alerted about these, not just logged.
     source_failures: list[str] = field(default_factory=list)
 

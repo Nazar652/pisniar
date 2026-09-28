@@ -1,7 +1,6 @@
-"""`resolve.cache.SourceCache`: hit/miss, negative caching, the one-hour TTL
-(D-40), and the two invariants the reviews called P1 — a cache write is
-visible to other tasks at once (F-13) and never touches the caller's own
-business transaction, not even when it loses a race (F-2/F-25).
+"""`resolve.cache.SourceCache`: hit/miss, negative caching, the one-hour TTL, and two
+invariants: a cache write is visible to other tasks at once, and it never touches the
+caller's business transaction, not even when it loses a race.
 """
 
 from __future__ import annotations
@@ -88,8 +87,8 @@ async def test_negative_result_is_cached_too(
 async def test_stale_row_is_a_miss_and_is_refreshed_in_place(
     source_cache: SourceCache, db_session: AsyncSession
 ) -> None:
-    """D-40/F-5: without this, a negative answer for a release song.link had
-    not indexed yet would outlive every `/retry` the admin ever sends."""
+    """Otherwise a negative answer for a release song.link has not indexed yet would
+    outlive every `/retry` the admin sends."""
     request_key = unique_key("isrc:STALE")
     db_session.add(
         SourceFetch(
@@ -123,8 +122,8 @@ async def test_stale_row_is_a_miss_and_is_refreshed_in_place(
 async def test_fetched_at_is_written_from_the_clock_at_write_time(
     source_cache: SourceCache, db_session: AsyncSession
 ) -> None:
-    """F-23: `server_default now()` is the transaction's start time, which a
-    long resolve drags tens of seconds into the past."""
+    """`server_default now()` is the transaction's start time, which a long resolve
+    drags tens of seconds into the past."""
     request_key = unique_key("isrc:CLOCK")
 
     async def fetch() -> dict[str, object]:
@@ -143,8 +142,8 @@ async def test_fetched_at_is_written_from_the_clock_at_write_time(
 async def test_cache_write_is_visible_before_the_business_transaction_commits(
     source_cache: SourceCache, db_session: AsyncSession, migrated_test_database_url: str
 ) -> None:
-    """F-13: two tasks on the same artist must share cached answers instead
-    of each re-running nine throttled requests and then racing on UNIQUE."""
+    """Two tasks on the same artist must share cached answers instead of each
+    re-running nine throttled requests and then racing on UNIQUE."""
     request_key = unique_key("isrc:VISIBLE")
     marker_url = f"https://open.spotify.com/track/{uuid.uuid4().hex}"
     db_session.add(Track(source_url=marker_url, source_url_normalized=marker_url))
@@ -169,10 +168,8 @@ async def test_cache_write_is_visible_before_the_business_transaction_commits(
 async def test_losing_the_unique_race_leaves_the_business_transaction_intact(
     migrated_test_database_url: str,
 ) -> None:
-    """A2/F-2/F-25: the loser's INSERT happens *before* the winner commits —
-    the branch the old `session.rollback()` lived in. Its business session
-    holds uncommitted work and an ORM object that must survive both.
-    """
+    """The loser's INSERT runs before the winner commits, while its business session
+    holds uncommitted work and an ORM object that must survive both."""
     engine = build_engine(migrated_test_database_url)
     session_factory = build_session_factory(engine)
     cache = SourceCache(session_factory=session_factory)
@@ -231,11 +228,8 @@ async def test_losing_the_unique_race_leaves_the_business_transaction_intact(
 async def test_a_negative_payload_never_evicts_a_still_fresh_positive_row(
     source_cache: SourceCache, db_session: AsyncSession
 ) -> None:
-    """R2-5: D-40 turned insert-only into `ON CONFLICT DO UPDATE`, i.e. plain
-    last-writer-wins. Task A writes a valid album, task B three seconds later
-    gets a quota error body, and every track of that release loses its genres
-    for the rest of the hour — with no outbound request in the logs to show.
-    """
+    """Otherwise the last writer wins: a quota error body seconds after a valid album
+    blanks the genres of that whole release for the hour, with no request in the logs."""
     request_key = unique_key("album:GUARD")
 
     await source_cache.get_or_fetch("deezer", request_key, lambda: _payload({"genres": [85]}))
@@ -250,7 +244,7 @@ async def test_a_negative_payload_does_replace_another_negative_one(
     source_cache: SourceCache, db_session: AsyncSession
 ) -> None:
     """The guard is about quality, not about freezing the row: a negative may
-    always refresh a negative, so the TTL still does its D-40 job."""
+    always refresh a negative, so the TTL still does its job."""
     request_key = unique_key("album:NEGNEG")
 
     await source_cache._upsert("deezer", request_key, {"found": False})
@@ -280,7 +274,7 @@ async def test_a_negative_payload_replaces_a_stale_positive_row(
     source_cache: SourceCache, db_session: AsyncSession
 ) -> None:
     """Past the TTL the stored positive carries no more authority than the
-    fresh negative, so D-40's refresh path stays open."""
+    fresh negative, so the refresh path stays open."""
     request_key = unique_key("album:STALE")
 
     await source_cache.get_or_fetch("deezer", request_key, lambda: _payload({"genres": [85]}))

@@ -1,18 +1,7 @@
-"""LRCLIB (step 4B, D-88): the one lyrics source, and the adapter whose
-answer is classified by the **shape of the body**, never by the status code
-(D-89). Five classes: synced, unsynced, instrumental, a documented miss —
-and "everything else", which raises and is therefore never cached.
-
-The dangerous shape is the *empty positive*: HTTP 200 where both lyric
-fields are empty and `instrumental` is not `true`. It looks valid and empty
-while meaning nothing at all — the literal form of D-48, where a quota
-refusal settled into the cache for an hour and R2-5 could not see it because
-the payload looked positive. It raises.
-
-`404 TrackNotFound` is **not** proof that the track has no lyrics (D-90):
-LRCLIB stores one joined artist string and compares it exactly, so a miss
-may only mean our string was not theirs. Hence the joined query and the
-`/api/search` fallback before a miss is called final.
+"""LRCLIB, the lyrics source. An answer is classified by the shape of its body,
+never the status code: anything but synced, unsynced, instrumental or a documented
+miss raises and is never cached, including the *empty positive* (a 200 with both
+lyric fields empty and `instrumental` not `true`).
 """
 
 from __future__ import annotations
@@ -44,38 +33,29 @@ SEARCH_URL = "https://lrclib.net/api/search"
 # LRCLIB asks clients to identify themselves; same shape as `musicbrainz`.
 REQUEST_HEADERS = {"User-Agent": "pisniar-v2/0.1 (personal Telegram music bot)"}
 
-# D-90, a sixth of the coverage on one line: our artists are separate rows,
-# LRCLIB keeps one joined string and compares it exactly (case-insensitively).
-# `artists[0].name` measured 4/9 where the joined string measured 5/9.
+# LRCLIB keeps one joined artist string and compares it exactly (case-insensitively),
+# so the joined form finds more lyrics than the first artist alone.
 ARTIST_JOIN_SEPARATOR = ", "
 
-# The whitelist, built from the literal bodies gate 4B.0.4 recorded: this is
-# the *only* shape that proves "not found". Deezer's `NOT_FOUND_ERROR_CODES`
-# precedent — anything outside the list is undocumented and therefore loud,
-# a proxy's HTML 404 included.
+# The only shape that proves "not found"; anything else is undocumented and
+# therefore loud, a proxy's HTML 404 included.
 NOT_FOUND_STATUS_CODE = 404
 NOT_FOUND_ERROR_NAMES = frozenset({"TrackNotFound"})
 
-# D-91: the "stable 503" of spike 0e was server load, not a property of the
-# request — every observed one cleared on the first retry. The backoff sits
-# *before* classification and covers only the "did not answer" class;
-# exhausting it stays "did not answer" and never becomes "not found".
+# A 503 here is server load that clears on retry. Only "did not answer" is
+# retried, and exhausting the retries never turns it into "not found".
 RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
 MAX_ATTEMPTS = 3
 RETRY_BASE_DELAY_SECONDS = 1.0
 
-# `/api/search` answers up to 20 foreign rows for a common title (measured on
-# spike 0e: "Berserker", "Сила"), every one of them verified before use.
+# `/api/search` answers up to 20 foreign rows for a common title, every one of
+# them verified before use.
 MAX_SEARCH_CANDIDATES = 20
 
 
 class LyricsOutcome(StrEnum):
-    """The five reason classes of §10, spelled the way the log says them.
-
-    `SOURCE_UNAVAILABLE` is the one outcome this adapter never returns — it
-    is what `LrclibApiError` means, and the caller names it from the
-    exception (§6: "не відповів" must never read as "немає").
-    """
+    """`SOURCE_UNAVAILABLE` is never returned: it is what `LrclibApiError` means,
+    so "did not answer" can never read as "no lyrics"."""
 
     SYNCED = "lyrics_synced"
     UNSYNCED = "lyrics_unsynced"
@@ -86,20 +66,16 @@ class LyricsOutcome(StrEnum):
 
 
 class LrclibApiError(RuntimeError):
-    """A response whose shape does not prove anything — 5xx, a timeout, a
-    non-JSON 404, an undocumented 404 body, or the empty positive. Raised
-    rather than cached, exactly like `DeezerApiError` and
-    `SonglinkParseError`: caching an outage as "no lyrics" would be S4B-R4.
-    """
+    """A response whose shape proves nothing. Raised rather than cached: an outage
+    cached as "no lyrics" would hide the lyrics for a whole TTL."""
 
     outcome = LyricsOutcome.SOURCE_UNAVAILABLE
 
 
 @dataclass(frozen=True)
 class LyricsLine:
-    """One line as the source gave it. `start_ms` is absolute from the start
-    of the *full* track (D-5) and `None` for a plain-text line — the shape
-    step 7's editor fills in."""
+    """`start_ms` is absolute from the start of the *full* track, and `None` for
+    a plain-text line."""
 
     start_ms: int | None
     text: str
@@ -116,9 +92,8 @@ class LyricsResult:
 
 
 def join_artist_names(artist_names: Sequence[str]) -> str:
-    """D-90: one comma-joined string, because that is the single value
-    LRCLIB compares against. `Burned Time Machine, 0%Mercury` answers 200
-    where either half alone answers 404."""
+    """The single value LRCLIB compares against: `Burned Time Machine, 0%Mercury`
+    answers 200 where either half alone answers 404."""
     return ARTIST_JOIN_SEPARATOR.join(
         " ".join(name.split()) for name in artist_names if name and name.strip()
     )
@@ -132,16 +107,8 @@ async def fetch_lyrics(
     title: str,
     duration_ms: int | None,
 ) -> LyricsResult:
-    """artist + title + duration -> lines with optional timecodes. The
-    duration is never sent to LRCLIB — gate 4B.0.4 measured the 5/9 coverage
-    on the artist+title pair alone — it is what `is_match` checks the answer
-    against afterwards.
-
-    Raises `LrclibApiError` when the source did not answer in a shape that
-    proves anything, and `lrc.LrcParseError` when a payload that claims to
-    carry timecodes is not LRC at all. Both happen before anything is
-    cached.
-    """
+    """The duration is never sent to LRCLIB; `is_match` checks the answer against it.
+    `LrclibApiError` and `lrc.LrcParseError` both raise before anything is cached."""
     artist_query = join_artist_names(artist_names)
     normalized_title = " ".join(title.split())
 
@@ -159,7 +126,7 @@ async def fetch_lyrics(
         record = await _get_record(client, artist_query, normalized_title)
         if record is not None:
             # Classified here as well as on the read path: an empty positive
-            # must raise *before* `SourceCache` can write it (D-48).
+            # must raise *before* `SourceCache` can write it.
             _classify_record(record)
             return {"found": True, "record": record}
 
@@ -185,11 +152,8 @@ async def fetch_lyrics(
 
 
 async def _request(client: httpx.AsyncClient, url: str, params: dict[str, str]) -> httpx.Response:
-    """The retry loop, and the only place a transport failure becomes an
-    `LrclibApiError`. `except httpx.HTTPError` is deliberately narrow:
-    `SoftTimeLimitExceeded` and `SQLAlchemyError` are not source failures
-    and must travel straight through.
-    """
+    """The only place a transport failure becomes `LrclibApiError`; narrow on
+    purpose, so `SoftTimeLimitExceeded` and `SQLAlchemyError` travel through."""
     last_reason = "no attempt was made"
 
     for attempt in range(MAX_ATTEMPTS):
@@ -226,13 +190,8 @@ async def _get_record(
 async def _search_for_record(
     client: httpx.AsyncClient, *, artist_query: str, title: str, duration_ms: int | None
 ) -> dict[str, object] | None:
-    """D-90: `404 TrackNotFound` only proves LRCLIB has nothing under the
-    exact artist string we sent, so a miss is not final until the title has
-    been searched too. Searched **by title alone** on purpose — an
-    `artist_name` filter here would reproduce the very mismatch this call
-    exists to recover from — and every row is verified locally, which is
-    what makes the 20 foreign rows a common title returns harmless.
-    """
+    """A 404 only proves nothing is stored under our exact artist string. Searched
+    by title alone, since an artist filter would repeat that mismatch."""
     response = await _request(client, SEARCH_URL, {"track_name": title})
     body = _require_ok_json(response)
 
@@ -242,8 +201,7 @@ async def _search_for_record(
             candidate, artist_query=artist_query, title=title, duration_ms=duration_ms
         ):
             continue
-        # An empty row among search results is noise, not the D-48 shape:
-        # it is an answer about some other track, so it is skipped, not
+        # An empty search row answers about some other track: skipped, not
         # raised on. Only `/api/get` answers *our* question.
         if _has_content(candidate):
             logger.info("lrclib_search_fallback_matched", candidate_count=len(candidates))
@@ -261,8 +219,8 @@ def _is_documented_miss(response: httpx.Response) -> bool:
 
     body = as_dict(_json_body(response))
     error_name = as_str(body.get("name"))
-    # `statusCode`, not `code`: the literal body, re-measured from the
-    # container — `{"message": ..., "name": "TrackNotFound", "statusCode": 404}`.
+    # `statusCode`, not `code`: the body is
+    # `{"message": ..., "name": "TrackNotFound", "statusCode": 404}`.
     error_code = body.get("statusCode")
 
     if error_code == NOT_FOUND_STATUS_CODE and error_name in NOT_FOUND_ERROR_NAMES:
@@ -284,9 +242,8 @@ def _require_ok_json_object(response: httpx.Response) -> dict[str, object]:
 
 
 def _json_body(response: httpx.Response) -> object:
-    """A non-JSON body means something other than the application answered —
-    a proxy, a captive portal, an error page. The body itself is never put in
-    the message: it may carry the lyrics (S4B-R13) and it may be huge."""
+    """A non-JSON body is a proxy or an error page, not the application. It never
+    goes into the message: it may carry the lyrics and it may be huge."""
     try:
         return response.json()
     except ValueError as error:
@@ -297,9 +254,8 @@ def _json_body(response: httpx.Response) -> object:
 
 
 def _classify_record(record: dict[str, object]) -> LyricsResult:
-    """The shape table of §7, in order. Synced first, so a record that
-    carries both real lyrics and an `instrumental` flag is still rendered;
-    the empty positive is what is left when nothing at all is there."""
+    """Synced first, so a record with both real lyrics and an `instrumental`
+    flag is still rendered."""
     synced_lyrics = (as_str(record.get("syncedLyrics")) or "").strip()
     plain_lyrics = (as_str(record.get("plainLyrics")) or "").strip()
 
@@ -321,7 +277,7 @@ def _classify_record(record: dict[str, object]) -> LyricsResult:
         return LyricsResult(outcome=LyricsOutcome.INSTRUMENTAL)
 
     raise LrclibApiError(
-        "lrclib: порожній позитив — 200 без обох текстів і без instrumental (D-48)"
+        "lrclib: відповідь 200 без тексту й без позначки instrumental нічого не означає"
     )
 
 
@@ -336,11 +292,8 @@ def _has_content(record: dict[str, object]) -> bool:
 def _belongs_to_track(
     record: dict[str, object], *, artist_query: str, title: str, duration_ms: int | None
 ) -> bool:
-    """`is_match` on `artistName`/`trackName` plus the duration tolerance.
-    An empty field is a rejection with a name of its own: `is_match` reads it
-    as "no match" anyway, and without the branch a truncated answer would be
-    indistinguishable from a genuinely foreign one (§7).
-    """
+    """An empty field gets its own log line: `is_match` rejects it anyway, but a
+    truncated answer must stay tellable from a genuinely foreign one."""
     candidate_artist = as_str(record.get("artistName")) or ""
     candidate_title = as_str(record.get("trackName")) or ""
 
@@ -374,9 +327,7 @@ def _duration_ms_of(record: dict[str, object]) -> int | None:
 def _result_from_payload(
     payload: dict[str, object], *, artist_query: str, title: str, duration_ms: int | None
 ) -> LyricsResult:
-    """Guards the read path too, the way `songlink._require_entity_data`
-    does: a row cached before a check existed would otherwise still be served
-    as a valid answer."""
+    """Guards the read path too: a cached row is re-verified, not trusted."""
     if not payload.get("found"):
         return LyricsResult(outcome=LyricsOutcome.ABSENT)
 

@@ -69,8 +69,8 @@ async def test_spotify_input_with_isrc_triggers_isrc_fan_out(
 async def test_spotify_input_still_runs_name_search_fallback_for_youtube(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Even from a Spotify input, YouTube never arrives from song.link
-    (spike finding) — the trailing name-search fan-out must still run."""
+    """Even from a Spotify input, YouTube never arrives from song.link, so the
+    trailing name-search fan-out must still run."""
     songlink_result = SonglinkResult(
         found=True, provider="spotify", isrc="X", title="T", artist_name="A", duration_ms=1000
     )
@@ -91,9 +91,8 @@ async def test_spotify_input_still_runs_name_search_fallback_for_youtube(
 async def test_youtube_input_without_isrc_bridges_to_spotify_by_name(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The bridge also re-resolves song.link on the *bridged* Spotify URL,
-    so a YouTube input gets the same streaming cluster a Spotify input
-    would (D-27) — not just the ISRC-exact sources."""
+    """Re-resolving song.link on the bridged Spotify URL gives a YouTube input the
+    same streaming cluster a Spotify input gets, not just the ISRC-exact sources."""
     youtube_entity_result = SonglinkResult(
         found=True,
         provider="youtube",
@@ -265,9 +264,8 @@ async def test_resolve_genres_returns_empty_when_album_not_found(
 
 
 def test_apply_songlink_result_replaces_a_zero_duration() -> None:
-    """R3-8: song.link's YouTube entity answers `duration: 0`, and `0` is
-    not `None` — so the real Spotify duration used to be thrown away and the
-    duration check stayed off for the whole resolve."""
+    """song.link's YouTube entity answers `duration: 0`, which is not `None`; kept,
+    it would discard the real Spotify duration and switch the duration check off."""
     track = ResolvedTrack(duration_ms=0)
     result = SonglinkResult(found=True, provider="spotify", duration_ms=293133)
 
@@ -288,9 +286,8 @@ def test_apply_songlink_result_never_writes_a_zero_duration() -> None:
 async def test_a_failing_bridged_songlink_keeps_what_the_isrc_fan_out_found(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """D-55 completed: this second `songlink.fetch` was the only source call
-    left outside `isolated_source_call`, and raising here threw away an
-    already-complete ISRC fan-out. The primary fetch stays loud on purpose."""
+    """By then the ISRC fan-out has filled the track, so raising here would throw it
+    all away. The primary fetch stays loud on purpose."""
     youtube_entity_result = SonglinkResult(
         found=True,
         provider="youtube",
@@ -337,9 +334,8 @@ async def test_a_failing_bridged_songlink_keeps_what_the_isrc_fan_out_found(
 async def test_a_failing_spotify_bridge_leaves_the_raw_youtube_title(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The precondition D-58 exists for: before D-55 this exception killed
-    the resolve and nothing was written. Now it survives, and what it
-    carries into `_persist_track` is the uploader's name and clip title."""
+    """The isolated bridge lets the resolve survive this failure, so the uploader's
+    name and clip title are what reaches `_persist_track`."""
     monkeypatch.setattr(
         service.songlink,
         "fetch",

@@ -1,6 +1,5 @@
-"""Name-search verification (contract p.12): exact artist+title match after
-normalization, plus a duration tolerance. Constants calibrated live against
-9 of the 9 spike reference tracks — see `spike-calibration-full.md`.
+"""Name-search verification: exact artist+title match after normalization,
+plus a duration tolerance.
 """
 
 from __future__ import annotations
@@ -8,8 +7,8 @@ from __future__ import annotations
 import re
 import unicodedata
 
-# Calibrated on 9 of 9 spike reference tracks: the widest gap between two
-# platforms holding the same recording was 965 ms, so 3000 ms has headroom.
+# Across 9 reference tracks the widest gap between two platforms holding the
+# same recording is 965 ms, so 3000 ms has headroom.
 DURATION_TOLERANCE_MS = 3000
 
 _SUFFIX_PATTERNS = (
@@ -34,21 +33,18 @@ _YOUTUBE_VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
 
 
 def is_valid_isrc(value: str | None) -> bool:
-    """`CCXXXYYNNNNN`. Checked before an ISRC is pasted into a URL path
-    (`/track/isrc:...`), where a source-supplied stray `/` or `?` would
-    otherwise change which endpoint we call."""
+    """Checked before an ISRC goes into a URL path (`/track/isrc:...`), where a
+    stray `/` or `?` from a source would change which endpoint we call."""
     return value is not None and _ISRC_RE.match(value) is not None
 
 
 def is_valid_spotify_id(value: str | None) -> bool:
-    """22 base62 characters. Same reason as `is_valid_isrc`: the value is
-    source-supplied and goes straight into a URL path (R2-15/R2-16)."""
+    """Source-supplied and pasted into a URL path, same as an ISRC."""
     return value is not None and _SPOTIFY_ID_RE.match(value) is not None
 
 
 def is_valid_youtube_video_id(value: str | None) -> bool:
-    """11 URL-safe base64 characters. Same reason as the two above: the id
-    comes from a source and goes into a URL — and into `yt-dlp` at step 4."""
+    """Source-supplied and pasted into a URL, and into `yt-dlp`."""
     return value is not None and _YOUTUBE_VIDEO_ID_RE.match(value) is not None
 
 
@@ -58,8 +54,6 @@ def strip_diacritics(value: str) -> str:
 
 
 def normalize_text(value: str) -> str:
-    """casefold + NFC + strip diacritics + strip `(Official Video)`/`- Topic`/
-    `feat. ...` tails + strip punctuation + collapse whitespace."""
     normalized = strip_diacritics(unicodedata.normalize("NFC", value)).casefold()
     normalized = _SUFFIX_RE.sub("", normalized)
     normalized = _FEAT_RE.sub("", normalized)
@@ -75,8 +69,8 @@ def normalize_artist_set(value: str) -> frozenset[str]:
 
 
 def known_duration(value: int | None) -> int | None:
-    """song.link's YouTube entity answers `duration: 0` (measured on 6 of the
-    9 reference tracks), and 0 ms is an absence, not a track length."""
+    """song.link's YouTube entity answers `duration: 0`, and 0 ms is an absence,
+    not a track length."""
     return value if value is not None and value > 0 else None
 
 
@@ -89,9 +83,7 @@ def is_match(
     candidate_title: str,
     candidate_duration_ms: int | None,
 ) -> bool:
-    """Exact match after normalization on both artist and title, plus a
-    duration check when both sides know it. Never fuzzy/substring (contract
-    p.12: "точний збіг після нормалізації")."""
+    """Never fuzzy or substring; the duration counts only when both sides know it."""
     if normalize_text(reference_title) != normalize_text(candidate_title):
         return False
     if normalize_artist_set(reference_artist) != normalize_artist_set(candidate_artist):

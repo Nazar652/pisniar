@@ -1,7 +1,7 @@
-"""`lrclib`: the five classes of §7 by the **shape of the body**, the D-90
-joined artist string with its `/api/search` fallback, and the two things that
-must never be swallowed. Every response is an `httpx.MockTransport` — D-91
-showed a live 503 is not reproducible, so the only honest 503 is a mocked one.
+"""`lrclib`: the five answer classes, told apart by the **shape of the body**, the
+joined artist string with its `/api/search` fallback, and the two things that must
+never be swallowed. Every response is an `httpx.MockTransport`: a live 503 cannot be
+reproduced on demand, so the only honest 503 is a mocked one.
 """
 
 from __future__ import annotations
@@ -54,9 +54,8 @@ EMPTY_POSITIVE_RECORD: dict[str, object] = {
     "syncedLyrics": "",
 }
 
-# The literal bodies, re-captured from the container on 2026-09-28 — the
-# field is `statusCode`; an earlier fixture that guessed `code` let the real
-# 404 raise as an outage while every mock stayed green.
+# The literal bodies, re-captured from the container on 2026-09-28: the field is
+# `statusCode`, and a fixture keyed on a guessed `code` turns the 404 into an outage.
 TRACK_NOT_FOUND_BODY = {
     "message": "Failed to find specified track",
     "name": "TrackNotFound",
@@ -70,9 +69,8 @@ SERVER_OVERLOADED_BODY = {
 
 
 class RecordingCache:
-    """Stands in for `SourceCache`: a miss calls through, and what a real
-    cache would have written stays visible. A `fetch()` that raises leaves
-    `stored` empty — which is the whole point of the 503 tests."""
+    """Stands in for `SourceCache`: a miss calls through and what a real cache would
+    write stays visible; a raising `fetch()` leaves `stored` empty (the 503 tests)."""
 
     def __init__(self) -> None:
         self.stored: dict[str, dict[str, object]] = {}
@@ -134,7 +132,7 @@ async def fetch(
         )
 
 
-# --- the five classes of §7 ---------------------------------------------
+# the five answer classes
 
 
 async def test_synced_lyrics_are_classified_as_synced_with_absolute_timecodes() -> None:
@@ -149,8 +147,8 @@ async def test_synced_lyrics_are_classified_as_synced_with_absolute_timecodes() 
 
 
 async def test_plain_lyrics_without_timecodes_are_kept_as_their_own_class() -> None:
-    """§6: «Текст є, але без таймкодів — збережено для редактора» — a
-    different sentence from «тексту немає», and a different class."""
+    """«Текст є, але без таймкодів — збережено для редактора» is a different
+    sentence from «тексту немає», and a different class."""
     result = await fetch(always(httpx.Response(200, json=PLAIN_ONLY_RECORD)))
 
     assert result.outcome is LyricsOutcome.UNSYNCED
@@ -184,23 +182,22 @@ async def test_a_documented_404_with_an_empty_search_is_a_cached_miss() -> None:
 
 
 async def test_an_empty_positive_raises_and_nothing_is_cached() -> None:
-    """The literal form of D-48: 200, both lyric fields empty, `instrumental`
-    not true. It looks like a valid negative and proves nothing, so it must
-    never settle into the cache for an hour."""
+    """200, both lyric fields empty, `instrumental` not true: it looks like a valid
+    negative and proves nothing, so it must never settle into the cache."""
     cache, recording = make_cache()
 
-    with pytest.raises(LrclibApiError, match="порожній позитив"):
+    with pytest.raises(LrclibApiError, match="без тексту й без позначки instrumental"):
         await fetch(always(httpx.Response(200, json=EMPTY_POSITIVE_RECORD)), cache=cache)
 
     assert recording.stored == {}
 
 
-# --- "everything else": loud, and never cached ---------------------------
+# "everything else": loud, and never cached
 
 
 async def test_a_503_raises_after_its_retries_and_nothing_is_cached() -> None:
-    """The clone of R2-5: 404 is cached, 503 is not. Exhausting the retries
-    keeps the class «не відповіло» — it never becomes «не знайдено»."""
+    """404 is cached, 503 is not: exhausting the retries keeps the class
+    «не відповіло», never «не знайдено»."""
     cache, recording = make_cache()
     attempts = 0
 
@@ -217,8 +214,8 @@ async def test_a_503_raises_after_its_retries_and_nothing_is_cached() -> None:
 
 
 async def test_a_503_that_clears_on_the_first_retry_is_not_an_outage() -> None:
-    """D-91: every 503 spike 0e saw cleared on the first repeat — server
-    load, not a property of the request."""
+    """Measured 503s clear on the first repeat: they are server load, not a
+    property of the request."""
     responses = [
         httpx.Response(503, json=SERVER_OVERLOADED_BODY),
         httpx.Response(200, json=SYNCED_RECORD),
@@ -257,8 +254,8 @@ async def test_a_404_with_an_undocumented_body_raises() -> None:
 
 
 async def test_the_miss_is_read_off_status_code_not_a_guessed_code_field() -> None:
-    """The live 404 has no `code`. Keying on it turned every real miss into
-    «не відповіло» and the search fallback never ran."""
+    """The live 404 has no `code`; keying on it would turn every real miss into
+    «не відповіло» and skip the search fallback."""
     body = {"message": "Failed to find specified track", "name": "TrackNotFound", "code": 404}
     cache, recording = make_cache()
 
@@ -314,11 +311,11 @@ async def test_a_record_cached_before_the_check_existed_still_raises_on_the_read
         "record": EMPTY_POSITIVE_RECORD,
     }
 
-    with pytest.raises(LrclibApiError, match="порожній позитив"):
+    with pytest.raises(LrclibApiError, match="без тексту й без позначки instrumental"):
         await fetch(always(httpx.Response(500)), cache=cache)
 
 
-# --- D-90: the joined artist string and the search fallback --------------
+# the joined artist string and the search fallback
 
 
 def test_artist_names_are_joined_with_a_comma() -> None:
@@ -330,9 +327,8 @@ def test_joining_skips_blank_names_and_collapses_whitespace() -> None:
 
 
 async def test_the_request_carries_the_joined_artist_string_not_the_first_name() -> None:
-    """D-90 measured this: `artist_name=Burned Time Machine` answers 404 and
-    `artist_name=Burned Time Machine, 0%Mercury` answers 200 with 1312
-    synced characters. A sixth of the coverage is this one string."""
+    """Measured live: `artist_name=Burned Time Machine` answers 404, while
+    `Burned Time Machine, 0%Mercury` answers 200 with 1312 synced characters."""
     requests: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -379,8 +375,8 @@ async def test_the_search_fallback_asks_by_title_alone() -> None:
 
 
 async def test_the_search_fallback_keeps_only_the_row_that_is_ours() -> None:
-    """Measured on spike 0e: a common title answers 20 foreign songs, so the
-    verification — not the search — is what makes the fallback safe."""
+    """Measured live: a common title answers 20 foreign songs, so the
+    verification, not the search, is what makes the fallback safe."""
     foreign_rows = [{**SYNCED_RECORD, "artistName": f"Хтось інший {index}"} for index in range(19)]
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -394,8 +390,8 @@ async def test_the_search_fallback_keeps_only_the_row_that_is_ours() -> None:
 
 
 async def test_a_search_row_without_any_lyrics_is_skipped_not_raised_on() -> None:
-    """An empty row among search results is an answer about some other
-    track, not the D-48 shape — only `/api/get` answers our question."""
+    """An empty row among search results is an answer about some other track, not
+    an empty positive; only `/api/get` answers our question."""
     cache, recording = make_cache()
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -409,7 +405,7 @@ async def test_a_search_row_without_any_lyrics_is_skipped_not_raised_on() -> Non
     assert list(recording.stored.values()) == [{"found": False}]
 
 
-# --- belonging: not verified means not written at all --------------------
+# belonging: not verified means not written at all
 
 
 async def test_a_record_for_a_different_track_is_rejected_and_carries_no_lines() -> None:
@@ -422,9 +418,8 @@ async def test_a_record_for_a_different_track_is_rejected_and_carries_no_lines()
 
 
 async def test_an_empty_artist_name_is_rejected_by_a_branch_of_its_own() -> None:
-    """The §7 trap: `is_match` reads an empty `artistName` as "no match"
-    anyway, so without this branch a truncated answer would be
-    indistinguishable from a genuinely foreign one."""
+    """`is_match` reads an empty `artistName` as no match anyway, so without this
+    branch a truncated answer would look like a foreign one."""
     record = {**SYNCED_RECORD, "artistName": ""}
 
     result = await fetch(always(httpx.Response(200, json=record)))
@@ -454,13 +449,12 @@ async def test_a_track_we_know_no_duration_for_is_still_matched_on_names() -> No
     assert result.outcome is LyricsOutcome.SYNCED
 
 
-# --- what must never be swallowed ----------------------------------------
+# what must never be swallowed
 
 
 async def test_a_soft_time_limit_is_not_swallowed_by_the_retry_loop() -> None:
-    """Celery raises it as an ordinary exception; `except httpx.HTTPError`
-    is narrow precisely so a timeout does not get retried and reported as
-    «джерело не відповіло»."""
+    """Celery raises it as an ordinary exception; `except httpx.HTTPError` is narrow
+    so a timeout is never retried and reported as «джерело не відповіло»."""
     attempts = 0
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -493,7 +487,7 @@ async def test_a_database_failure_inside_the_cache_is_not_swallowed() -> None:
         )
 
 
-# --- the query itself -----------------------------------------------------
+# the query itself
 
 
 async def test_an_incomplete_query_never_touches_the_network() -> None:
@@ -506,8 +500,8 @@ async def test_an_incomplete_query_never_touches_the_network() -> None:
 
 
 async def test_the_cache_key_ignores_case_but_not_the_composition_of_the_string() -> None:
-    """D-90: case is not what LRCLIB compares, the composition of the string
-    is — so one artist and two must never share a cache row."""
+    """LRCLIB ignores case but compares the composition of the string, so one
+    artist and two must never share a cache row."""
     cache, recording = make_cache()
     handler = always(httpx.Response(200, json=SYNCED_RECORD))
 
@@ -519,16 +513,12 @@ async def test_the_cache_key_ignores_case_but_not_the_composition_of_the_string(
     assert recording.keys[2] != recording.keys[0]
 
 
-# --- the seam the project burned on three times --------------------------
+# no database session spans a request
 
 
 async def test_no_database_session_is_open_while_the_request_is_in_flight() -> None:
-    """R2-3 / D-54 / R3-3, stated directly instead of by mutation: the real
-    `SourceCache` runs here, on a session factory that counts what is open,
-    and the HTTP handler asserts the count *at the moment the network call
-    happens*. `SourceCache` opens its own short session before the fetch and
-    another after it — never one that spans it.
-    """
+    """Asserted directly: the real `SourceCache` runs on a counting session factory,
+    and the HTTP handler checks that no session is open during the request."""
     open_sessions = 0
     open_during_request: list[int] = []
 

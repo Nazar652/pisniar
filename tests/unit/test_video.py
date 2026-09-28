@@ -59,8 +59,8 @@ async def test_the_send_carries_the_dimensions_and_streaming_flag(tmp_path: Path
 
 
 async def test_the_caption_goes_out_byte_for_byte_as_html(tmp_path: Path) -> None:
-    """S4-A14: the caption is already rendered, escaped HTML under the same
-    1024 media limit a photo caption fits (D-45) — it is never rebuilt."""
+    """The caption is already rendered, escaped HTML under the same 1024 media
+    limit a photo caption fits, so it is never rebuilt."""
     bot = AsyncMock()
 
     await send_rendered_video(bot, 999, CAPTION, make_video(tmp_path, with_thumbnail=False))

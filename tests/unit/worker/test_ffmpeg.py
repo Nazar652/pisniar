@@ -1,6 +1,5 @@
-"""The subprocess wrapper (4.5): argument lists and `shell=False`, hard
-timeouts, and `ffprobe` — not the exit code — deciding whether an output is
-usable. The empty-file guard here is V33's mutation target.
+"""The subprocess wrapper: argument lists and `shell=False`, hard timeouts, and
+`ffprobe`, not the exit code, deciding whether an output is usable.
 """
 
 from __future__ import annotations
@@ -45,8 +44,8 @@ VIDEO_STREAM = {
 def test_the_command_is_a_list_and_the_shell_is_never_used(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """V30: a shell string is how a value out of the database becomes a
-    command. There is no code path here that builds one."""
+    """A shell string is how a value out of the database becomes a command.
+    There is no code path here that builds one."""
     recorded: dict[str, Any] = {}
 
     def fake_run(command: object, **kwargs: Any) -> subprocess.CompletedProcess[str]:
@@ -130,8 +129,8 @@ def test_probing_a_missing_file_is_loud(tmp_path: Path) -> None:
 def test_an_empty_file_is_refused_before_ffprobe_is_even_called(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """V33/S4-A7, the step's main silent failure: ffmpeg exits 0 and leaves a
-    zero-byte file. Removing this guard must break this test."""
+    """ffmpeg can exit 0 and leave a zero-byte file, the pipeline's main silent
+    failure; removing this guard must break this test."""
     empty = tmp_path / "render.mp4"
     empty.touch()
 

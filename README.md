@@ -15,8 +15,8 @@ on failure. The draft carries two buttons.
 the channel, once, and records who approved it.
 
 **Зробити відео** starts the media chain instead: the worker downloads the
-track's audio from YouTube Music, takes a 45-second fragment from the start
-(D-76), renders a 720x1280 video of the cover plus that audio, and sends it
+track's audio from YouTube Music, takes a 45-second fragment from the start,
+renders a 720x1280 video of the cover plus that audio, and sends it
 back as a **preview with its own publish button**. Publishing from there
 puts that exact file, with that exact caption, into the channel as a video.
 The preview is not a convenience — a published post cannot be revoked, so
@@ -73,8 +73,8 @@ the worker act without ever passing `AdminAllowlistMiddleware`. The
 container's own healthcheck authenticates through `REDISCLI_AUTH` rather
 than `redis-cli -a`, which would put the password in the process list. After
 changing any `.env` value, recreate the containers
-(`docker compose up -d --force-recreate`) — `restart` keeps the old
-environment.
+(`docker compose up -d --force-recreate`) — `restart` reuses the
+environment the containers were created with.
 
 ## Running
 
@@ -91,7 +91,8 @@ containers with a `watchfiles`-based hot-reload wrapper, publishing
 `postgres`/`redis`/the bot's health API on `127.0.0.1` only (never on
 `0.0.0.0`), and switching logs to a human-readable console format
 (`LOG_FORMAT=console`, independent of `ENVIRONMENT`). To see the real JSON
-output the docker/prod configuration produces (e.g. to check M11), run
+output the docker/prod configuration produces (e.g. to confirm every line is
+valid JSON and none carries the bot token), run
 without the override: `docker compose -f compose.yaml up -d --wait`.
 
 Stop everything: `make down`. Stop and also drop the Postgres volume (a
@@ -117,8 +118,8 @@ make psql          # interactive psql in the postgres container
 make logs          # follow logs from every service
 ```
 
-`make verify` runs the full local + Docker verification chain in one go
-(equivalent to this project's V1-V13 checks), ending with a clean
+`make verify` runs the full local + Docker verification chain in one go,
+ending with a clean
 `down -v` + `up -d --wait` to confirm the stack is reproducible from
 scratch.
 

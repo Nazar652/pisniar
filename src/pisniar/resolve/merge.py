@@ -1,7 +1,5 @@
-"""Deterministic merge into `ResolvedTrack` (contract p.15 + revision-4
-addendum). Every field has its own source-priority order; a field is only
-overwritten by a strictly higher-priority source, and `platform_links`
-follows the four-tier `manual > exact_isrc > aggregator > confirmed` order.
+"""Deterministic merge into `ResolvedTrack`: every field has its own source
+priority table, and a field is only overwritten by a strictly higher-priority source.
 """
 
 from __future__ import annotations
@@ -15,8 +13,8 @@ from pisniar.resolve.urls import is_safe_url
 
 logger = get_logger(__name__)
 
-# Scalars a re-resolve may legitimately come back without — a source that
-# timed out means "unknown", never "the stored value is wrong" (R2-4).
+# Scalars a re-resolve may legitimately come back without: a source that
+# timed out means "unknown", never "the stored value is wrong".
 STORED_SCALAR_FIELDS = (
     "isrc",
     "title",
@@ -25,8 +23,8 @@ STORED_SCALAR_FIELDS = (
     "release_title",
     "album_id_spotify",
     "cover_url",
-    # Persisted since step 4A: without it here the first `/retry` with a
-    # failed source nulls the duration the download then checks against.
+    # The download checks against it, so a `/retry` with a failed source
+    # must not null it.
     "duration_ms",
 )
 
@@ -56,9 +54,6 @@ PLATFORM_LINK_PRIORITY = {
 
 
 def platform_link_priority(link: PlatformLink) -> int:
-    """`manual`(4) > direct-ISRC API(3) > song.link cluster(2) > confirmed
-    name-search(1). Read straight off `match` since D-39 — no source-name
-    special case left to drift out of sync with the class."""
     return PLATFORM_LINK_PRIORITY[link.match]
 
 
@@ -81,8 +76,8 @@ def merge_field(
 
 
 def merge_platform_link(track: ResolvedTrack, platform: str, link: PlatformLink) -> None:
-    """The single funnel every candidate passes through — which is why the
-    scheme check lives here and not only in `post.render` (F-8)."""
+    """The single funnel every candidate passes through, so the scheme check
+    lives here and not only in `post.render`."""
     if not is_safe_url(link.url):
         logger.warning(
             "platform_link_rejected_unsafe_scheme",
@@ -102,9 +97,8 @@ def merge_platform_link(track: ResolvedTrack, platform: str, link: PlatformLink)
 
 
 def merge_stored_platform_links(track: ResolvedTrack, stored: dict[str, object]) -> None:
-    """Folds what is already in `track.platform_links` (JSONB) back into a
-    fresh resolve. Applied after the fresh links, so a fresh result wins a
-    tie and only a strictly stronger stored class (`manual`) overrides it."""
+    """Applied after the fresh links, so a fresh result wins a tie and only a
+    strictly stronger stored class (`manual`) overrides it."""
     for platform, raw_link in stored.items():
         link = _platform_link_from_stored(raw_link)
         if link is not None:
@@ -112,9 +106,8 @@ def merge_stored_platform_links(track: ResolvedTrack, stored: dict[str, object])
 
 
 def merge_stored_scalars(track: ResolvedTrack, stored: dict[str, object]) -> None:
-    """Keeps a stored scalar the fresh resolve came back without. Without
-    it one transient source failure nulls the ISRC, and the D-41 duplicate
-    warning for that track then never fires again (R2-4)."""
+    """Otherwise one transient source failure nulls the ISRC, and the
+    duplicate-track warning for that track never fires again."""
     kept: list[str] = []
     for field_name in STORED_SCALAR_FIELDS:
         stored_value = stored.get(field_name)
@@ -129,11 +122,8 @@ def merge_stored_scalars(track: ResolvedTrack, stored: dict[str, object]) -> Non
 def keep_stored_title_and_artists_after_source_failure(
     track: ResolvedTrack, stored_title: object, stored_artists: list[object]
 ) -> None:
-    """D-58: a resolve that lost a source must come out no worse than what
-    was already stored — the fresh values are present, only lower-priority,
-    so they would overwrite a clean title with a raw clip name. Narrowed by
-    D-63 to the weak fresh value: Spotify still wins while iTunes times out.
-    """
+    """A resolve that lost a source comes out no worse than what is stored, but
+    only a weak fresh value yields: Spotify still wins while iTunes times out."""
     if not track.source_failures:
         return
 
@@ -158,8 +148,8 @@ def keep_stored_title_and_artists_after_source_failure(
 
 
 def merge_stored_artists(track: ResolvedTrack, stored: list[object]) -> None:
-    """Carries the admin's `hashtag` override (the only one D-29 provides)
-    and `spotify_id` across a re-resolve that came back without them."""
+    """Carries the admin's `hashtag` override and `spotify_id` across a
+    re-resolve that came back without them."""
     overrides = {
         normalize_key_part(name): entry
         for entry in stored
@@ -174,7 +164,7 @@ def merge_stored_artists(track: ResolvedTrack, stored: list[object]) -> None:
     }
     if not matched_names and _has_hashtag_override(overrides):
         # Spotify lists artists separately, `songlink:spotify` joins them
-        # into one string — a key miss must not drop an override (R2-6).
+        # into one string; a key miss must not drop an override.
         logger.warning(
             "stored_artists_kept_after_name_shape_change",
             stored_names=sorted(overrides),
@@ -194,15 +184,14 @@ def merge_stored_artists(track: ResolvedTrack, stored: list[object]) -> None:
 
 
 def _fresh_value_is_weak(track: ResolvedTrack, field_name: str) -> bool:
-    """Unknown provenance counts as weak: `field_priorities` gets an entry
-    only when `merge_field` set the value, so a miss means no source vouched
-    for what is sitting there."""
+    """Unknown provenance counts as weak: only `merge_field` records a priority,
+    so a missing entry means no source vouched for the value."""
     return track.field_priorities.get(field_name, 0) <= WEAK_TITLE_ARTIST_SOURCE_PRIORITY
 
 
 def _artists_from_stored(entries: Iterable[object]) -> list[ArtistInfo]:
-    """Takes raw JSONB entries, so the D-58 guard can read `track.artists`
-    straight off the row without rebuilding the override index first."""
+    """Takes raw JSONB entries, so the stored-title guard can read artists
+    straight off the row."""
     return [
         ArtistInfo(
             name=name,

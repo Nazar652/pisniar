@@ -1,12 +1,6 @@
-"""The `.ass` generator: a pure function from stored lyric lines to the text
-of a subtitle file. No filesystem, no database, no ffmpeg.
-
-Song text is untrusted input (§4 p.9). ASS has **no escape sequences inside a
-line**, so the only reliable defence is substitution: `{`/`}` become `(`/`)`,
-which disables override blocks as a class, and `\\` is dropped, which is what
-makes `\\N`/`\\h`/`\\an7` impossible to spell. The gate rendered
-`{\\an7\\fs90\\c&H0000FF&}` to actual red 90 px pixels outside its slot, so
-this is a demonstrated attack, not a theoretical one.
+"""Pure `.ass` generator: stored lyric lines in, subtitle file text out. Song text
+is untrusted and ASS has no escapes inside a line, so `{`/`}` become `(`/`)` and
+`\\` is dropped: override blocks like `{\\an7\\fs90}` cannot be spelled.
 """
 
 from __future__ import annotations
@@ -20,33 +14,25 @@ from pisniar.worker.text_metrics import fits_within, longest_prefix_within
 
 logger = get_logger(__name__)
 
-# §4 p.4: without these libass assumes a 384x288 script and scales every
-# coordinate below by the wrong factor. The subtitles are drawn onto the
-# finished 720x1280 frame, so the script resolution *is* the frame.
+# Without these libass assumes a 384x288 script and scales every coordinate by
+# the wrong factor. The subtitles are drawn onto the finished frame.
 PLAY_RES_X = 720
 PLAY_RES_Y = 1280
 
-# D-90/gate 4B.0.2: the only family proven to carry Ukrainian in the worker
-# image. A name that is not installed falls back byte-for-byte silently
-# (`fc-match 'Montserrat'` and `fc-match 'NoSuchFontFamily12345'` are
-# identical), which is why `tests/integration/test_ass_font.py` exists.
+# The only family verified to carry Ukrainian in the worker image. A missing name
+# falls back silently, which is why `tests/integration/test_ass_font.py` exists.
 FONT_FAMILY = "Noto Sans"
 
-# D-92: the cover is pushed up and the bottom band belongs to the text, so a
-# long line overflows into black rather than onto the artist's face. The
-# other half of this number is `render.COVER_TOP_OFFSET_PX`; the two are
-# pinned against each other in `tests/unit/worker/test_ass.py`.
+# The lyric band starts under the raised cover (`render.COVER_TOP_OFFSET_PX`);
+# `tests/unit/worker/test_ass.py` pins the two against each other.
 TEXT_BAND_TOP_PX = 820
 
-# Three slots (D-85), with the reduced leading D-92 asked for and D-93
-# tightened again by eye on a rendered frame. `Alignment=5` plus an explicit
-# `\pos` makes the symmetry a constant instead of an accident of `MarginV`,
-# which `\an5` ignores anyway (§4 p.2, p.3).
+# `Alignment=5` plus an explicit `\pos` makes the three slots symmetric by
+# construction rather than by `MarginV`, which `\an5` ignores anyway.
 SLOT_CENTER_X = PLAY_RES_X // 2
 CURRENT_SLOT_Y = 1050
-# 110 -> 95 (D-93). The tightest case is a current line that wraps to two,
-# and `tests/unit/worker/test_ass.py` measures that block against its
-# smaller neighbours rather than trusting the number.
+# The tightest case is a current line wrapped to two; `test_ass.py` measures that
+# block against its neighbours rather than trusting the number.
 SLOT_SPACING_PX = 95
 PREVIOUS_SLOT_Y = CURRENT_SLOT_Y - SLOT_SPACING_PX
 NEXT_SLOT_Y = CURRENT_SLOT_Y + SLOT_SPACING_PX
@@ -55,10 +41,8 @@ FONT_SIZE_CURRENT_PX = 44
 FONT_SIZE_ADJACENT_PX = 32
 HORIZONTAL_MARGIN_PX = 40
 
-# `WrapStyle: 2` turns libass' own wrapping off, so the break points are
-# ours — measured against the real advance widths of the image's own font
-# (`text_metrics`, D-94) instead of against an average that stopped a line a
-# third of the band short of its edge.
+# `WrapStyle: 2` turns libass' own wrapping off, so the break points are ours,
+# measured against the font's real advance widths (`text_metrics`).
 USABLE_TEXT_WIDTH_PX = PLAY_RES_X - 2 * HORIZONTAL_MARGIN_PX
 MAX_CURRENT_WRAPPED_LINES = 2
 # One, not two: a second wrapped line in a side slot is exactly how a long
@@ -66,11 +50,11 @@ MAX_CURRENT_WRAPPED_LINES = 2
 MAX_ADJACENT_WRAPPED_LINES = 1
 ELLIPSIS = "…"
 
-# §4 p.6: without a ceiling the last line of a fragment hangs for the rest of
-# it, and a 60-second gap in the source hangs for a minute.
+# Without a ceiling the last line of a fragment hangs for the rest of it, and a
+# 60-second gap in the source hangs for a minute.
 MAX_LINE_MS = 8_000
 # A 45-second fragment with more than this many lines is a broken LRC or an
-# attempt to spend ffmpeg's CPU, not a song (§5).
+# attempt to spend ffmpeg's CPU, not a song.
 MAX_RENDERED_LINES = 120
 # Mirrors `models.MAX_LYRIC_TEXT_LENGTH`: past it the wrapper would be
 # word-splitting a payload, not a lyric.
@@ -79,9 +63,8 @@ MAX_SOURCE_TEXT_CHARACTERS = 500
 STYLE_CURRENT = "current"
 STYLE_ADJACENT = "adjacent"
 
-# The `Format:` line each `Style:` row is positional against (§4 p.1). Rows
-# are emitted by looking every field up in this order, so a row can never
-# drift out of step with the header or fall back to `key=value`.
+# The `Format:` line each `Style:` row is positional against; rows look every
+# field up in this order, so they cannot drift out of step with the header.
 STYLE_FORMAT_FIELDS = (
     "Name",
     "Fontname",
@@ -121,7 +104,7 @@ EVENT_FORMAT_FIELDS = (
     "Text",
 )
 
-# `\an5` centres on the `\pos` point and ignores `MarginV` entirely (§4 p.2),
+# `\an5` centres on the `\pos` point and ignores `MarginV` entirely,
 # so the vertical margin is honestly zero here.
 ALIGNMENT_MIDDLE_CENTER = 5
 
@@ -129,15 +112,13 @@ _ASS_SUBSTITUTIONS = str.maketrans({"{": "(", "}": ")", "\\": None})
 
 
 class AssGenerationError(ValueError):
-    """Our own failure, never the source's — it fails a post loudly (§4)."""
+    """Our own failure, never the source's — it fails a post loudly."""
 
 
 @dataclass(frozen=True)
 class LyricLine:
-    """One stored line. `start_ms` is absolute from the start of the *full*
-    track (D-5) and typed optional on purpose: step 7 drops the column's
-    NOT NULL, and this signature does not move when it does.
-    """
+    """`start_ms` is absolute in the *full* track and optional on purpose, so
+    allowing untimed lines in the column does not change this signature."""
 
     line_index: int
     start_ms: int | None
@@ -153,18 +134,15 @@ class _PlacedLine:
 
 
 def escape_ass_text(value: str) -> str:
-    """Substitution, not escaping. `sanitize_metadata_text` (`post.sanitize`,
-    not a copy of it) folds line breaks and drops Cc/Cf — U+202E, U+200B and
-    a raw newline among them; the translation table then removes the three
-    characters that make override blocks spellable."""
+    """Substitution, not escaping: `sanitize_metadata_text` folds line breaks and
+    drops Cc/Cf (U+202E, U+200B), then the table removes the override characters."""
     substituted = sanitize_metadata_text(value).translate(_ASS_SUBSTITUTIONS)
     return " ".join(substituted.split())
 
 
 def wrap_for_slot(text: str, *, font_size_px: int, max_lines: int) -> str:
-    """Our own break points, joined with a literal `\\N` — which is only
-    spellable here because `escape_ass_text` already removed every backslash
-    the source could have contributed."""
+    """The literal `\\N` is safe only because `escape_ass_text` already removed
+    every backslash the source could contribute."""
     wrapped = _wrap_words(text[:MAX_SOURCE_TEXT_CHARACTERS], font_size_px)
 
     if len(wrapped) > max_lines:
@@ -177,9 +155,8 @@ def wrap_for_slot(text: str, *, font_size_px: int, max_lines: int) -> str:
 def build_ass_subtitles(
     lines: Sequence[LyricLine], *, fragment_start_ms: int, fragment_end_ms: int
 ) -> str | None:
-    """The whole generator. Returns `None` when the fragment contains nothing
-    to draw — that is the input `text_version=None` is computed from, and it
-    is what makes «no text» a state rather than an empty file."""
+    """`None` when the fragment has nothing to draw: «no text» is a state
+    (`text_version=None`), not an empty file."""
     if fragment_end_ms <= fragment_start_ms:
         raise AssGenerationError(
             f"межі фрагмента невалідні: [{fragment_start_ms}, {fragment_end_ms})"
@@ -198,16 +175,14 @@ def build_ass_subtitles(
 
 
 def _place_lines(lines: Sequence[LyricLine], fragment_start_ms: int) -> list[_PlacedLine]:
-    """Seams §2.1.1 and §2.1.2, in the order they matter: drop what has no
-    timecode, then order by `line_index` and **never** by `start_ms`. Sorting
-    by time would leave step 7's untimed lines nowhere to stand."""
+    """Ordered by `line_index`, never by `start_ms`: sorting by time would leave
+    untimed lines nowhere to stand."""
     timed = [line for line in lines if line.start_ms is not None]
     ordered = sorted(timed, key=lambda line: line.line_index)
 
     return [
         _PlacedLine(
-            # `ass_t = lyric.start_ms - post.fragment_start_ms` (D-5), the one
-            # place absolute milliseconds become fragment-local ones.
+            # The one place absolute milliseconds become fragment-local ones.
             start_ms=_absolute_start_ms(line) - fragment_start_ms,
             text=escape_ass_text(line.text),
         )
@@ -251,9 +226,7 @@ def _build_events(placed: Sequence[_PlacedLine], fragment_length_ms: int) -> lis
 def _window(
     placed: Sequence[_PlacedLine], index: int, fragment_length_ms: int
 ) -> tuple[int, int] | None:
-    """§4 p.6: `end = min(next line, start + MAX_LINE_MS, fragment end)`, then
-    clipped to the fragment. A pause entry counts as the next line, which is
-    exactly what ends a verse."""
+    """A pause entry counts as the next line, which is exactly what ends a verse."""
     start_ms = placed[index].start_ms
     end_ms = min(start_ms + MAX_LINE_MS, fragment_length_ms)
 
@@ -269,8 +242,8 @@ def _window(
 def _slot_events(
     placed: Sequence[_PlacedLine], index: int, start_ms: int, end_ms: int
 ) -> list[dict[str, str]]:
-    """Three slots (D-85): the neighbours are the nearest lines that draw
-    something, so a pause between verses never leaves a blank slot."""
+    """The neighbours are the nearest lines that draw something, so a pause
+    between verses never leaves a blank slot."""
     previous = _neighbour_text(placed, index, step=-1)
     following = _neighbour_text(placed, index, step=1)
 
@@ -347,9 +320,7 @@ def _styles() -> list[str]:
 
 
 def _style_row(name: str, font_size_px: int, primary_colour: str, outline_colour: str) -> str:
-    """Positional by construction: the values are looked up in
-    `STYLE_FORMAT_FIELDS` order, so a forgotten field is a `KeyError` here
-    rather than a style libass silently ignores (§4 p.1)."""
+    """A forgotten field is a `KeyError` here, not a style libass silently ignores."""
     values: dict[str, object] = {
         "Name": name,
         "Fontname": FONT_FAMILY,
@@ -387,8 +358,8 @@ def _events(events: Sequence[dict[str, str]]) -> list[str]:
 
 
 def _event_row(event: dict[str, str]) -> str:
-    """`Text` is the last field, which is the only reason a comma inside the
-    lyrics is harmless — pinned by a test rather than by memory (§5)."""
+    """`Text` is the last field, the only reason a comma inside the lyrics is
+    harmless; a test pins it."""
     return "Dialogue: " + ",".join(event[field] for field in EVENT_FORMAT_FIELDS)
 
 
@@ -428,8 +399,6 @@ def _fits(text: str, font_size_px: int) -> bool:
 
 
 def _with_ellipsis(line: str, font_size_px: int) -> str:
-    """The ellipsis has to fit the same band the text did, so the tail is
-    given back one character at a time until it does."""
     while line and not _fits(line + ELLIPSIS, font_size_px):
         line = line[:-1].rstrip()
     return line + ELLIPSIS

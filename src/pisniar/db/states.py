@@ -29,7 +29,7 @@ class PostStatus(StrEnum):
 
 
 # Self-edges (Celery at-least-once redelivery) + ARCHIVED edges (manual
-# escape hatch) on the four in-progress states — see decision-log.md.
+# escape hatch) on the four in-progress states.
 ALLOWED_TRANSITIONS: dict[PostStatus, frozenset[PostStatus]] = {
     PostStatus.DRAFT: frozenset({PostStatus.RESOLVING, PostStatus.ARCHIVED}),
     PostStatus.RESOLVING: frozenset(
@@ -72,8 +72,6 @@ ALLOWED_TRANSITIONS: dict[PostStatus, frozenset[PostStatus]] = {
 
 
 class IllegalStatusTransitionError(ValueError):
-    """Raised when `set_post_status()` is asked for a transition not in the table."""
-
     def __init__(self, current: PostStatus, requested: PostStatus) -> None:
         self.current = current
         self.requested = requested
@@ -81,19 +79,14 @@ class IllegalStatusTransitionError(ValueError):
 
 
 def set_post_status(post: Post, new_status: PostStatus, *, error: str | None = None) -> None:
-    """Move `post.status`, or raise if illegal. Owns `last_error` and
-    `failed_from_status`: both set on FAILED, both cleared leaving FAILED
-    (except to ARCHIVED, per D-9). Treats `post.status is None` (unflushed
-    `Post()`) as DRAFT — see decision-log.md.
-    """
+    """FAILED -> ARCHIVED keeps `last_error`/`failed_from_status`.
+    `post.status is None` (an unflushed `Post()`) counts as DRAFT."""
     current_status = PostStatus(post.status) if post.status is not None else PostStatus.DRAFT
     if new_status not in ALLOWED_TRANSITIONS[current_status]:
         raise IllegalStatusTransitionError(current_status, new_status)
 
     if new_status is PostStatus.FAILED:
         post.last_error = error
-        # The stage that failed, recorded rather than inferred: `/retry` reads
-        # it instead of guessing from `draft_message_id` (D-47).
         post.failed_from_status = current_status
     elif current_status is PostStatus.FAILED and new_status is not PostStatus.ARCHIVED:
         post.last_error = None

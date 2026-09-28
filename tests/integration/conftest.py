@@ -33,8 +33,7 @@ def migrations_test_database_name() -> str:
 
 
 def with_database_name(database_url: str, database_name: str) -> str:
-    """`database_url` with its database swapped, via `make_url()` (not
-    string splitting, which would drop query params)."""
+    """Via `make_url()`: string splitting would drop the query params."""
     return make_url(database_url).set(database=database_name).render_as_string(hide_password=False)
 
 
@@ -65,8 +64,6 @@ async def test_database_url() -> str:
 
 @pytest_asyncio.fixture
 async def migrations_test_database_url() -> AsyncIterator[str]:
-    """A disposable database, created before the test and force-dropped
-    after — see module docstring."""
     settings = get_settings()
     maintenance_dsn = to_asyncpg_maintenance_dsn(settings.database_url)
     database_name = migrations_test_database_name()
@@ -92,7 +89,6 @@ async def migrations_test_database_url() -> AsyncIterator[str]:
 
 @pytest.fixture(scope="session")
 def run_alembic() -> Callable[..., subprocess.CompletedProcess[str]]:
-    """Wraps the real `alembic` CLI (same one V4/V11 use), via `DATABASE_URL`."""
 
     def run(*args: str, database_url: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(

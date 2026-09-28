@@ -1,7 +1,6 @@
-"""Bot entrypoint: aiogram long-polling + the health/readiness API in one
-process. `handle_signals=False` makes uvicorn the sole SIGTERM/SIGINT owner
-(it would silently override aiogram's own handler otherwise — see
-decision-log.md); this module propagates shutdown to the other task itself.
+"""Bot entrypoint: aiogram long-polling + the health/readiness API in one process.
+`handle_signals=False` makes uvicorn the sole SIGTERM/SIGINT owner (it would silently
+override aiogram's handler otherwise), so this module propagates shutdown itself.
 """
 
 from __future__ import annotations
@@ -26,11 +25,9 @@ logger = get_logger(__name__)
 
 
 def build_dispatcher(admin_ids: frozenset[int]) -> Dispatcher:
-    """Admin allowlist as an *outer* middleware on `dispatcher.update`.
-    Own function (not inline in `run()`) so a test can assert it landed
-    there, not on e.g. `dispatcher.message.middleware`.
-    """
-    # disable_fsm: no FSM state in step 1; otherwise FSMContextMiddleware
+    """Own function so a test can assert the allowlist landed as an *outer*
+    middleware on `dispatcher.update`, not e.g. on `dispatcher.message`."""
+    # disable_fsm: the bot keeps no FSM state; otherwise FSMContextMiddleware
     # runs before the allowlist and touches storage per non-admin update.
     dispatcher = Dispatcher(disable_fsm=True)
     dispatcher.update.outer_middleware(AdminAllowlistMiddleware(admin_ids))
@@ -48,8 +45,8 @@ async def run() -> None:
     warn_if_alerts_share_the_channel(settings.channel_id, settings.alert_chat_id)
 
     bot = build_bot(settings)
-    # R2-3 asked for the timeout "on application sessions", and only the
-    # worker got it: a blocked handler holds a QueuePool slot until /readyz.
+    # The bot needs `lock_timeout` too: a handler blocked on a row lock
+    # otherwise holds its QueuePool slot indefinitely.
     engine = build_engine(settings.database_url, lock_timeout_ms=LOCK_TIMEOUT_MS)
     session_factory = build_session_factory(engine)
     celery_client = build_celery_app(settings.redis_url)

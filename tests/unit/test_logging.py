@@ -75,10 +75,8 @@ def test_redaction_recurses_into_nested_dict_list_and_tuple() -> None:
 
 
 def test_redaction_stringifies_and_scrubs_unrecognized_values() -> None:
-    """An `Exception` instance (the `error=exc` pattern step 2 will use with
-    httpx) has no dedicated branch — it falls through to `str()` before
-    redaction, since `JSONRenderer` would otherwise serialize it untouched
-    via `repr()`."""
+    """An `Exception` (the `error=exc` pattern) has no branch of its own: it goes
+    through `str()`, or `JSONRenderer` would serialize it unredacted via `repr()`."""
     processor = make_redact_secrets_processor(["super-secret-token"])
 
     event_dict = processor(
@@ -103,9 +101,8 @@ def test_redaction_leaves_non_string_scalars_untouched() -> None:
 
 
 def test_get_logger_returns_a_working_bound_logger() -> None:
-    """Structural check via `structlog.testing.capture_logs()` (structlog's
-    own public testing API), not a private attribute like `bound._context`
-    — this must keep working across structlog versions."""
+    """Through structlog's public `capture_logs()`, not a private attribute like
+    `bound._context`, so it keeps working across structlog versions."""
     logger = get_logger("test")
 
     with structlog.testing.capture_logs() as captured_logs:
@@ -118,10 +115,8 @@ def test_configure_logging_redacts_secrets_from_stdlib_logging_too(
     capsys: pytest.CaptureFixture[str],
     preserve_root_logging_state: None,
 ) -> None:
-    """The whole point of `foreign_pre_chain`: a plain stdlib `logging` call
-    (as aiogram/uvicorn/SQLAlchemy/Celery all make) must go through the same
-    redaction as a `structlog.get_logger()` call, not bypass it.
-    """
+    """The point of `foreign_pre_chain`: stdlib `logging` calls (aiogram, uvicorn,
+    SQLAlchemy, Celery) get the same redaction as structlog ones."""
     configure_logging(log_format="json", log_level="INFO", secrets=["super-secret-token"])
     logging.getLogger("some.third.party.library").warning(
         "request failed with token=%s", "super-secret-token"
@@ -135,8 +130,8 @@ def test_configure_logging_redacts_secrets_from_stdlib_logging_too(
 
 
 def test_a_secret_registered_after_startup_is_redacted_too() -> None:
-    """F-20: the Spotify access token only exists once the resolver runs,
-    long after `configure_logging()` was handed the static secret list."""
+    """The Spotify access token only exists once the resolver runs, long after
+    `configure_logging()` was handed the static secret list."""
     processor = make_redact_secrets_processor(["configured-secret"])
     register_runtime_secret("spotify_access_token", "runtime-token-xyz")
     try:
@@ -162,8 +157,8 @@ def test_runtime_secret_registration_replaces_the_previous_value() -> None:
 
 
 def test_redact_secrets_in_text_scrubs_configured_and_runtime_secrets() -> None:
-    """S3-3: `send_alert` and `post.last_error` are sinks no log processor
-    ever sees, so the redaction has to exist as a plain function too."""
+    """`send_alert` and `post.last_error` are sinks no log processor ever sees, so
+    the redaction has to exist as a plain function too."""
     register_runtime_secret("spotify_token", "runtime-token-value")
     try:
         redacted = redact_secrets_in_text(

@@ -1,8 +1,6 @@
-"""Channel publication — the mirror of `draft.py`: idempotent send, explicit
-per-call `parse_mode="HTML"`, the caption passed through verbatim, and
-failures propagated rather than swallowed, because the post is the product.
-The post carries its cover (D-45), so `send_photo` is the normal path, and
-a post that reached `rendered` goes out as `send_video` instead (§6).
+"""Channel publication, the mirror of `draft.py`: idempotent send, per-call
+`parse_mode="HTML"`, the caption verbatim, failures propagated. `send_photo`
+with the cover is the normal path; a `rendered` post goes out as `send_video`.
 """
 
 from __future__ import annotations
@@ -48,9 +46,8 @@ class PublishPreflightError(RuntimeError):
 
 
 async def preflight_channel(bot: Bot, channel_id: int) -> ChatFullInfo:
-    """Turns a raw `400`/`403` into an actionable Ukrainian sentence, before
-    anything is sent. Returns the chat, which is the only honest source for
-    the post's own link afterwards."""
+    """Turns a raw `400`/`403` into an actionable sentence before anything is sent;
+    the returned chat is the only honest source for the post's link afterwards."""
     try:
         chat = await bot.get_chat(channel_id)
         member = await bot.get_chat_member(channel_id, bot.id)
@@ -69,11 +66,8 @@ async def preflight_channel(bot: Bot, channel_id: int) -> ChatFullInfo:
 
 
 def warn_if_channel_identity_diverges(chat: ChatFullInfo) -> bool:
-    """`CHANNEL_LINK_URL` is baked into every caption while the target comes
-    from config, and nothing derives one from the other — so a post can link
-    to one channel and land in another (S3-R7). A warning, not a refusal:
-    publishing into a test channel is exactly this divergence, on purpose.
-    """
+    """A post can link to one channel and land in another. A warning,
+    not a refusal: a test channel is exactly this divergence, on purpose."""
     if chat.username == CHANNEL_USERNAME:
         return False
 
@@ -93,23 +87,16 @@ async def publish_to_channel(
     cover_url: str | None,
     video: RenderedVideo | None = None,
 ) -> None:
-    """Idempotent: a post that already carries `channel_message_id` is a
-    no-op — the first of the three barriers a redelivered task has to pass.
-    The caption goes out exactly as stored; it is already rendered, escaped
-    HTML (`post.render.render_html`), and escaping it again double-encodes it.
-
-    Three branches now. The video one is chosen by the **caller**, from
-    `post.status is RENDERED` plus a valid `render` row (§6) — never from a
-    file lying around, which a previous failed attempt can also leave.
-    """
+    """Idempotent on `channel_message_id`. The caller picks the video branch from
+    the status plus a `render` row, never from a leftover file."""
     if post.channel_message_id is not None:
         return
     if post.caption is None:
         raise ValueError(f"post {post.id} has no caption to publish")
 
     if video is not None:
-        # The video limit for a caption is the same 1024 the photo caption
-        # already fits (D-45), so nothing is rebuilt — byte for byte (S4-A14).
+        # The video caption limit is the same 1024 the photo caption already
+        # fits, so nothing is rebuilt: the admin approved these exact bytes.
         sent_message = await send_rendered_video(bot, chat_id, post.caption, video)
     elif cover_url:
         # Telegram fetches the cover by URL itself and can fail on it; that
@@ -122,7 +109,7 @@ async def publish_to_channel(
         )
     else:
         # No cover, so the caption is a plain message again — and a message
-        # full of platform links needs the preview card suppressed (D-50).
+        # full of platform links needs the preview card suppressed.
         sent_message = await bot.send_message(
             chat_id=chat_id,
             text=post.caption,

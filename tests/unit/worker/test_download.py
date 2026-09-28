@@ -1,6 +1,6 @@
-"""The `videoId` source (V27), id validation (V29), argument lists (V30),
-the duration check against a stub or a different recording (V32), and D-80's
-distinction between "the extractor broke" and "this track is gone".
+"""The `videoId` source, id validation, argument lists, the duration check
+against a stub or a different recording, and the distinction between "the
+extractor broke" and "this track is gone".
 """
 
 from __future__ import annotations
@@ -32,8 +32,8 @@ def test_the_video_id_comes_from_youtube_music() -> None:
 
 
 def test_a_clip_link_never_stands_in_for_the_platform_link() -> None:
-    """V27/S4-A2. The clip may carry an intro, an outro or another mastering,
-    so `["youtube"]` is not a fallback — it is a different recording."""
+    """The clip may carry an intro, an outro or another mastering, so
+    `["youtube"]` is not a fallback: it is a different recording."""
     platform_links = links(
         youtube=f"https://www.youtube.com/watch?v={CLIP_VIDEO_ID}",
         youtubeMusic=f"https://music.youtube.com/watch?v={MUSIC_VIDEO_ID}",
@@ -43,8 +43,6 @@ def test_a_clip_link_never_stands_in_for_the_platform_link() -> None:
 
 
 def test_only_a_clip_link_is_a_loud_refusal_not_a_fallback() -> None:
-    """V28/S4-A3: no `youtubeMusic` means `failed` plus an alert, and the
-    network is never touched at all."""
     platform_links = links(youtube=f"https://www.youtube.com/watch?v={CLIP_VIDEO_ID}")
 
     with pytest.raises(audio_download.MissingYouTubeMusicLinkError):
@@ -78,8 +76,6 @@ def test_a_platform_link_that_is_not_an_object_is_refused() -> None:
     ],
 )
 def test_an_id_that_fails_validation_never_reaches_yt_dlp(stored_url: str) -> None:
-    """V29: `;`, a space, `../` and a Unicode digit all stop here, before a
-    URL is built out of them."""
     with pytest.raises(audio_download.AudioDownloadError):
         audio_download.youtube_music_video_id(links(youtubeMusic=stored_url))
 
@@ -97,8 +93,8 @@ def test_the_watch_url_refuses_an_id_that_did_not_pass_validation() -> None:
 
 
 def test_the_arguments_are_a_list_with_the_url_last_and_no_self_update() -> None:
-    """V30 plus AS10: a runtime self-update is prohibited, so `--no-update`
-    is passed rather than merely not asked for."""
+    """A runtime self-update is prohibited, so `--no-update` is passed rather
+    than merely not asked for."""
     arguments = audio_download.build_ytdlp_arguments(
         "https://www.youtube.com/watch?v=n4bPzdIs_nc", "/data/tmp/7/audio.%(ext)s"
     )
@@ -122,8 +118,8 @@ def test_the_arguments_are_a_list_with_the_url_last_and_no_self_update() -> None
     ],
 )
 def test_a_broken_extractor_gets_its_own_loud_class(stderr: str) -> None:
-    """D-80: when the deprecated path goes, every track fails at once. If that
-    reads as "this song is missing", diagnosis goes the wrong way for days."""
+    """When the deprecated path goes, every track fails at once. If that reads
+    as "this song is missing", diagnosis goes the wrong way for days."""
     error = audio_download.classify_ytdlp_failure(1, stderr)
 
     assert isinstance(error, audio_download.YtdlpExtractorBrokenError)
@@ -257,8 +253,8 @@ def stub_probe(monkeypatch: pytest.MonkeyPatch, duration_ms: int) -> None:
 def test_a_duration_far_from_the_resolve_fails_rather_than_being_accepted(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """V32/§4: this is what catches yt-dlp handing back a stub or a different
-    recording — the one thing that would otherwise be completely silent."""
+    """This is what catches yt-dlp handing back a stub or a different recording,
+    the one thing that would otherwise be completely silent."""
     stub_probe(monkeypatch, duration_ms=10_000)
 
     with pytest.raises(audio_download.DownloadedAudioMismatchError, match="інший запис"):
@@ -279,8 +275,8 @@ def test_a_duration_inside_the_matching_tolerance_is_accepted(
 def test_an_unknown_stored_duration_skips_the_comparison_explicitly(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stored_duration: int | None
 ) -> None:
-    """The 23 posts already in the database have `duration_ms IS NULL`; that
-    branch is handled, not crashed through."""
+    """Rows resolved before `duration_ms` existed hold NULL; that branch is
+    handled, not crashed through."""
     stub_probe(monkeypatch, duration_ms=212_900)
 
     probe = audio_download.verify_downloaded_audio(tmp_path / "audio.opus", stored_duration)

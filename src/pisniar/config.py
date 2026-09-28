@@ -12,11 +12,7 @@ from sqlalchemy.engine import make_url
 
 
 class Settings(BaseSettings):
-    """Configuration loaded from environment variables / `.env`.
-
-    Values that must never reach logs are typed `SecretStr`; see
-    `pisniar.logging` for the redaction processor that scrubs them from log events too.
-    """
+    """Values that must never reach logs are `SecretStr`; `pisniar.logging` redacts them."""
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -25,17 +21,17 @@ class Settings(BaseSettings):
     )
 
     environment: Literal["dev", "docker"] = "dev"
-    # Independent of `environment` on purpose (D-23): "docker" doesn't always mean
+    # Independent of `environment` on purpose: "docker" doesn't always mean
     # "read JSON logs" — `make up` still wants console output while `environment` stays "dev".
     log_format: Literal["json", "console"] = "json"
     log_level: str = "INFO"
 
     bot_token: SecretStr
     # `NoDecode`: without it, pydantic-settings JSON-decodes "111,222" before
-    # `split_admin_ids` below ever runs, and that blows up as invalid JSON (D-23).
+    # `split_admin_ids` below ever runs, and that blows up as invalid JSON.
     admin_ids: Annotated[list[int], NoDecode] = Field(min_length=1)
     alert_chat_id: int
-    # The publish target, and the only source of it (S3-R7). Numeric, not
+    # The publish target, and the only source of it. Numeric, not
     # `@username`: a username can be reassigned to another chat, an id cannot.
     channel_id: int
 
@@ -47,12 +43,12 @@ class Settings(BaseSettings):
 
     spotify_client_id: str
     spotify_client_secret: SecretStr
-    # Absent until the user adds it (D-30/gate 2.0.4): the `musicbrainz`
-    # source stays disabled without a contact, per MusicBrainz's own policy.
+    # Optional: the `musicbrainz` source stays disabled without a contact,
+    # per MusicBrainz's own policy.
     musicbrainz_contact: str | None = None
     itunes_country: str = "UA"
-    # D-40: both a hit and a `{"found": false}` go stale after an hour, so
-    # `/retry` can actually recover a release song.link had not indexed yet.
+    # Both a hit and a `{"found": false}` go stale after an hour, so `/retry`
+    # can recover a release song.link has not indexed yet.
     source_fetch_ttl_seconds: int = 3600
 
     # Mount point of the `media-data` volume inside the worker container, and
@@ -61,7 +57,7 @@ class Settings(BaseSettings):
     # Checked with `shutil.disk_usage()` *before* a download starts: running
     # out mid-render leaves a file that looks finished.
     media_min_free_bytes: int = Field(default=2_000_000_000, gt=0)
-    # Per-task limits (§3). The resolve limits in `worker.celery_app` also gate
+    # Per-task limits. The resolve limits in `worker.celery_app` also gate
     # `/retry`'s "resolve has gone stale" window, so they are never raised here.
     download_task_soft_time_limit_seconds: int = Field(default=120, gt=0)
     download_task_time_limit_seconds: int = Field(default=180, gt=0)
@@ -71,7 +67,6 @@ class Settings(BaseSettings):
     @field_validator("admin_ids", mode="before")
     @classmethod
     def split_admin_ids(cls, value: object) -> object:
-        """Allow a comma-separated string in `.env` (nicer than raw JSON)."""
         if isinstance(value, str):
             return [item.strip() for item in value.split(",") if item.strip()]
         return value
@@ -122,20 +117,13 @@ class Settings(BaseSettings):
 
 
 def get_settings() -> Settings:
-    """Build `Settings` from the environment.
-
-    Not cached on purpose: tests construct fresh settings per case via
-    `monkeypatch.setenv`, and process startup only calls this once anyway.
-    """
+    """Not cached: tests build fresh settings per case via `monkeypatch.setenv`."""
     return Settings()
 
 
 def redaction_secrets(settings: Settings) -> list[str]:
-    """Every raw value that must never appear in a log line — including a
-    traceback. `/readyz` logs both its checks with `exc_info=True`, and an
-    asyncpg or kombu connection error can embed the DSN (password included)
-    in its message, so the bot token alone is not enough here.
-    """
+    """Tracebacks count too: `/readyz` logs with `exc_info=True`, and asyncpg or
+    kombu connection errors can embed the DSN password in their message."""
     secrets = [
         settings.bot_token.get_secret_value(),
         settings.spotify_client_secret.get_secret_value(),

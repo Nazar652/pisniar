@@ -1,7 +1,8 @@
-"""`telegram.publish`: the idempotent channel send, the preflight that turns
-a raw 400/403 into a Ukrainian sentence, the post link built from the chat
-the post actually reached, and the per-class error wording. Every Telegram
-call is mocked — V16 forbids a unit test reaching the network."""
+"""`telegram.publish`: the idempotent channel send, the preflight that turns a raw
+400/403 into a Ukrainian sentence, the post link built from the chat the post
+actually reached, and the per-class error wording. Every Telegram call is mocked:
+no unit test may reach the network.
+"""
 
 from __future__ import annotations
 
@@ -108,8 +109,8 @@ def make_video(tmp_path: Path) -> RenderedVideo:
 
 
 async def test_a_rendered_post_goes_out_as_a_video_not_a_photo(tmp_path: Path) -> None:
-    """§6's third branch. The caller decides it from the status, and once it
-    has, the cover URL must not pull the post back to `send_photo`."""
+    """The caller decides the branch from the status, and once it has, the cover
+    URL must not pull the post back to `send_photo`."""
     bot = make_bot()
     post = make_post()
 
@@ -125,8 +126,8 @@ async def test_a_rendered_post_goes_out_as_a_video_not_a_photo(tmp_path: Path) -
 
 
 async def test_the_video_caption_is_the_same_string_the_preview_carried(tmp_path: Path) -> None:
-    """V41/S4-A14: the video caption limit is the photo caption limit, so
-    nothing is rebuilt between the preview and the channel."""
+    """The video caption limit is the photo caption limit, so nothing is rebuilt
+    between the preview and the channel."""
     bot = make_bot()
 
     await publish_to_channel(bot, make_post(), CHANNEL_ID, None, make_video(tmp_path))
@@ -162,8 +163,8 @@ async def test_a_post_with_a_cover_goes_out_as_a_photo_with_the_caption() -> Non
 
 
 async def test_the_caption_reaches_telegram_byte_for_byte_as_stored() -> None:
-    """`post.caption` is already rendered, escaped HTML; escaping it again
-    would turn `&amp;` into `&amp;amp;` in a post subscribers see (S3-A7)."""
+    """`post.caption` is already rendered, escaped HTML; escaping it again would
+    turn `&amp;` into `&amp;amp;` in a post subscribers see."""
     bot = make_bot()
     post = make_post()
 
@@ -198,8 +199,8 @@ async def test_an_empty_cover_url_is_treated_as_no_cover() -> None:
 
 
 async def test_a_post_that_already_has_a_channel_message_is_never_sent_again() -> None:
-    """V18: the single most expensive failure of this step is a second copy
-    in the channel, and this guard is what a redelivered task hits first."""
+    """A second copy in the channel is the most expensive failure there is, and
+    this guard is what a redelivered task hits first."""
     bot = make_bot()
     post = make_post(channel_message_id=500)
 
@@ -272,8 +273,8 @@ async def test_preflight_refuses_a_bot_that_is_only_a_member() -> None:
 
 
 async def test_preflight_hides_the_raw_telegram_error_behind_a_ukrainian_one() -> None:
-    """S3-A6: the admin gets a sentence they can act on, and the 400 with
-    its traceback stays in the logs."""
+    """The admin gets a sentence they can act on, and the 400 with its traceback
+    stays in the logs."""
     bot = make_bot()
     bot.get_chat.side_effect = TelegramBadRequest(
         method=SendPhoto(chat_id=CHANNEL_ID, photo="x"), message="chat not found"
@@ -288,8 +289,8 @@ async def test_preflight_hides_the_raw_telegram_error_behind_a_ukrainian_one() -
 
 
 def test_a_channel_that_is_not_the_captions_channel_warns() -> None:
-    """S3-R7: every caption links to `CHANNEL_LINK_URL` while the target
-    comes from config, and nothing derives one from the other."""
+    """Every caption links to `CHANNEL_LINK_URL` while the target comes from
+    config, and nothing derives one from the other."""
     with structlog.testing.capture_logs() as captured_logs:
         diverged = warn_if_channel_identity_diverges(make_chat(username="test_channel"))
 
@@ -341,9 +342,8 @@ def test_a_preflight_error_is_passed_through_unchanged() -> None:
 
 
 def test_the_publish_target_is_never_a_literal_in_the_publish_code() -> None:
-    """V25: the channel is a parameter, not a constant. A literal chat id or
-    a second `pisniarnia` here is exactly how the caption's channel and the
-    publish target drift apart (S3-R7)."""
+    """A literal chat id or a second `pisniarnia` here is exactly how the
+    caption's channel and the publish target drift apart."""
     source = inspect.getsource(publish_module)
 
     assert "pisniarnia" not in source

@@ -1,7 +1,7 @@
 """The `.ass` generator, read back the way libass reads it: positional
-`Style:` rows against their own `Format:`, an explicit `PlayRes`, the three
-slots of D-85 placed by `\\pos`, the D-5 shift into fragment time, the line
-boundaries — and the substitution that makes an override block unspellable.
+`Style:` rows against their own `Format:`, an explicit `PlayRes`, three slots
+placed by `\\pos`, the shift into fragment time, the line boundaries, and the
+substitution that makes an override block unspellable.
 """
 
 from __future__ import annotations
@@ -18,20 +18,17 @@ FRAGMENT_END_MS = 45_000
 # 1.2x its font size tall, so this is the pessimistic block height.
 LINE_HEIGHT_RATIO = 1.2
 
-# What the worker image actually does, measured before D-93 was applied:
-# libass reads `Fontsize` as the ascender-to-descender cell height and stacks
-# the next line exactly that far below, so a line's box is one `Fontsize`
-# tall. A two-line block at 44 px inked rows 606..680 around a slot at 640 —
-# 75 px where this model claims 88, which is the direction it may err in.
+# Measured on the worker image: libass stacks lines one `Fontsize` apart, so a
+# two-line 44 px block inks 75 px where this model claims 88, the safe direction.
 MEASURED_LINE_HEIGHT_RATIO = 1.0
 
-# The gate's own line (V53): 123 characters that used to break at «що сто…».
-GATE_LONG_LINE = (
+# A 123-character line, too long for one line of the band.
+LONG_LINE_OF_123_CHARACTERS = (
     "Цей рядок навмисно довгий, бо гейт показав, що стовідсотково "
     "не влізе в один рядок і його доведеться таки розбивати надвоє."
 )
-# 640 usable px / (44 px * 0.52 em) — the budget D-94 replaced.
-CHARACTERS_THE_OLD_AVERAGE_ALLOWED = 27
+# 640 usable px / (44 px * 0.52 em): the budget of an average glyph width.
+CHARACTERS_AT_AN_AVERAGE_GLYPH_WIDTH = 27
 
 
 def lines_of(*pairs: tuple[int, str]) -> list[ass.LyricLine]:
@@ -75,8 +72,8 @@ def current_rows(document: str) -> list[str]:
 
 
 def test_the_script_declares_the_frame_it_is_drawn_onto() -> None:
-    """§4 p.4: without `PlayResX/Y` libass assumes 384x288 and every
-    coordinate below lands somewhere else."""
+    """Without `PlayResX/Y` libass assumes 384x288 and every coordinate below
+    lands somewhere else."""
     document = build(lines_of((1_000, "рядок")))
 
     assert "PlayResX: 720" in document
@@ -86,8 +83,8 @@ def test_the_script_declares_the_frame_it_is_drawn_onto() -> None:
 
 
 def test_every_style_row_is_positional_against_its_own_format_line() -> None:
-    """§4 p.1: `Alignment=5` as a `key=value` is what libass silently
-    ignored; the row is read back and counted here instead."""
+    """libass silently ignores `Alignment=5` written as `key=value`, so the row
+    is read back and counted instead."""
     document = build(lines_of((1_000, "рядок")))
     declared_fields = document.split("Format: ", 1)[1].split("\n", 1)[0].split(", ")
 
@@ -99,8 +96,8 @@ def test_every_style_row_is_positional_against_its_own_format_line() -> None:
 
 
 def test_alignment_is_a_number_and_the_vertical_margin_is_honestly_zero() -> None:
-    """§4 p.2: `\\an5` ignores `MarginV`, so a non-zero one would be a lie
-    about where the line is."""
+    """`\\an5` ignores `MarginV`, so a non-zero one would be a lie about where
+    the line is."""
     document = build(lines_of((1_000, "рядок")))
 
     for row in style_rows(document):
@@ -128,7 +125,7 @@ def test_every_dialogue_row_has_exactly_the_declared_number_of_fields() -> None:
 
 
 def test_a_comma_in_the_lyrics_is_harmless_because_text_is_the_last_field() -> None:
-    """§5: true today, and pinned here rather than remembered."""
+    """True today, and pinned here rather than remembered."""
     document = build(lines_of((1_000, "так, ось, кома")))
 
     assert ass.EVENT_FORMAT_FIELDS[-1] == "Text"
@@ -136,7 +133,7 @@ def test_a_comma_in_the_lyrics_is_harmless_because_text_is_the_last_field() -> N
 
 
 def test_each_line_is_placed_by_an_explicit_position_from_the_constants() -> None:
-    """§4 p.3: slot symmetry is a constant, not an accident of margins."""
+    """Slot symmetry is a constant, not an accident of margins."""
     document = build(lines_of((1_000, "перший"), (3_000, "другий"), (5_000, "третій")))
     middle = [row for row in dialogue_rows(document) if field_of(row, "Start") == "0:00:03.00"]
 
@@ -149,7 +146,6 @@ def test_each_line_is_placed_by_an_explicit_position_from_the_constants() -> Non
 
 
 def test_three_slots_are_drawn_around_the_current_line() -> None:
-    """D-85: previous, current, next — the user chose three over one."""
     document = build(lines_of((1_000, "перший"), (3_000, "другий"), (5_000, "третій")))
     middle = [row for row in dialogue_rows(document) if field_of(row, "Start") == "0:00:03.00"]
 
@@ -164,8 +160,8 @@ def test_the_first_and_last_lines_have_one_neighbour_each() -> None:
 
 
 def test_the_text_band_starts_where_the_lifted_cover_ends() -> None:
-    """D-92 in two files: the `pad` offset and the slot geometry are one
-    decision, so they are pinned against each other."""
+    """The `pad` offset and the slot geometry are one decision in two files, so
+    they are pinned against each other."""
     assert ass.TEXT_BAND_TOP_PX == video_render.COVER_TOP_OFFSET_PX + video_render.VIDEO_WIDTH
 
 
@@ -184,17 +180,13 @@ def test_no_slot_reaches_into_its_neighbour_or_out_of_the_frame() -> None:
 
 
 def block_extent(slot_y: int, *, wrapped_lines: int, font_size_px: int) -> tuple[float, float]:
-    """Top and bottom of a slot's block under `MEASURED_LINE_HEIGHT_RATIO`."""
     half_height = wrapped_lines * font_size_px * MEASURED_LINE_HEIGHT_RATIO / 2
     return slot_y - half_height, slot_y + half_height
 
 
 def test_a_current_line_that_wraps_to_two_still_clears_its_smaller_neighbours() -> None:
-    """D-93's tightest case, and the reason 95 px was measured rather than
-    assumed: the current block doubles in height while the side slots stay
-    one line of a smaller font. 95 - 44 - 16 leaves 35 px of black on each
-    side, and the pessimistic 1.2x reading of the same geometry (the test
-    above) still leaves 23 px."""
+    """The tightest case: the current block doubles while the side slots stay one
+    smaller line; 35 px of black is left on each side, 23 px under the 1.2x reading."""
     current_top, current_bottom = block_extent(
         ass.CURRENT_SLOT_Y,
         wrapped_lines=ass.MAX_CURRENT_WRAPPED_LINES,
@@ -218,17 +210,15 @@ def test_a_current_line_that_wraps_to_two_still_clears_its_smaller_neighbours() 
 
 
 def test_the_two_line_case_is_the_one_the_frame_has_to_show() -> None:
-    """The clearance above is only worth asserting if the wrapper can still
-    produce a two-line current block after D-94 widened every line."""
-    document = build(lines_of((1_000, GATE_LONG_LINE)))
+    """The clearance above matters only if the wrapper can still produce a
+    two-line current block at the measured glyph widths."""
+    document = build(lines_of((1_000, LONG_LINE_OF_123_CHARACTERS)))
     body = field_of(current_rows(document)[0], "Text").split("}", 1)[1]
 
     assert body.count("\\N") == 1
 
 
 def test_an_absolute_start_is_shifted_into_fragment_time() -> None:
-    """S4B-A2/V48: the contract's own numbers — a fragment starting at 30 s
-    and a line at 32 s appear two seconds into the video."""
     document = build(lines_of((32_000, "рядок")), fragment_start_ms=30_000, fragment_end_ms=75_000)
 
     assert field_of(current_rows(document)[0], "Start") == "0:00:02.00"
@@ -267,7 +257,6 @@ def test_a_line_ends_when_the_next_one_starts() -> None:
 
 
 def test_a_long_gap_is_capped_instead_of_hanging_for_a_minute() -> None:
-    """§4 p.6: a 60-second gap used to leave the line on screen for it."""
     document = build(
         lines_of((1_000, "перший"), (61_000, "другий")),
         fragment_start_ms=0,
@@ -309,9 +298,8 @@ def test_inverted_fragment_bounds_are_our_own_error_and_are_loud() -> None:
 
 
 def test_the_order_of_the_frames_is_the_stored_line_index_never_the_timecode() -> None:
-    """Seam §2.1.1 (V65). A source that timed its lines out of order must not
-    be allowed to reorder them — step 7's untimed lines have only
-    `line_index` to stand on."""
+    """Untimed lines will have only `line_index` to stand on, so a source's
+    out-of-order timecodes must not reorder the lines."""
     lines = [
         ass.LyricLine(line_index=0, start_ms=5_000, text="перший"),
         ass.LyricLine(line_index=1, start_ms=1_000, text="другий"),
@@ -323,8 +311,8 @@ def test_the_order_of_the_frames_is_the_stored_line_index_never_the_timecode() -
 
 
 def test_a_source_that_timed_its_lines_out_of_order_is_not_resequenced() -> None:
-    """The same seam end to end: ordering by time would quietly repair the
-    source and draw both lines, which is a different song's order."""
+    """Ordering by time would quietly repair the source and draw both lines,
+    which is a different song's order."""
     lines = [
         ass.LyricLine(line_index=0, start_ms=5_000, text="перший"),
         ass.LyricLine(line_index=1, start_ms=1_000, text="другий"),
@@ -337,8 +325,8 @@ def test_a_source_that_timed_its_lines_out_of_order_is_not_resequenced() -> None
 
 
 def test_a_line_without_a_timecode_is_kept_out_of_the_frame() -> None:
-    """Seam §2.1.2 (V66) and S4B-A4: the predicate is spelled out while it is
-    still a tautology, so step 7's `DROP NOT NULL` changes nothing here."""
+    """The predicate is spelled out while it is still a tautology, so dropping
+    NOT NULL on `start_ms` later changes nothing here."""
     lines = [
         ass.LyricLine(line_index=0, start_ms=None, text="без таймкоду"),
         ass.LyricLine(line_index=1, start_ms=1_000, text="із таймкодом"),
@@ -375,9 +363,8 @@ def test_an_untimed_line_is_not_even_a_neighbour_in_a_side_slot() -> None:
 def test_the_characters_that_make_an_override_block_are_substituted(
     raw: str, expected: str
 ) -> None:
-    """§5/V51. ASS has no escape sequences inside a line, so this is
-    substitution, not escaping — and the gate rendered the first case to red
-    90 px pixels outside its slot."""
+    """ASS has no escapes inside a line, so this is substitution, not escaping;
+    unsubstituted, the first case draws red 90 px pixels outside its slot."""
     assert ass.escape_ass_text(raw) == expected
 
 
@@ -405,8 +392,8 @@ def test_a_line_that_is_only_control_characters_becomes_a_pause() -> None:
 
 
 def test_a_long_line_is_wrapped_by_us_and_never_by_libass() -> None:
-    """§4 p.5/V53: the gate's 123-character line ran off both edges of the
-    frame; `WrapStyle: 2` plus our own measurement is what stops it."""
+    """Left to libass, a 123-character line runs off both edges of the frame;
+    `WrapStyle: 2` plus our own measurement is what stops it."""
     long_line = "дуже довгий рядок тексту пісні " * 5
 
     document = build(lines_of((1_000, long_line)))
@@ -422,16 +409,14 @@ def test_a_long_line_is_wrapped_by_us_and_never_by_libass() -> None:
 
 
 def test_a_wrapped_line_uses_the_width_the_band_actually_has() -> None:
-    """D-94, counted in characters on purpose: measuring the result with the
-    same function that produced it would pass however wrong that function
-    got. The old 0.52-em average allowed 27 characters at `Fontsize: 44` and
-    broke the gate's line at «що сто…» with a third of the band unused."""
-    assert len(GATE_LONG_LINE) == 123
+    """Counted in characters on purpose: measuring the result with the function
+    that produced it would pass however wrong that function got."""
+    assert len(LONG_LINE_OF_123_CHARACTERS) == 123
 
-    document = build(lines_of((1_000, GATE_LONG_LINE)))
+    document = build(lines_of((1_000, LONG_LINE_OF_123_CHARACTERS)))
     first_visual_line = field_of(current_rows(document)[0], "Text").split("}", 1)[1].split("\\N")[0]
 
-    assert len(first_visual_line) > CHARACTERS_THE_OLD_AVERAGE_ALLOWED
+    assert len(first_visual_line) > CHARACTERS_AT_AN_AVERAGE_GLYPH_WIDTH
     assert (
         text_metrics.text_width_px(first_visual_line, ass.FONT_SIZE_CURRENT_PX)
         <= ass.USABLE_TEXT_WIDTH_PX
@@ -439,9 +424,8 @@ def test_a_wrapped_line_uses_the_width_the_band_actually_has() -> None:
 
 
 def test_an_apostrophe_and_both_quote_shapes_are_measured_from_the_table() -> None:
-    """Ukrainian orthography spells the apostrophe four different ways and
-    the source decides which — none of them may fall through to the
-    fallback, which is over-wide by design."""
+    """Ukrainian spells the apostrophe four ways and the source picks one; none may
+    fall through to the fallback, which is over-wide by design."""
     for character in "'’ʼ«»“”„":
         assert ord(character) in noto_sans_widths.ADVANCE_WIDTHS
 
@@ -487,8 +471,8 @@ def test_a_word_wider_than_the_band_is_split_instead_of_overflowing() -> None:
 
 
 def test_the_number_of_drawn_lines_is_capped() -> None:
-    """§5: a thousand lines over 45 seconds is a broken LRC or a bill for
-    ffmpeg's CPU, not a song."""
+    """A thousand lines over 45 seconds is a broken LRC or a bill for ffmpeg's
+    CPU, not a song."""
     many = lines_of(*((index * 10 + 1, f"рядок {index}") for index in range(400)))
 
     document = build(many)

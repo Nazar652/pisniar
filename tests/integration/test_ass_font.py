@@ -1,19 +1,7 @@
-"""The one check that catches the silent font fallback. D-91 measured it:
-`fc-match 'Montserrat'` and `fc-match 'NoSuchFontFamily12345'` return the
-same file byte for byte, and libass says nothing — so a wrong family name
-shows up only as Cyrillic rectangles in a published video.
-
-It also pins `noto_sans_widths` back against that same file (D-94). The
-table is a snapshot of one font's metrics, baked on a developer's machine by
-`scripts/generate_glyph_widths.py`; without this check a `fonts-noto-core`
-update in Debian would leave the worker wrapping lines by last year's
-numbers and saying nothing about it — which is the guessing D-94 removed,
-just better disguised.
-
-Runs inside the **worker** image (`make test-fonts`): fontconfig and the
-fonts live only there, so the `fonts` marker keeps it out of `make test`
-and `make test-int`. `fontTools` is a dev dependency and is read here only —
-the worker's runtime never imports it (S4B-A16).
+"""libass falls back silently: `fc-match` answers a missing family with the same file as
+an installed one, so a wrong name shows up only as Cyrillic rectangles in a video. Also
+pins `noto_sans_widths` to that file. Runs only in the worker image (`make test-fonts`),
+where the fonts live; `fontTools` is a dev dependency the runtime never imports.
 """
 
 from __future__ import annotations
@@ -49,8 +37,8 @@ def test_the_family_named_in_the_style_row_is_installed_and_covers_ukrainian() -
 
 
 def test_the_family_the_plan_originally_named_is_not_installed_at_all() -> None:
-    """Which is the whole point: naming `Montserrat` would have produced a
-    correct-looking `.ass` and a video rendered in something else."""
+    """Naming `Montserrat` would produce a correct-looking `.ass` and a video
+    rendered in some other font."""
     assert "Montserrat" not in families_covering_ukrainian()
 
 
@@ -60,9 +48,8 @@ def installed_font() -> TTFont:
 
 
 def table_metric(font: TTFont, table: str, attribute: str) -> int:
-    """fontTools assembles a table's attributes while it parses the file, so
-    `ty` cannot see `unitsPerEm` on `head` — this is the one place that says
-    so out loud instead of scattering `type: ignore` over the assertions."""
+    """fontTools builds table attributes while parsing, so `ty` cannot see them;
+    this is the one place that says so instead of scattered `type: ignore`."""
     value = getattr(font[table], attribute)
     assert isinstance(value, int)
     return value

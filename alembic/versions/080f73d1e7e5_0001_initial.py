@@ -95,8 +95,8 @@ def upgrade() -> None:
             server_default=sa.text("'[]'::jsonb"),
             nullable=False,
         ),
-        # Absolute ms from the start of the full track (D-5), not the fragment
-        # — re-editing the fragment bounds doesn't invalidate a synced lyric.
+        # Absolute ms from the start of the full track, so re-editing the
+        # fragment bounds does not invalidate a synced lyric.
         sa.Column("fragment_start_ms", sa.BigInteger(), nullable=True),
         sa.Column("fragment_end_ms", sa.BigInteger(), nullable=True),
         sa.Column("channel_chat_id", sa.BigInteger(), nullable=True),
@@ -110,8 +110,8 @@ def upgrade() -> None:
             "'archived')",
             name=op.f("ck_post_status_valid"),
         ),
-        # `(NULL, NULL)` is valid (no fragment chosen yet); rejects a one-sided
-        # bound and a negative start, both of which would silently shift every lyric line (D-5).
+        # `(NULL, NULL)` means no fragment yet; a one-sided bound or a negative
+        # start would silently shift every lyric line.
         sa.CheckConstraint(
             "num_nonnulls(fragment_start_ms, fragment_end_ms) <> 1 "
             "AND (fragment_start_ms IS NULL OR fragment_start_ms >= 0) "

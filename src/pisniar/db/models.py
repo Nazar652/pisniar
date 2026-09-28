@@ -1,7 +1,5 @@
-"""ORM models for `track`, `post`, `source_fetch` (step 2 resolver cache),
-step 4A's media artifacts (`audio_asset` per track, `render` per post) and
-step 4B's `lyric` (per track). `post_status_history` (D-9) stays absent — see
-decision-log.md.
+"""ORM models: `track`, `post`, the `source_fetch` resolver cache, the media
+artifacts (`audio_asset` per track, `render` per post) and `lyric` (per track).
 """
 
 from __future__ import annotations
@@ -37,8 +35,8 @@ if TYPE_CHECKING:
 VALID_POST_STATUSES = tuple(status.value for status in PostStatus)
 _VALID_POST_STATUSES_SQL_LIST = ", ".join(f"'{value}'" for value in VALID_POST_STATUSES)
 
-# D-61: language is a property of the recording, not of a publication, and
-# no source reports it — so it is stored with a default and edited by hand.
+# Language belongs to the recording, not a publication, and no source reports
+# it — so it is stored with a default and edited by hand.
 DEFAULT_LANGUAGES = ["українська"]
 _DEFAULT_LANGUAGES_SQL = f"'{json.dumps(DEFAULT_LANGUAGES, ensure_ascii=False)}'::jsonb"
 
@@ -48,10 +46,8 @@ MAX_LYRIC_TEXT_LENGTH = 500
 
 
 class PostStatusType(TypeDecorator[PostStatus]):
-    """Round-trips `PostStatus` through the `status` TEXT column (D-6: no
-    native enum). Without it, `post.status` loads as plain `str` and
-    `post.status is PostStatus.X` is always False — see decision-log.md.
-    """
+    """The column is TEXT, not a native enum. Without this `post.status` loads as a
+    plain `str` and `post.status is PostStatus.X` is always False."""
 
     impl = Text
     cache_ok = True
@@ -68,8 +64,6 @@ class PostStatusType(TypeDecorator[PostStatus]):
 
 
 class Track(Base):
-    """A resolved (or not-yet-resolved) music track, keyed by its source URL."""
-
     __tablename__ = "track"
     __table_args__ = (
         CheckConstraint("jsonb_typeof(artists) = 'array'", name="artists_is_array"),
@@ -91,27 +85,25 @@ class Track(Base):
     source_url: Mapped[str] = mapped_column(Text, nullable=False)
     source_url_normalized: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
 
-    # Indexed for the D-41 duplicate warning: the same recording reaching
-    # us through a second platform's URL is otherwise invisible.
+    # Indexed for the duplicate warning: the same recording submitted through
+    # another platform's URL is otherwise invisible.
     isrc: Mapped[str | None] = mapped_column(Text, index=True)
     title: Mapped[str | None] = mapped_column(Text)
     # form: [{"name": str, "hashtag": str | None, "spotify_id": str | None}];
-    # `hashtag` stays null until a human overrides it (D-29).
+    # `hashtag` stays null until a human overrides it.
     artists: Mapped[list[object]] = mapped_column(
         JSONB, nullable=False, server_default=text("'[]'::jsonb")
     )
     year: Mapped[int | None] = mapped_column(SmallInteger)
     release_type: Mapped[str | None] = mapped_column(Text)
     release_title: Mapped[str | None] = mapped_column(Text)
-    # Persisted since D-45: it used to exist only inside the `href` of a
-    # rendered caption, so no caption could be rebuilt without losing it.
+    # Needed to rebuild a caption: the rendered one holds it only inside an `href`.
     album_id_spotify: Mapped[str | None] = mapped_column(Text)
     cover_url: Mapped[str | None] = mapped_column(Text)
-    # Step 4 checks the downloaded audio against it, so it has to outlive the
-    # resolve that found it — and to survive a `/retry` (`STORED_SCALAR_FIELDS`).
+    # The downloaded audio is checked against it, so a re-resolve must never null
+    # it (hence its place in `STORED_SCALAR_FIELDS`).
     duration_ms: Mapped[int | None] = mapped_column(BigInteger)
-    # form: ["українська", ...]; the first one is the primary language and
-    # the order is the admin's (D-61). Only step 5's Mini App writes here.
+    # form: ["українська", ...]; the first is the primary language, the order is the admin's.
     languages: Mapped[list[object]] = mapped_column(
         JSONB, nullable=False, server_default=text(_DEFAULT_LANGUAGES_SQL)
     )
@@ -121,16 +113,13 @@ class Track(Base):
     resolved_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
 
     # passive_deletes="all": without it, SQLAlchemy nulls track_id before
-    # delete, so ON DELETE RESTRICT never fires. See decision-log.md.
+    # delete, so ON DELETE RESTRICT never fires.
     posts: Mapped[list[Post]] = relationship(back_populates="track", passive_deletes="all")
 
 
 class Post(Base):
-    """One channel post per `Track`, several allowed (no `UNIQUE (track_id)`).
-
-    `fragment_*_ms` are absolute ms from the start of the *full* track (D-5):
-    `ass_t = lyric.start_ms - post.fragment_start_ms` at render time.
-    """
+    """Several posts per track are allowed (no `UNIQUE (track_id)`). `fragment_*_ms`
+    are absolute from the start of the *full* track, never fragment-local."""
 
     __tablename__ = "post"
     __table_args__ = (
@@ -143,8 +132,7 @@ class Post(Base):
             f"({_VALID_POST_STATUSES_SQL_LIST})",
             name="failed_from_status_valid",
         ),
-        # (NULL, NULL) is valid (no fragment yet); num_nonnulls<>1 rejects a
-        # one-sided bound; start>=0 rejects a negative shift per D-5.
+        # (NULL, NULL) means no fragment yet.
         CheckConstraint(
             "num_nonnulls(fragment_start_ms, fragment_end_ms) <> 1 "
             "AND (fragment_start_ms IS NULL OR fragment_start_ms >= 0) "
@@ -152,7 +140,6 @@ class Post(Base):
             name="fragment_bounds_valid",
         ),
         CheckConstraint("jsonb_typeof(genres) = 'array'", name="genres_is_array"),
-        # Same one-sided-pair problem as the fragment bounds above.
         CheckConstraint(
             "num_nonnulls(channel_chat_id, channel_message_id) <> 1",
             name="channel_ref_complete",
@@ -164,8 +151,6 @@ class Post(Base):
             unique=True,
             postgresql_where=text("channel_chat_id IS NOT NULL AND channel_message_id IS NOT NULL"),
         ),
-        # Same one-sided-pair problem, for the draft delivery (not channel
-        # publication): `draft_message_id IS NULL` is the send condition.
         CheckConstraint(
             "num_nonnulls(draft_chat_id, draft_message_id) <> 1",
             name="draft_ref_complete",
@@ -177,7 +162,7 @@ class Post(Base):
             unique=True,
             postgresql_where=text("draft_chat_id IS NOT NULL AND draft_message_id IS NOT NULL"),
         ),
-        # The video preview is a *separate* message from the draft (D-81):
+        # The video preview is a *separate* message from the draft:
         # `editMessageMedia` cannot turn a text message into a media one.
         CheckConstraint(
             "num_nonnulls(preview_chat_id, preview_message_id) <> 1",
@@ -223,20 +208,20 @@ class Post(Base):
     channel_chat_id: Mapped[int | None] = mapped_column(BigInteger)
     channel_message_id: Mapped[int | None] = mapped_column(BigInteger)
     # The admin chat the draft was delivered to; `draft_message_id IS NULL`
-    # is delivery's own idempotency guard (Celery redelivery, D-28).
+    # is delivery's own idempotency guard against Celery redelivery.
     draft_chat_id: Mapped[int | None] = mapped_column(BigInteger)
     draft_message_id: Mapped[int | None] = mapped_column(BigInteger)
-    # The rendered video shown to the admin before publication (AS11/D-65);
+    # The rendered video shown to the admin before publication;
     # `preview_message_id IS NULL` is that delivery's idempotency guard.
     preview_chat_id: Mapped[int | None] = mapped_column(BigInteger)
     preview_message_id: Mapped[int | None] = mapped_column(BigInteger)
     published_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     last_error: Mapped[str | None] = mapped_column(Text)
-    # Which stage failed, written by `set_post_status()` next to `last_error` —
-    # step 4 breaks the D-47 rule that inferred it from `draft_message_id`.
+    # The stage that failed, written by `set_post_status()`; `/retry` routes by it,
+    # since every stage past resolve already has a `draft_message_id`.
     failed_from_status: Mapped[PostStatus | None] = mapped_column(PostStatusType)
     # `created_by_user_id` is who *submitted* the link; this one is who
-    # approved and published it (D-62) — normally two different admins.
+    # approved and published it — normally two different admins.
     created_by_user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     published_by_user_id: Mapped[int | None] = mapped_column(BigInteger)
 
@@ -244,10 +229,8 @@ class Post(Base):
 
 
 class AudioAsset(Base):
-    """One downloaded audio file, keyed to a **track** — several posts may
-    share one since step 1. `UNIQUE (track_id, video_id)` is the database half
-    of the idempotency guard; the atomic `os.replace` on disk is the other.
-    """
+    """Keyed to a track, so posts share one download. The unique pair is the
+    database half of idempotency; the atomic `os.replace` on disk is the other."""
 
     __tablename__ = "audio_asset"
     __table_args__ = (
@@ -280,16 +263,14 @@ class AudioAsset(Base):
     # Measured by `ffprobe` on the file itself, never copied from the resolve:
     # that is what makes it evidence yt-dlp returned the track we asked for.
     duration_ms: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    # D-80: the extraction path is deprecated upstream, so "the extractor
-    # broke" has to stay tellable from "this one track is gone".
+    # yt-dlp's extraction path is deprecated upstream: the version tells a broken
+    # extractor apart from one missing track.
     ytdlp_version: Mapped[str] = mapped_column(Text, nullable=False)
 
 
 class Render(Base):
-    """One rendered video, keyed to a **post** — the caption and the fragment
-    bounds belong to the publication, not the recording. `params_hash` covers
-    every input the frames depend on, `text_version` included.
-    """
+    """Keyed to a post: the caption and fragment bounds belong to the publication.
+    `params_hash` covers every input the frames depend on, `text_version` included."""
 
     __tablename__ = "render"
     __table_args__ = (
@@ -313,26 +294,19 @@ class Render(Base):
         BigInteger, ForeignKey("post.id", ondelete="CASCADE"), nullable=False
     )
     params_hash: Mapped[str] = mapped_column(Text, nullable=False)
-    # Null through the whole of 4A. It is an input to `params_hash`, so the
-    # column is what keeps that hash auditable once 4B starts filling it.
+    # Always null for now. It is an input to `params_hash`, so the column keeps
+    # that hash auditable once it is filled.
     text_version: Mapped[str | None] = mapped_column(Text)
     path: Mapped[str] = mapped_column(Text, nullable=False)
     size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    # `ffprobe` of the output, against which the fragment length is asserted —
-    # ffmpeg exiting 0 on an unusable file is step 4's main silent failure.
+    # `ffprobe` of the output, against which the fragment length is asserted:
+    # ffmpeg can exit 0 on an unusable file.
     duration_ms: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
 
 class Lyric(Base):
-    """One line of a track's lyrics. Keyed to a **track** (precedent
-    `audio_asset`, D-61): two posts of one recording share the text.
-
-    `start_ms` is absolute from the start of the *full* track (D-5), never
-    fragment-local — at render time `ass_t = lyric.start_ms -
-    post.fragment_start_ms`. There is no `end_ms` column (D-4): the boundary
-    is derived at render time from the next line, a per-line ceiling and the
-    fragment end.
-    """
+    """Keyed to a track, so posts of one recording share the text. `start_ms` is
+    absolute in the full track; there is no `end_ms`, render time derives it."""
 
     __tablename__ = "lyric"
     __table_args__ = (
@@ -357,24 +331,19 @@ class Lyric(Base):
     track_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("track.id", ondelete="CASCADE"), nullable=False
     )
-    # Seam §2.1.1: the stable order of the text, and the *only* thing render
-    # order is ever taken from — `start_ms` orders nothing.
+    # The only source of render order — `start_ms` orders nothing.
     line_index: Mapped[int] = mapped_column(Integer, nullable=False)
     start_ms: Mapped[int] = mapped_column(BigInteger, nullable=False)
     # Raw as the source gave it; the ASS substitution happens at render time
     # (`worker.ass`), so nothing lossy is stored.
     text: Mapped[str] = mapped_column(Text, nullable=False)
-    # Seam §2.1.3: `'lrclib'` today, `'manual'` from step 7 — the column
-    # exists from day one so step 7 never has to backfill it.
+    # `'lrclib'`, or `'manual'` for hand-edited text.
     source: Mapped[str] = mapped_column(Text, nullable=False)
 
 
 def renderable_lyrics_statement(track_id: int) -> Select[tuple[Lyric]]:
-    """Seams §2.1.1 and §2.1.2 in one statement, and the only way the render
-    path is allowed to read `lyric`. `ORDER BY line_index` never `start_ms`;
-    `start_ms IS NOT NULL` is a tautology while the column is NOT NULL, and
-    that is the point — step 7's `DROP NOT NULL` then changes no render code.
-    """
+    """The render path's only read of `lyric`. `IS NOT NULL` is a tautology while the
+    column is NOT NULL, so allowing untimed lines later changes no render code."""
     return (
         select(Lyric)
         .where(Lyric.track_id == track_id, Lyric.start_ms.is_not(None))
@@ -383,10 +352,8 @@ def renderable_lyrics_statement(track_id: int) -> Select[tuple[Lyric]]:
 
 
 class SourceFetch(Base):
-    """Cache of one external-source request, keyed by `(source, request_key)`
-    (contract p.1). `payload` holds `{"found": bool, "data": ... | None}` —
-    a negative result is cached too, so a retry never re-hits a miss.
-    """
+    """`payload` is `{"found": bool, "data": ... | None}`: a miss is cached too,
+    so a retry never re-hits it."""
 
     __tablename__ = "source_fetch"
     __table_args__ = (UniqueConstraint("source", "request_key"),)
@@ -405,8 +372,8 @@ class SourceFetch(Base):
     source: Mapped[str] = mapped_column(Text, nullable=False)
     request_key: Mapped[str] = mapped_column(Text, nullable=False)
     payload: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
-    # Written from the clock at fetch time, not `now()` (F-23), and indexed
-    # for the TTL read plus the sweeper that will reap stale rows (D-40).
+    # Set from the clock at fetch time: `now()` is the transaction's start.
+    # Indexed for the TTL read.
     fetched_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False, server_default=text("now()"), index=True
     )

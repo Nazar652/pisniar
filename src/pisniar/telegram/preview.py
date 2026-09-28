@@ -1,8 +1,6 @@
-"""Video preview delivery — the mirror of `draft.py` for step 4A, and the
-single safeguard the step has: publication cannot be revoked (D-65), so the
-admin has to see *the file that will go into the channel* before it does
-(AS11). `editMessageMedia` cannot turn a text draft into a media message,
-so the preview is a new message with its own chat/message reference.
+"""Video preview delivery, the mirror of `draft.py` and the only safeguard before
+publication, which cannot be revoked: the admin sees the exact file first.
+`editMessageMedia` cannot turn a text draft into media, hence a new message.
 """
 
 from __future__ import annotations
@@ -19,9 +17,8 @@ logger = get_logger(__name__)
 
 
 async def deliver_preview(bot: Bot, post: Post, chat_id: int, video: RenderedVideo) -> None:
-    """Idempotent: a `post` with `preview_message_id` already set is a no-op —
-    the same Celery-redelivery guard `deliver_draft` uses (D-28/M32). A
-    delivery failure propagates: the preview is the product of this step."""
+    """Idempotent on `preview_message_id`, like `deliver_draft`. A failure
+    propagates: the preview is the product."""
     if post.preview_message_id is not None:
         return
     if post.caption is None:
@@ -35,9 +32,8 @@ async def deliver_preview(bot: Bot, post: Post, chat_id: int, video: RenderedVid
 
 
 async def remove_draft_keyboard(bot: Bot, post: Post) -> None:
-    """The text draft must stop offering publication once the preview exists,
-    or the cover photo can still go out instead of the video. Cosmetic on its
-    own — the status transition is the real guard — so it never raises."""
+    """Otherwise the cover photo could still go out instead of the video.
+    Cosmetic (the status transition is the real guard), so it never raises."""
     if post.draft_chat_id is None or post.draft_message_id is None:
         return
 

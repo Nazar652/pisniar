@@ -153,9 +153,8 @@ async def _ping(post_id: int | None) -> None:
 
 @celery_app.task(name=RESOLVE_POST_TASK_NAME, bind=True)
 def resolve_post(self: Any, post_id: int) -> None:
-    """Resolves `post_id`'s track, builds and delivers the draft caption.
-    Errors are terminal here — FAILED + alert + manual `/retry`,
-    this task never asks Celery itself to retry."""
+    """Errors are terminal: FAILED, an alert and a manual `/retry`; this task
+    never asks Celery to retry."""
     bind_celery_task_id(self.request.id)
     bind_post_id(post_id)
     run_async(_resolve_post(post_id))
@@ -169,9 +168,8 @@ async def _resolve_post(post_id: int) -> None:
         session_factory = build_session_factory(engine)
         async with session_factory() as session:
             try:
-                # The post row stays locked for the whole task: the delivery
-                # guard is a read-then-write pair (F-9). Wrapped because
-                # `lock_timeout` makes this raise rather than wait (R3-7).
+                # Locked for the whole task: the delivery guard is a read-then-write
+                # pair. Wrapped because `lock_timeout` makes this raise, not wait.
                 post = await session.get(Post, post_id, with_for_update=True)
             except DBAPIError as error:
                 await session.rollback()
@@ -182,9 +180,8 @@ async def _resolve_post(post_id: int) -> None:
                 logger.error("resolve_post_post_not_found", post_id=post_id)
                 return
 
-            # Unlocked on purpose: the track lock is taken just before the
-            # write, so a second post of the same track waits milliseconds
-            # instead of timing out behind a whole resolve (D-54).
+            # Unlocked on purpose: the track lock is taken just before the write,
+            # so a second post of the same track never waits out a whole resolve.
             track = await session.get(Track, post.track_id)
             assert track is not None
 
@@ -201,8 +198,7 @@ async def _resolve_post(post_id: int) -> None:
 
 async def _redeliver_if_resolved(session: AsyncSession, post: Post) -> None:
     if post.status is not PostStatus.RESOLVED:
-        # The one branch of this task that used to end in complete silence,
-        # in a system whose main failure mode is silence (D-51).
+        # Logged rather than silent: silence is this system's main failure mode.
         logger.info(
             "resolve_post_task_arrived_at_settled_post",
             post_id=post.id,
@@ -222,7 +218,7 @@ async def _redeliver_if_resolved(session: AsyncSession, post: Post) -> None:
         await session.rollback()
 
         # RESOLVED has no edge back to RESOLVING, so a silent failure here
-        # would strand the post with no draft and no way out (F-14).
+        # would strand the post with no draft and no way out.
         await send_alert(
             bot,
             settings.alert_chat_id,
@@ -265,7 +261,7 @@ async def _resolve_and_deliver(
         if not _resolve_found_anything(resolved):
             if track.resolved_at is not None or track.platform_links:
                 # One stale 404 is not proof the track is gone, and deleting
-                # here would take the admin's manual data with it (R2-1).
+                # here would take the admin's manual data with it.
                 empty_error = (
                     EMPTY_RE_RESOLVE_ERROR
                     if track.resolved_at is not None
@@ -277,8 +273,7 @@ async def _resolve_and_deliver(
                 return
             nothing_usable = True
         elif not (resolved.title or track.title):
-            # A draft with no track name is an empty shell that would still
-            # mark the post RESOLVED — a failed resolve read as success (R3-2).
+            # A draft with no track name would still mark the post RESOLVED.
             # The stored title counts: `_persist_track` merges it back in.
             await _fail_post(
                 session, post_id, MISSING_TITLE_ERROR + _source_failure_note(source_failures)
@@ -303,8 +298,7 @@ async def _resolve_and_deliver(
             assert caption_title is not None
 
             # One list for both sinks: `post.genres` keeps a stored value the
-            # fresh resolve lost (R2-4), and the caption must say the same
-            # thing that column does (R3-9).
+            # fresh resolve lost, and the caption must say what that column does.
             effective_genres = genres or _genres_from_stored(post.genres)
 
             document, warnings = build_caption(
@@ -313,8 +307,8 @@ async def _resolve_and_deliver(
                 year=resolved.year,
                 release_type=resolved.release_type,
                 release_title=resolved.release_title,
-                # Both read off the row, not off `resolved`: the album id is
-                # persisted now (D-45) and languages only ever live there (D-61).
+                # Both read off the row, not off `resolved`: languages only ever
+                # live there.
                 album_id_spotify=track.album_id_spotify,
                 languages=_languages_from_stored(track.languages),
                 genres=effective_genres,
@@ -326,9 +320,8 @@ async def _resolve_and_deliver(
             post.caption = render_html(document)
             post.genres = [_genre_to_dict(genre) for genre in effective_genres]
 
-            # Delivery first, RESOLVED after (D-38): RESOLVED means "the
-            # draft is in the admin's chat", and RESOLVING -> FAILED is legal
-            # while RESOLVED -> FAILED deliberately is not.
+            # Delivery first: RESOLVED means "the draft is in the admin's chat",
+            # and only RESOLVING, not RESOLVED, can still move to FAILED.
             bot = build_bot(settings)
             try:
                 await deliver_draft(bot, post, post.created_by_user_id)
@@ -344,7 +337,7 @@ async def _resolve_and_deliver(
         await http_client.aclose()
 
     # All outside the `try`: they run after the post reached its final
-    # state, and must not land in `_fail_post` on an already-gone row (F-12).
+    # state, and must not land in `_fail_post` on an already-gone row.
     if nothing_usable:
         await _clean_up_non_track(session, post, track, source_failures)
     elif delivered:
@@ -354,7 +347,7 @@ async def _resolve_and_deliver(
 
 def _resolve_found_anything(resolved: ResolvedTrack) -> bool:
     """A `user_input` link is the admin's own URL, put into the result before
-    any network call — never evidence that a source answered (R3-2)."""
+    any network call — never evidence that a source answered."""
     resolved_links = [
         link for link in resolved.platform_links.values() if link.source != USER_INPUT_SOURCE
     ]
@@ -389,11 +382,8 @@ async def _persist_track_in_own_transaction(
     track_id: int,
     resolved: ResolvedTrack,
 ) -> None:
-    """Its own short transaction (D-54, completed): the main one holds the
-    post lock until delivery, and `deliver_draft` can take aiogram's full
-    60-second timeout — the second post of the same track waited behind it
-    and hit `lock_timeout`. FOR NO KEY UPDATE, so `INSERT INTO post` passes.
-    """
+    """The main transaction stays open through delivery (up to 60 s), so the track
+    lock lives in this short one. FOR NO KEY UPDATE, so `INSERT INTO post` passes."""
     async with session_factory() as track_session:
         try:
             track = await track_session.get(Track, track_id, with_for_update={"key_share": True})
@@ -407,10 +397,8 @@ async def _persist_track_in_own_transaction(
 
 
 def _persist_track(track: Track, resolved: ResolvedTrack) -> None:
-    """Merges into the stored row instead of overwriting it (D-42): a
-    `manual` link and an admin's `artists[].hashtag` are the only data here
-    that a re-resolve can never reproduce on its own. A degraded resolve also
-    keeps the stored `title`/`artists` when the fresh ones are weak (D-58/D-63)."""
+    """Merges into the stored row: a re-resolve cannot reproduce a `manual` link or
+    an admin's hashtag, and a degraded one keeps the stored `title`/`artists`."""
     merge.merge_stored_platform_links(resolved, track.platform_links)
 
     # Before `merge_stored_artists`, which then re-applies the hashtag
@@ -451,7 +439,7 @@ def _genre_to_dict(genre: GenreInfo) -> dict[str, object]:
 
 def _genres_from_stored(stored: list[object]) -> list[GenreInfo]:
     """Reads `post.genres` (JSONB) back as domain objects, so a caption
-    rebuilt after an empty genre fetch says what the column says (R3-9)."""
+    rebuilt after an empty genre fetch says what the column says."""
     genres: list[GenreInfo] = []
     for entry in stored:
         if not isinstance(entry, dict):
@@ -473,8 +461,8 @@ def _genres_from_stored(stored: list[object]) -> list[GenreInfo]:
 
 
 def _languages_from_stored(stored: list[object]) -> list[str]:
-    """Falls back to the schema default rather than to an empty line: D-61
-    says the language is always shown, and only step 5 can correct it."""
+    """Falls back to the schema default, never to an empty line: the language
+    is always shown."""
     languages = [entry for entry in stored if isinstance(entry, str) and entry]
     return languages or list(DEFAULT_LANGUAGES)
 
@@ -484,8 +472,8 @@ def _platform_link_to_dict(link: PlatformLink) -> dict[str, object]:
 
 
 async def _warn_about_isrc_duplicate(session: AsyncSession, post: Post, track: Track) -> None:
-    """M23/D-41: the same recording arrived through a second platform's URL,
-    which the `source_url_normalized` check alone can never notice."""
+    """The same recording arrived through another platform's URL, which the
+    `source_url_normalized` check alone can never notice."""
     if track.isrc is None:
         return
 
@@ -498,8 +486,8 @@ async def _warn_about_isrc_duplicate(session: AsyncSession, post: Post, track: T
         )
     ).first()
 
-    # Closed before Telegram, not after: this SELECT opened a transaction that
-    # then lived through two `send_alert` calls (the R3-3 pattern).
+    # Closed before Telegram: otherwise this SELECT's transaction stays open
+    # through two `send_alert` calls.
     await session.commit()
 
     if duplicate is None:
@@ -520,9 +508,8 @@ async def _warn_about_isrc_duplicate(session: AsyncSession, post: Post, track: T
 
 
 async def _warn_about_source_failures(post: Post, source_failures: list[str]) -> None:
-    """D-55: an isolated source failure means a poorer post, and a poorer
-    post nobody hears about is exactly the silent degradation the isolation
-    was allowed to risk — so it goes to the admin, not only to the logs."""
+    """Source isolation is acceptable only while the loss is audible, so a poorer
+    post is reported to the admin, not only to the logs."""
     if not source_failures:
         return
 
@@ -539,7 +526,7 @@ async def _warn_about_source_failures(post: Post, source_failures: list[str]) ->
 
 async def _alert_admin_and_draft_chat(post: Post, text_message: str) -> None:
     # Also into the draft chat: `alert_chat_id` is only "usually one of the
-    # admins" per `.env.example`, and the draft is already there (R2-14).
+    # admins" per `.env.example`, and the draft is already there.
     chat_ids = [settings.alert_chat_id]
     if post.draft_chat_id is not None and post.draft_chat_id != settings.alert_chat_id:
         chat_ids.append(post.draft_chat_id)
@@ -554,14 +541,13 @@ async def _alert_admin_and_draft_chat(post: Post, text_message: str) -> None:
 
 def _redacted(text_value: str) -> str:
     """The log pipeline redacts its own event dicts; `send_alert` and
-    `post.last_error` are sinks no processor ever sees (S3-3)."""
+    `post.last_error` are sinks no processor ever sees."""
     return redact_secrets_in_text(text_value, redaction_secrets(settings))
 
 
 async def _fail_post(session: AsyncSession, post_id: int, error_message: str) -> None:
-    """Takes an id, never a live `Post`: this is the error handler, so its
-    own inputs must survive the rollback that a failed commit performs and
-    that expires every ORM object in the session (R2-2)."""
+    """Takes an id, never a live `Post`: its inputs must survive the rollback a
+    failed commit performs, which expires every ORM object in the session."""
     error_message = _redacted(error_message)
     logger.error("resolve_post_failed", post_id=post_id, error=error_message)
 
@@ -575,7 +561,7 @@ async def _fail_post(session: AsyncSession, post_id: int, error_message: str) ->
             await _write_failed_status(session, post_id, error_message)
         except Exception:
             # Telegram does not depend on Postgres, so a database that is
-            # down for good is when this alert is the only channel (R3-1).
+            # down for good is when this alert is the only channel.
             logger.exception("resolve_post_failed_status_write_failed", post_id=post_id)
             status_written = False
 
@@ -609,8 +595,7 @@ async def _write_failed_status(session: AsyncSession, post_id: int, error_messag
 async def _clean_up_non_track(
     session: AsyncSession, post: Post, track: Track, source_failures: list[str]
 ) -> None:
-    """A syntactically-track-shaped URL that resolved to nothing usable —
-    remove the post, then the track if no other post still references it."""
+    """A track-shaped URL that resolved to nothing usable."""
     logger.warning("resolve_post_cleaned_up_non_track", post_id=post.id, track_id=track.id)
     post_id, source_url = post.id, track.source_url
 
@@ -636,9 +621,8 @@ async def _clean_up_non_track(
 async def _delete_post_and_orphan_track(
     session: AsyncSession, post: Post, post_id: int, track: Track
 ) -> tuple[bool, str]:
-    """Returns `(post_deleted, note)` instead of raising: like `_fail_post`
-    after R3-1, this path must still reach Telegram when Postgres is gone —
-    its first `commit()` used to fly past every handler the task owns."""
+    """Returns `(post_deleted, note)` instead of raising: like `_fail_post`, this
+    path must still reach Telegram when Postgres is gone."""
     track_id = track.id
     try:
         await session.delete(post)
@@ -651,14 +635,13 @@ async def _delete_post_and_orphan_track(
             f"у стані «resolving»: {_redacted(str(error))}"
         )
 
-    # §5: after the commit. The reverse order leaves a surviving row pointing
-    # at a deleted file, which is worse than an orphan file with no row.
+    # After the commit: the reverse order leaves a surviving row pointing at a
+    # deleted file, which is worse than an orphan file with no row.
     media_storage.remove_post_artifacts(settings.media_root, post_id)
 
     try:
-        # Re-taken after that commit released it: the lock is what blocks a
-        # concurrent `INSERT INTO post` this COUNT would otherwise not see.
-        # FOR NO KEY UPDATE for the same reason as the main path (R2-3).
+        # Re-taken after that commit released it: the lock blocks a concurrent
+        # `INSERT INTO post` this COUNT would miss. FOR NO KEY UPDATE, as elsewhere.
         await session.execute(
             select(Track.id).where(Track.id == track_id).with_for_update(key_share=True)
         )
@@ -671,14 +654,14 @@ async def _delete_post_and_orphan_track(
                 await session.commit()
             except IntegrityError:
                 # ON DELETE RESTRICT fired: the track is still needed by
-                # another post. Expected outcome, not a failure here (F-12).
+                # another post. Expected outcome, not a failure here.
                 await session.rollback()
                 logger.info("resolve_post_track_still_referenced", track_id=track_id)
             else:
                 media_storage.remove_track_artifacts(settings.media_root, track_id)
         else:
-            # Committed before Telegram, not after: this branch used to hold
-            # the row lock across two network calls (R3-3).
+            # Committed before Telegram, so the row lock is never held across
+            # network calls.
             await session.commit()
     except Exception as error:
         logger.exception("resolve_post_cleanup_track_failed", track_id=track_id)
@@ -699,8 +682,8 @@ async def _rollback_quietly(session: AsyncSession, post_id: int) -> None:
 
 @celery_app.task(name=PUBLISH_POST_TASK_NAME, bind=True)
 def publish_post(self: Any, post_id: int, published_by_user_id: int) -> None:
-    """Publishes an approved draft into the channel. Terminal on error, like
-    `resolve_post`: FAILED + alert + a manual retry, never a Celery retry."""
+    """Terminal on error, like `resolve_post`: FAILED, an alert and a manual
+    retry, never a Celery retry."""
     bind_celery_task_id(self.request.id)
     bind_post_id(post_id)
     run_async(_publish_post(post_id, published_by_user_id))
@@ -753,24 +736,18 @@ async def _publish_post(post_id: int, published_by_user_id: int) -> None:
 
 
 def post_reached_rendered(post: Post) -> bool:
-    """§6 asks for «`post.status is RENDERED`», and by the time `publish_post`
-    runs the status is already `PUBLISHING` — the claim moved it. The durable
-    trace of `RENDERED` is `preview_message_id`: it is written in the very
-    transaction that sets that status and by nothing else, so reading it here
-    is still the status deciding, not a file that happens to be on the volume.
-    """
+    """The status is already PUBLISHING here. `preview_message_id` is the durable
+    trace of RENDERED: only the transaction that sets that status writes it."""
     return post.preview_message_id is not None
 
 
 class RenderedVideoUnavailableError(RuntimeError):
-    """The post was previewed as a video and the video is gone. Loud on
-    purpose: falling back to `send_photo` would put a different post in the
-    channel than the one the admin approved, and D-65 leaves no way back."""
+    """Loud on purpose: a `send_photo` fallback would publish a different post than
+    the one the admin approved, and publication cannot be revoked."""
 
 
 async def _video_for_publication(session: AsyncSession, post: Post) -> RenderedVideo | None:
-    """The video branch of §6. A file alone never qualifies: a previous failed
-    attempt leaves one behind, and publishing it would be publishing a post
+    """A file alone never qualifies: a failed attempt can leave one behind that
     the admin never previewed."""
     if not post_reached_rendered(post):
         return None
@@ -828,8 +805,8 @@ async def _publish_and_confirm(
             # must fail loudly here, never quietly go out as a photo.
             video = await _video_for_publication(session, post)
 
-            # Barrier 2, the D-38 order mirrored: send, write, commit, with
-            # no network call between. The crash window is accepted (D-47).
+            # Barrier 2: send, write, commit, with no network call between.
+            # The crash window between send and commit is an accepted risk.
             await publish_to_channel(bot, post, settings.channel_id, cover_url, video)
             channel_message_id = post.channel_message_id
             assert channel_message_id is not None
@@ -858,8 +835,8 @@ async def _publish_and_confirm(
             as_video=video is not None,
         )
 
-        # Q8 retention, after the commit and only on success: Telegram holds
-        # the copy now, and a rollback would orphan the `published` row.
+        # Only after the commit and only on success: Telegram holds the copy
+        # now, and a rollback would orphan the `published` row.
         if video is not None:
             media_storage.remove_post_artifacts(settings.media_root, post_id)
 
@@ -883,9 +860,8 @@ async def _confirm_publication(
     preview_reference: tuple[int | None, int | None],
     post_url: str,
 ) -> None:
-    """D-66: only the buttons go away — `channel_chat_id`/`channel_message_id`
-    stay, because step 5 edits the published caption through them. Both
-    messages are cleared: the preview carries a publish button of its own."""
+    """Only the buttons go away; the channel reference stays for editing the
+    caption. Both messages are cleared: the preview has a publish button too."""
     for chat_id, message_id in ((draft_chat_id, draft_message_id), preview_reference):
         if chat_id is None or message_id is None:
             continue
@@ -949,8 +925,6 @@ async def _fail_publish(
         await bot.session.close()
 
 
-# ---- step 4A: audio download and video render ----------------------------
-
 # Legal entries into DOWNLOADING / RENDERING per `db.states`. Anything else
 # is a Celery redelivery arriving at a post that has already moved on.
 DOWNLOAD_ENTRY_STATUSES = frozenset(
@@ -976,7 +950,7 @@ UNKNOWN_YTDLP_VERSION = "unknown"
 @dataclass(frozen=True)
 class DownloadClaim:
     """Plain values only: the post lock is released before yt-dlp starts, so
-    nothing here may be an ORM object that would lazily refresh (§2)."""
+    nothing here may be an ORM object that would lazily refresh."""
 
     post_id: int
     track_id: int
@@ -991,7 +965,7 @@ class DownloadOutcome:
     size_bytes: int
     duration_ms: int
     # None when a stored artifact was reused — the row keeps the version that
-    # actually produced the file instead of the one running now (D-80).
+    # actually produced the file instead of the one running now.
     ytdlp_version: str | None
 
 
@@ -1025,8 +999,7 @@ class RenderOutcome:
     time_limit=settings.download_task_time_limit_seconds,
 )
 def download_post_audio(self: Any, post_id: int) -> None:
-    """Downloads the track's audio with yt-dlp and records the fragment bounds.
-    Per-task limits (§3): the resolve limits gate `/retry`, so they stay put."""
+    """Own time limits: the resolve limits gate `/retry`, so they stay put."""
     bind_celery_task_id(self.request.id)
     bind_post_id(post_id)
     try:
@@ -1071,8 +1044,8 @@ async def _download_post_audio(post_id: int) -> None:
 async def _claim_post_for_downloading(
     session_factory: async_sessionmaker[AsyncSession], post_id: int
 ) -> DownloadClaim | None:
-    """Transaction 1 of §2: lock, guard, status, commit — milliseconds, and
-    the lock is gone long before yt-dlp is started."""
+    """Transaction 1: lock, guard, status, commit — milliseconds, and the lock
+    is gone long before yt-dlp is started."""
     async with session_factory() as session:
         try:
             post = await session.get(Post, post_id, with_for_update=True)
@@ -1111,8 +1084,7 @@ async def _claim_post_for_downloading(
 
 
 def _download_audio_off_transaction(claim: DownloadClaim, tmp_directory: Path) -> DownloadOutcome:
-    """Runs in a thread with no transaction and no lock open (§2). The source
-    of `video_id` is `["youtubeMusic"]` and there is no fallback (AS3)."""
+    """Runs in a thread with no transaction and no lock open."""
     video_id = audio_download.youtube_music_video_id(claim.platform_links)
 
     reused = media_storage.find_existing_audio(settings.media_root, claim.track_id, video_id)
@@ -1160,7 +1132,6 @@ async def _finish_download(
     claim: DownloadClaim,
     outcome: DownloadOutcome,
 ) -> None:
-    """Transaction 2 of §2: lock, artifact, fragment bounds, status, commit."""
     async with session_factory() as session:
         try:
             post = await session.get(Post, claim.post_id, with_for_update=True)
@@ -1209,10 +1180,8 @@ async def _finish_download(
 async def _chain_render_after_download(
     session_factory: async_sessionmaker[AsyncSession], post_id: int
 ) -> None:
-    """The chain's one internal hop, dispatched **after** the commit so a
-    redelivery of the render can never outrun the `DOWNLOADED` it needs.
-    A failed dispatch is D-53's case again: the post is committed in a state
-    no task will move it out of, so it is failed here rather than left."""
+    """After the commit, so a redelivered render never outruns the `DOWNLOADED` it
+    needs. A failed dispatch fails the post: no task would move it otherwise."""
     try:
         await asyncio.to_thread(
             celery_app.send_task, RENDER_POST_VIDEO_TASK_NAME, kwargs={"post_id": post_id}
@@ -1255,8 +1224,8 @@ def _upsert_audio_asset_statement(claim: DownloadClaim, outcome: DownloadOutcome
 
 
 def _fragment_bounds_for(post: Post, audio_duration_ms: int) -> fragment_rule.FragmentBounds:
-    """Stored bounds win — step 6 will write them by hand, and overwriting one
-    would silently undo the admin's choice. They must still fit the file."""
+    """Stored bounds win while they fit the file: they may be the admin's choice,
+    and overwriting them would silently undo it."""
     try:
         stored = fragment_rule.stored_bounds(post.fragment_start_ms, post.fragment_end_ms)
     except fragment_rule.FragmentBoundsError:
@@ -1283,8 +1252,8 @@ def _fragment_bounds_for(post: Post, audio_duration_ms: int) -> fragment_rule.Fr
     time_limit=settings.render_task_time_limit_seconds,
 )
 def render_post_video(self: Any, post_id: int) -> None:
-    """Renders the 720x1280 fragment video. Terminal on error like every other
-    task here: FAILED plus an alert, never a Celery retry (AS4)."""
+    """Terminal on error like every other task here: FAILED plus an alert,
+    never a Celery retry."""
     bind_celery_task_id(self.request.id)
     bind_post_id(post_id)
     try:
@@ -1327,9 +1296,8 @@ async def _render_post_video(post_id: int) -> None:
 async def _finish_render_or_fail(
     session_factory: async_sessionmaker[AsyncSession], claim: RenderClaim, outcome: RenderOutcome
 ) -> None:
-    """The preview send lives inside `_finish_render`, and `RENDERED` has no
-    edge to `FAILED` (D-38's shape) — so a delivery failure has to be reported
-    from `RENDERING`, which is the state that can legally fail."""
+    """`RENDERED` has no edge to `FAILED`, so a preview delivery failure is
+    reported from `RENDERING`, the state that can legally fail."""
     try:
         await _finish_render(session_factory, claim, outcome)
     except SoftTimeLimitExceeded:
@@ -1345,8 +1313,8 @@ async def _finish_render_or_fail(
 async def _claim_post_for_rendering(
     session_factory: async_sessionmaker[AsyncSession], post_id: int
 ) -> RenderClaim | None:
-    """Transaction 1 of §2 for the render. Everything ffmpeg needs is read out
-    as plain values here, because the lock is gone by the time it runs."""
+    """Transaction 1 for the render. Everything ffmpeg needs is read out as
+    plain values here, because the lock is gone by the time it runs."""
     async with session_factory() as session:
         try:
             post = await session.get(Post, post_id, with_for_update=True)
@@ -1438,7 +1406,7 @@ async def _read_render_preconditions(
 
 
 async def _render_video_off_transaction(claim: RenderClaim, tmp_directory: Path) -> RenderOutcome:
-    """No transaction, no lock, minutes of ffmpeg — the whole reason §2 exists."""
+    """No transaction and no lock: ffmpeg runs for minutes."""
     params_hash = video_render.compute_params_hash(
         video_id=claim.video_id,
         audio_duration_ms=claim.audio_duration_ms,
@@ -1529,15 +1497,8 @@ async def _render_video_off_transaction(claim: RenderClaim, tmp_directory: Path)
 async def _finish_render(
     session_factory: async_sessionmaker[AsyncSession], claim: RenderClaim, outcome: RenderOutcome
 ) -> None:
-    """Transaction 2 of §2 for the render — and, like `publish_post`'s barrier
-    1, the lock it holds across one Telegram send *is* the delivery guard.
-    ffmpeg ran with no lock at all; what remains is an upload of a few MB.
-
-    The order is D-38's, mirrored: send the preview, write its reference,
-    then `RENDERED`, then commit. `RENDERED` therefore means «прев'ю вже в
-    чаті адміна», and a delivery failure happens while the post is still
-    `RENDERING`, which is the state that can legally fail.
-    """
+    """Transaction 2: the lock held across one Telegram upload is the delivery guard.
+    Preview first, then `RENDERED`, so `RENDERED` means «прев'ю вже в чаті адміна»."""
     async with session_factory() as session:
         try:
             post = await session.get(Post, claim.post_id, with_for_update=True)
@@ -1587,9 +1548,8 @@ def _rendered_video(outcome: RenderOutcome) -> RenderedVideo:
 
 
 async def _deliver_preview_for(post: Post, outcome: RenderOutcome) -> None:
-    """AS11: publication cannot be revoked (D-65), so the admin sees the exact
-    file that will reach the channel before it does. The old text draft loses
-    its keyboard here — its publish button would send the cover photo."""
+    """Publication cannot be revoked, so the admin first sees the exact file. The
+    text draft loses its keyboard: its publish button would send the cover photo."""
     preview_chat_id = (
         post.draft_chat_id if post.draft_chat_id is not None else settings.alert_chat_id
     )
@@ -1608,7 +1568,6 @@ def _upsert_render_statement(claim: RenderClaim, outcome: RenderOutcome) -> Post
         .values(
             post_id=claim.post_id,
             params_hash=outcome.params_hash,
-            # Always NULL in 4A; 4B fills it and `params_hash` covers it.
             text_version=None,
             path=str(outcome.path),
             size_bytes=outcome.size_bytes,
@@ -1627,8 +1586,8 @@ def _upsert_render_statement(claim: RenderClaim, outcome: RenderOutcome) -> Post
 
 
 def _describe_media_error(error: Exception) -> str:
-    """The class name travels with the message on purpose: D-80's whole point
-    is that "екстрактор зламався" must never read like "цього треку немає"."""
+    """The class name travels with the message: "екстрактор зламався" must never
+    read like "цього треку немає"."""
     return f"{type(error).__name__}: {error}"
 
 
@@ -1647,7 +1606,7 @@ async def _fail_media_post(
     session_factory: async_sessionmaker[AsyncSession], post_id: int, error_message: str
 ) -> None:
     """The media mirror of `_fail_post`: its own session, because the caller's
-    was committed and closed before the long stage ever started (§2)."""
+    was committed and closed before the long stage ever started."""
     error_message = _redacted(error_message)
     logger.error("media_task_failed", post_id=post_id, error=error_message)
 
@@ -1661,8 +1620,8 @@ async def _fail_media_post(
                 await session.rollback()
                 await _write_failed_status(session, post_id, error_message)
             except Exception:
-                # Telegram does not depend on Postgres (R3-1): the alert goes
-                # out either way, and it says the status may be wrong.
+                # Telegram does not depend on Postgres: the alert goes out
+                # either way, and it says the status may be wrong.
                 logger.exception("media_task_failed_status_write_failed", post_id=post_id)
                 status_written = False
 

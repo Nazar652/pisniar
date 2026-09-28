@@ -1,6 +1,6 @@
-"""D-69: one message may carry a «platform link + clip» pair. Only the input
-parse changes — the clip rides the same `user_input`/`manual` seat a lone clip
-has always used, and the resolve learns nothing new.
+"""One message may carry a «platform link + clip» pair. Only the input parse
+changes: the clip rides the same `user_input`/`manual` seat a lone clip uses,
+and the resolve learns nothing new.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ OTHER_CLIP_URL = "https://youtu.be/9bZkp7q19f0"
 
 async def capture_rejection(text: str, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     """Same shape as `test_handler_link_rejections`: the module logger is
-    replaced, because `capture_logs()` loses an already-bound logger (V12)."""
+    replaced, because `capture_logs()` loses an already-bound logger."""
     fake_logger = MagicMock()
     monkeypatch.setattr(handlers, "logger", fake_logger)
 
@@ -90,8 +90,8 @@ def test_the_order_of_the_pair_does_not_matter() -> None:
 
 
 def test_youtube_music_counts_as_the_platform_half_not_as_a_clip() -> None:
-    """D-64: `youtubeMusic` is the canonical "— Topic" upload, a platform link
-    like any other; only a `youtube` link is a clip."""
+    """`youtubeMusic` is the canonical "— Topic" upload, a platform link like any
+    other; only a `youtube` link is a clip."""
     submitted = [YOUTUBE_MUSIC_URL, CLIP_URL]
     classified = [classify_url(url) for url in submitted]
 

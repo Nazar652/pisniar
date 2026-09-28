@@ -1,7 +1,7 @@
-"""The measurement D-94 put in place of an average, read back against the
-numbers the worker image was measured at: an em of Noto Sans renders at
-0.734 of the ASS `Fontsize`, «Цей рядок навмисно довгий,» is 460 px of
-advance at `Fontsize: 44`, and an unknown codepoint is one full em wide.
+"""Per-glyph text measurement, read back against numbers measured on the worker
+image: an em of Noto Sans renders at 0.734 of the ASS `Fontsize`, «Цей рядок
+навмисно довгий,» is 460 px of advance at `Fontsize: 44`, and an unknown
+codepoint is one full em wide.
 """
 
 from __future__ import annotations
@@ -9,16 +9,14 @@ from __future__ import annotations
 from pisniar.worker import noto_sans_widths, text_metrics
 
 GATE_CALIBRATION_LINE = "Цей рядок навмисно довгий,"
-# Measured on the worker image: 456 px of ink for the line above, against
-# the 454.8 px of ink this table predicts for it (the difference is the
-# antialiased edge). The em-square reading of `Fontsize` predicts 619.4.
+# Measured on the worker image: 456 px of ink against the 454.8 px this table
+# predicts (antialiasing); the em-square reading of `Fontsize` predicts 619.4.
 MEASURED_ADVANCE_PX_AT_44 = 460.4
 
 
 def test_the_font_size_is_the_cell_height_and_not_the_em_square() -> None:
-    """The whole of D-94: 0.52 em was an honest average of this table, and
-    it still cut a line a third short, because libass renders the em at
-    `Fontsize * unitsPerEm / (ascender - descender)`."""
+    """An average of 0.52 em cuts a line a third short, because libass renders
+    the em at `Fontsize * unitsPerEm / (ascender - descender)`."""
     expected = noto_sans_widths.UNITS_PER_EM / (
         noto_sans_widths.HHEA_ASCENDER - noto_sans_widths.HHEA_DESCENDER
     )

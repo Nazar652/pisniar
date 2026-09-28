@@ -1,6 +1,6 @@
 """The media tasks' own decisions: which statuses may enter them, how the
-fragment bounds are chosen against the file that actually exists, how a
-failure is worded — and the guard that neither task is reachable from Telegram.
+fragment bounds are chosen against the file that actually exists, how a failure
+is worded, and who may start the chain.
 """
 
 from __future__ import annotations
@@ -51,8 +51,8 @@ def test_a_post_without_bounds_gets_the_rule() -> None:
 
 
 def test_bounds_already_on_the_post_are_kept() -> None:
-    """Step 6 writes them by hand; silently overwriting one would undo the
-    admin's choice on the most expensive artifact in the project."""
+    """Bounds on the post are the admin's choice; silently overwriting them would
+    undo it on the most expensive artifact in the project."""
     bounds = worker_tasks._fragment_bounds_for(make_post(60_000, 105_000), 212_000)
 
     assert (bounds.start_ms, bounds.end_ms) == (60_000, 105_000)
@@ -71,8 +71,8 @@ def test_a_half_written_pair_is_replaced_rather_than_crashed_on() -> None:
 
 
 def test_the_error_message_carries_the_class_that_diagnosis_needs() -> None:
-    """D-80: "екстрактор зламався" and "цього треку немає" reach the admin as
-    different sentences, not as the same generic failure."""
+    """ "екстрактор зламався" and "цього треку немає" reach the admin as different
+    sentences, not as the same generic failure."""
     message = worker_tasks._describe_media_error(
         audio_download.YtdlpExtractorBrokenError("екстрактор")
     )
@@ -142,8 +142,8 @@ def test_the_upsert_refreshes_updated_at_itself() -> None:
 
 
 def test_the_media_tasks_carry_their_own_time_limits() -> None:
-    """§3: the resolve limits gate `/retry`'s "resolve has gone stale" window,
-    so raising them for a render would silently widen it."""
+    """The resolve limits gate `/retry`'s "resolve has gone stale" window, so
+    raising them for a render would silently widen it."""
     download_task = worker_tasks.celery_app.tasks[worker_tasks.DOWNLOAD_POST_AUDIO_TASK_NAME]
     render_task = worker_tasks.celery_app.tasks[worker_tasks.RENDER_POST_VIDEO_TASK_NAME]
 
@@ -156,15 +156,14 @@ def test_the_media_tasks_carry_their_own_time_limits() -> None:
 
 
 def test_the_resolve_time_limits_were_not_touched() -> None:
-    """V38, a regression on §3: `bot.handlers` reads these two numbers."""
+    """`bot.handlers` reads these two numbers as the resolve's staleness window."""
     from pisniar.worker import celery_app as celery_module
 
     assert celery_module.TASK_SOFT_TIME_LIMIT_SECONDS == 300
     assert celery_module.TASK_TIME_LIMIT_SECONDS == 360
 
 
-# The 4.5-4.8 "unreachable from Telegram" guard is deliberately gone — 4.9 is
-# what makes them reachable. These two are what replace it.
+# The media tasks are reachable from Telegram; these two bound who may reach them.
 @pytest.mark.parametrize(
     "constant_name", ["DOWNLOAD_POST_AUDIO_TASK_NAME", "RENDER_POST_VIDEO_TASK_NAME"]
 )
@@ -199,9 +198,8 @@ def test_nothing_under_telegram_can_start_the_media_chain(task_name: str) -> Non
 
 
 def test_the_chain_is_started_by_the_render_button_and_by_retry_only() -> None:
-    """D-77: disk and minutes are spent on approval, never automatically. The
-    two doors are the button and `/retry`; a third one would be a way to
-    render every resolved post without anyone asking for it."""
+    """Disk and minutes are spent on approval, never automatically; a third door
+    besides the button and `/retry` would render posts nobody asked for."""
     handlers_source = (SOURCE_ROOT / "bot" / "handlers.py").read_text(encoding="utf-8")
 
     dispatch_sites = handlers_source.count("_dispatch_media_task(")
@@ -221,8 +219,8 @@ def audio_probe(duration_ms: int = 212_000) -> media_tools.MediaProbe:
 def test_a_stored_audio_file_is_reused_instead_of_downloaded_again(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """V36/M51: two posts of one track must cost one download. The guard is
-    the filesystem, because the lock is gone by the time yt-dlp would run."""
+    """Two posts of one track must cost one download. The guard is the
+    filesystem, because the lock is gone by the time yt-dlp would run."""
     monkeypatch.setattr(worker_tasks.settings, "media_root", tmp_path)
     directory = tmp_path / "audio" / "3"
     directory.mkdir(parents=True)
@@ -269,7 +267,7 @@ def render_claim() -> worker_tasks.RenderClaim:
 async def test_a_valid_render_on_the_volume_means_ffmpeg_is_never_invoked(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """V36/S4-A8: two parallel render tasks produce one file and one ffmpeg."""
+    """Two parallel render tasks produce one file and one ffmpeg."""
     monkeypatch.setattr(worker_tasks.settings, "media_root", tmp_path)
     claim = render_claim()
     params_hash = worker_tasks.video_render.compute_params_hash(
@@ -389,8 +387,8 @@ def install_fake_database(
 async def test_yt_dlp_runs_with_no_session_and_no_lock_open(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """§2/S4-A10. The resolve held its lock for ~20 s and that produced three
-    separate defects; a download is minutes. Asserted, not assumed."""
+    """A download takes minutes, and a lock held across it would block the bot;
+    asserted, not assumed."""
     monkeypatch.setattr(worker_tasks.settings, "media_root", tmp_path)
     post, track = media_fixtures(PostStatus.RESOLVED)
     open_sessions = install_fake_database(monkeypatch, post, track, None)
@@ -464,8 +462,8 @@ def session_returning(render_row: object) -> AsyncMock:
 
 
 def test_a_post_that_never_reached_rendered_publishes_as_before() -> None:
-    """§6: the status decides. A post with no preview went down the photo
-    path, and nothing on the volume may change that."""
+    """The status decides: a post with no preview goes down the photo path,
+    whatever is on the volume."""
     assert worker_tasks.post_reached_rendered(rendered_post(preview_message_id=None)) is False
 
 
@@ -478,8 +476,8 @@ def test_the_preview_reference_is_the_durable_trace_of_rendered() -> None:
 async def test_a_previewed_post_whose_file_vanished_fails_instead_of_sending_a_photo(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The silent-degradation guard: falling back to `send_photo` would put a
-    different post in the channel than the one the admin approved (D-65)."""
+    """Falling back to `send_photo` would put a different post in the channel
+    than the one the admin approved."""
     monkeypatch.setattr(worker_tasks.settings, "media_root", tmp_path)
     render_row = SimpleNamespace(
         path=str(tmp_path / "render" / "7" / ("a" * 64 + ".mp4")),
@@ -523,8 +521,8 @@ async def test_a_previewed_post_with_its_file_sends_the_renderers_own_dimensions
 async def test_a_failed_render_dispatch_fails_the_post_instead_of_stranding_it(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """D-53's case one level down: `DOWNLOADED` is committed and no task will
-    ever move it on, so `/retry` has to find a `failed` post with a stage."""
+    """`DOWNLOADED` is committed and no task will ever move it on, so `/retry` has
+    to find a `failed` post with a stage."""
     failures: list[tuple[int, str]] = []
 
     def refuse_to_send(*args: object, **kwargs: object) -> object:
@@ -561,9 +559,8 @@ async def test_a_successful_download_chains_the_render_itself(
 async def test_a_timeout_during_the_preview_send_is_reported_as_a_timeout(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """`SoftTimeLimitExceeded` is an ordinary `Exception`, so a blanket
-    handler around the preview send would report «помилка» where the truth
-    is «таймаут» — and the diagnosis would go looking at the wrong thing."""
+    """`SoftTimeLimitExceeded` is an ordinary `Exception`, so a blanket handler
+    around the preview send would report «помилка» where the truth is «таймаут»."""
     reported: list[str] = []
 
     async def time_out(*args: object, **kwargs: object) -> None:
@@ -600,8 +597,8 @@ async def test_a_timeout_during_the_preview_send_is_reported_as_a_timeout(
 async def test_a_failed_preview_send_fails_the_post_from_rendering(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """`RENDERED` has no edge to `FAILED` on purpose (D-38's shape), so the
-    only state a delivery failure can be reported from is `RENDERING`."""
+    """`RENDERED` has no edge to `FAILED`, so the only state a delivery failure
+    can be reported from is `RENDERING`."""
     reported: list[str] = []
 
     async def refuse(*args: object, **kwargs: object) -> None:

@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.pool import NullPool
 
 # Contention on a post/track row only ever means another resolve of the same
-# row; failing fast beats holding a worker slot or a bot handler (R2-3/R3-3).
+# row; failing fast beats holding a worker slot or a bot handler.
 LOCK_TIMEOUT_MS = 5000
 
 
@@ -25,7 +25,7 @@ def build_engine(
     database_url: str, *, use_null_pool: bool = False, lock_timeout_ms: int | None = None
 ) -> AsyncEngine:
     # A connection-level GUC, not `SET LOCAL`: it must survive the rollback
-    # a failed commit performs, which is exactly when locks matter (R2-3).
+    # a failed commit performs, which is exactly when locks matter.
     connect_args = (
         {"server_settings": {"lock_timeout": str(lock_timeout_ms)}}
         if lock_timeout_ms is not None
@@ -50,7 +50,6 @@ def build_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSessio
 async def session_scope(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> AsyncIterator[AsyncSession]:
-    """One transaction per unit of work: commit on success, rollback on error."""
     async with session_factory() as session:
         try:
             yield session

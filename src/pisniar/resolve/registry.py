@@ -1,6 +1,5 @@
-"""ISRC-first fan-out (contract p.12, the heart of the decision): exact-ISRC
-sources write `platform_links` unconditionally; name-search sources must
-pass `matching.is_match()` or the candidate is dropped with a warning.
+"""ISRC-first fan-out: exact-ISRC sources write `platform_links` unconditionally;
+name-search candidates must pass `matching.is_match()` or are dropped with a warning.
 """
 
 from __future__ import annotations
@@ -38,16 +37,13 @@ async def isolated_source_call[ResultT](
     call: Coroutine[Any, Any, ResultT],
     empty_result: ResultT,
 ) -> ResultT:
-    """D-55: one adapter raising used to fail the whole post, even though
-    the other five had answered. The failure is recorded on the track so
-    the admin still hears about it — a quiet loss is the worse trade."""
+    """One source raising must not fail a post the others can fill; the failure
+    is recorded on the track so the admin still hears about it."""
     try:
         return await call
     except SQLAlchemyError:
-        # `SourceCache` talks to Postgres inside every one of these calls, so
-        # swallowing this turned a dead database into "all six sources failed"
-        # — an empty resolve whose own error handling then had nothing left to
-        # report through (R3-1 reopened). Infrastructure is not a source.
+        # Infrastructure is not a source: `SourceCache` talks to Postgres in every
+        # call, and a dead database must not read as "all six sources failed".
         logger.exception("resolve_source_cache_failed", source=source)
         raise
     except Exception as error:
@@ -58,8 +54,7 @@ async def isolated_source_call[ResultT](
 
 def _record_source_failure(track: ResolvedTrack, source: str, error: Exception) -> None:
     """One entry per source: `deezer:album` is fetched twice (year/type here,
-    genres in `service.resolve_genres`), and a quota error listed the same
-    source twice in the admin's alert."""
+    genres in `service.resolve_genres`)."""
     prefix = f"{source}: "
     if any(failure.startswith(prefix) for failure in track.source_failures):
         return
@@ -67,8 +62,7 @@ def _record_source_failure(track: ResolvedTrack, source: str, error: Exception) 
 
 
 async def resolve_by_isrc(context: ResolveContext, isrc: str, track: ResolvedTrack) -> None:
-    """Fan out to every ISRC-exact source. No `matching` call anywhere in
-    this function — the identifier is the proof (accuracy-class test 1)."""
+    """No `matching` call here: the identifier is the proof."""
     deezer_result = await isolated_source_call(
         track,
         "deezer:isrc",
@@ -125,11 +119,7 @@ async def resolve_by_name_with_matching(
     duration_ms: int | None,
     track: ResolvedTrack,
 ) -> None:
-    """Name-search fallback sources — each candidate must pass `matching`
-    or it never reaches `platform_links` (accuracy-class test 2)."""
     if "deezer" not in track.platform_links:
-        # Fallback only used when the exact-ISRC lookup found nothing for
-        # Deezer (accuracy-class test 4) — checked, not merely hoped for.
         candidates = await isolated_source_call(
             track,
             "deezer:search",
@@ -156,8 +146,7 @@ async def resolve_by_name_with_matching(
     )
     if matched is not None:
         video_id = classify_url(matched.url).track_id
-        # Validated like the ISRC and the Spotify id next to it: this id is
-        # source-supplied and step 4 hands it to `yt-dlp` (S3-6).
+        # Source-supplied, and this id can end up in `yt-dlp`.
         if matching.is_valid_youtube_video_id(video_id):
             derived_youtube_url = f"https://www.youtube.com/watch?v={video_id}"
             merge.merge_platform_link(
@@ -228,8 +217,7 @@ _DEEZER_RECORD_TYPE_NORMALIZATION = {"compile": "compilation"}
 def _apply_deezer_album_result(
     track: ResolvedTrack, album_id: int, result: deezer.DeezerAlbumResult
 ) -> None:
-    """Merges year/release type only — the genre list itself is built
-    separately by `service.resolve_genres()` (contract p.9)."""
+    """Year and release type only; genres are built by `service.resolve_genres()`."""
     if not result.found:
         return
 
@@ -242,7 +230,7 @@ def _apply_deezer_album_result(
 
 def _release_year(release_date: str | None) -> int | None:
     """Deezer answers `"0000-00-00"` for an unknown date, and `int("0000")`
-    is a `0` that `merge_field` happily writes over a stored year (S3-4)."""
+    is a `0` that `merge_field` would write over a stored year."""
     if release_date is None or len(release_date) < 4:
         return None
 

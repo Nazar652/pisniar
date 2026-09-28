@@ -1,7 +1,6 @@
 """Spotify Web API (Client Credentials): ISRC-exact search (no `matching`
-needed), name-search fallback (needs `matching`), and `/v1/tracks/{id}` for
-year/album/release type. The access token lives in process memory (D-13),
-never Redis — that broker has no password.
+needed), name-search fallback (needs `matching`), and `/v1/tracks/{id}`.
+The access token lives in process memory, never in Redis.
 """
 
 from __future__ import annotations
@@ -161,8 +160,7 @@ async def get_track(
     client_secret: str,
 ) -> SpotifyTrackResult:
     if not is_valid_spotify_id(spotify_track_id):
-        # No caller today; the check goes in now so steps 3-5 cannot paste a
-        # source-supplied id straight into the path (R2-15).
+        # No caller yet; a source-supplied id never reaches the URL path unchecked.
         return SpotifyTrackResult(found=False)
 
     cache_key = build_request_key("spotify:track:", spotify_track_id, casefold=False)

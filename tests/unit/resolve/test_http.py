@@ -1,5 +1,6 @@
-"""`http.build_http_client`: the shared client's redirect cap and response
-size ceiling (F-19), plus the timeout every adapter inherits."""
+"""`http.build_http_client`: the shared client's redirect cap and response size
+ceiling, plus the timeout every adapter inherits.
+"""
 
 from __future__ import annotations
 

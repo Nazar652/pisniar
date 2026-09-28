@@ -128,9 +128,8 @@ async def test_handle_link_seeds_user_input_for_youtube_clip(
 async def test_a_pair_resolves_from_the_platform_link_and_seeds_the_clip(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """D-69: the same song submitted as a clip came back with a raw YouTube
-    title and half the platforms. The pair keeps the clip and resolves from
-    the platform link, which is also the track's canonical identity."""
+    """A clip alone resolves to a raw YouTube title and half the platforms; the
+    platform link is also the track's canonical identity."""
     platform_url = f"https://open.spotify.com/track/{uuid.uuid4().hex}"
     clip_url = f"https://www.youtube.com/watch?v={uuid.uuid4().hex}"
     message = make_message(f"{platform_url} {clip_url}")
@@ -372,9 +371,8 @@ async def test_handle_retry_rejects_illegal_transition_from_resolved(
 async def test_handle_retry_refuses_a_post_that_is_still_resolving(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """D-43/F-9: the `RESOLVING -> RESOLVING` self-edge exists for Celery
-    redelivery only. As a button it let two tasks both see
-    `draft_message_id IS NULL` and send two drafts."""
+    """The self-edge exists for Celery redelivery only; as a button it would let two
+    tasks both see `draft_message_id IS NULL` and send two drafts."""
     marker_url = f"https://open.spotify.com/track/{uuid.uuid4().hex}"
     async with session_factory() as session:
         track = Track(source_url=marker_url, source_url_normalized=marker_url)
@@ -399,9 +397,8 @@ async def test_handle_retry_refuses_a_post_that_is_still_resolving(
 async def test_handle_link_refuses_an_over_long_url(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """F-22: `source_url_normalized` is UNIQUE, and a btree entry past
-    ~2704 bytes raises ProgramLimitExceededError — not an IntegrityError,
-    so the existing race fallback would never catch it."""
+    """A btree entry past ~2704 bytes raises ProgramLimitExceededError, not an
+    IntegrityError, so the race fallback would never catch it."""
     over_long_url = "https://open.spotify.com/track/" + "a" * MAX_NORMALIZED_URL_BYTES
     message = make_message(over_long_url)
     celery_client = MagicMock()
@@ -423,9 +420,8 @@ async def test_handle_link_refuses_an_over_long_url(
 async def test_handle_retry_reopens_a_resolving_post_whose_worker_died(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """R2-2: D-43 closed `/retry` from `RESOLVING`, which was right for a
-    live task but left a post whose worker died with no exit at all — only
-    a manual `UPDATE` in psql, documented nowhere."""
+    """A post whose worker died would otherwise stay RESOLVING, with no exit but a
+    manual `UPDATE` in psql."""
     marker_url = f"https://open.spotify.com/track/{uuid.uuid4().hex}"
     async with session_factory() as session:
         track = Track(source_url=marker_url, source_url_normalized=marker_url)
@@ -460,9 +456,8 @@ async def test_handle_retry_reopens_a_resolving_post_whose_worker_died(
 async def test_handle_retry_answers_instead_of_blocking_when_the_row_is_locked(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """R2-12: the status was read without a lock, so two near-simultaneous
-    `/retry` both passed the check and both dispatched. `nowait` also keeps
-    the handler from blocking behind a live resolve's `FOR UPDATE`."""
+    """An unlocked status read would let two near-simultaneous `/retry` both
+    dispatch; `nowait` also keeps the handler off a live resolve's `FOR UPDATE`."""
     marker_url = f"https://open.spotify.com/track/{uuid.uuid4().hex}"
     async with session_factory() as session:
         track = Track(source_url=marker_url, source_url_normalized=marker_url)
@@ -494,9 +489,8 @@ async def test_handle_retry_answers_instead_of_blocking_when_the_row_is_locked(
 async def test_a_stale_retry_twice_in_a_row_dispatches_only_once(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """R3-4: `set_post_status(post, RESOLVING)` on a RESOLVING post changes
-    no column, so the ORM `onupdate` never fired and the post stayed stale
-    forever — every later /retry passed the guard and queued another task."""
+    """The RESOLVING self-edge changes no column, so `onupdate` never fires; without
+    the manual restamp every later /retry would pass the guard and queue another task."""
     marker_url = f"https://open.spotify.com/track/{uuid.uuid4().hex}"
     async with session_factory() as session:
         track = Track(source_url=marker_url, source_url_normalized=marker_url)
@@ -532,9 +526,8 @@ async def test_a_stale_retry_twice_in_a_row_dispatches_only_once(
 async def test_a_dispatch_failure_leaves_the_post_retryable(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """R3-5/D-53: the post was committed as RESOLVING before the dispatch, so
-    the advice the bot gives here ("спробуйте /retry") was refused by /retry
-    itself for the next 360 seconds — and no task existed to move it on."""
+    """The post is committed as RESOLVING before the dispatch; left there, /retry
+    would refuse the very advice («спробуйте /retry») the bot just gave."""
     marker_url = f"https://open.spotify.com/track/{uuid.uuid4().hex}"
     message = make_message(marker_url)
     celery_client = MagicMock()
@@ -567,9 +560,8 @@ async def test_a_dispatch_failure_leaves_the_post_retryable(
 async def test_a_failed_retry_dispatch_does_not_strand_the_post_in_resolving(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """R3-5/D-53, the /retry half: the same commit-then-dispatch order, and
-    the same contradiction between "спробуйте ще раз" and what /retry then
-    answers."""
+    """The /retry side of the same commit-then-dispatch order: the advice to try
+    again must be one that /retry then accepts."""
     marker_url = f"https://open.spotify.com/track/{uuid.uuid4().hex}"
     async with session_factory() as session:
         track = Track(source_url=marker_url, source_url_normalized=marker_url)
@@ -601,9 +593,8 @@ async def test_a_failed_retry_dispatch_does_not_strand_the_post_in_resolving(
 async def test_handle_link_answers_when_the_row_it_needs_is_locked(
     migrated_test_database_url: str,
 ) -> None:
-    """P3-5: `lock_timeout` now lives on the bot engine too, and `INSERT INTO
-    post` takes `FOR KEY SHARE` on its parent track — a plain `DBAPIError`
-    that `except IntegrityError` never covered, so the admin got silence."""
+    """`INSERT INTO post` takes `FOR KEY SHARE` on the track, and a lock timeout is a
+    `DBAPIError` that `except IntegrityError` does not cover."""
     engine = build_engine(migrated_test_database_url, lock_timeout_ms=300)
     factory = build_session_factory(engine)
     marker_url = f"https://open.spotify.com/track/{uuid.uuid4().hex}"

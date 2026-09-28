@@ -1,7 +1,7 @@
-"""`matching.is_match()`: normalization and the calibrated duration
-tolerance. Every artist/title/duration below is a real value recorded live
-from Spotify, Deezer, iTunes, ytmusicapi and song.link on all nine spike
-reference tracks (`spike-calibration-full.md`)."""
+"""`matching.is_match()`: normalization and the calibrated duration tolerance.
+Every artist/title/duration below is a real value recorded live from Spotify,
+Deezer, iTunes, ytmusicapi and song.link on nine reference tracks.
+"""
 
 from __future__ import annotations
 
@@ -259,8 +259,8 @@ def test_known_duration_passes_a_real_length_through(value: int) -> None:
 def test_is_match_treats_songlinks_zero_duration_as_unknown(
     reference_artist: str, reference_title: str, candidate_duration_ms: int
 ) -> None:
-    """song.link's YouTube entity reported `duration: 0` for these five, and
-    a literal 0 used to reject every correct Spotify candidate behind them."""
+    """song.link's YouTube entity reports `duration: 0` for these five; read
+    literally, 0 would reject every correct Spotify candidate."""
     assert is_match(
         reference_artist=reference_artist,
         reference_title=reference_title,
@@ -337,8 +337,8 @@ def test_is_valid_isrc_accepts_well_formed_identifiers(isrc: str) -> None:
     ],
 )
 def test_is_valid_isrc_rejects_anything_that_could_reshape_a_url(isrc: str | None) -> None:
-    """F-16: the value is pasted into `/track/isrc:<isrc>`, so a stray `/`
-    or `?` from a source would change which endpoint we call."""
+    """The value is pasted into `/track/isrc:<isrc>`, so a stray `/` or `?` from a
+    source would change which endpoint we call."""
     assert is_valid_isrc(isrc) is False
 
 
@@ -361,8 +361,8 @@ def test_is_valid_spotify_id_accepts_a_real_base62_id() -> None:
 def test_is_valid_spotify_id_rejects_anything_that_could_reshape_a_url(
     spotify_id: str | None,
 ) -> None:
-    """R2-15/R2-16: the id goes into `/v1/tracks/<id>` and into an `href`;
-    a space alone is a Telegram 400 on the whole post."""
+    """The id goes into `/v1/tracks/<id>` and into an `href`; a space alone is a
+    Telegram 400 on the whole post."""
     assert is_valid_spotify_id(spotify_id) is False
 
 
@@ -385,6 +385,6 @@ def test_is_valid_youtube_video_id_accepts_a_real_id() -> None:
 def test_is_valid_youtube_video_id_rejects_anything_that_could_reshape_a_url(
     video_id: str | None,
 ) -> None:
-    """S3-6: the id is source-supplied, goes into a `watch?v=` URL now and
-    into `yt-dlp` at step 4 — the same reason the ISRC is validated."""
+    """The id is source-supplied and goes into a `watch?v=` URL and into `yt-dlp`,
+    the same reason the ISRC is validated."""
     assert is_valid_youtube_video_id(video_id) is False

@@ -1,7 +1,6 @@
 """`ffmpeg`/`ffprobe` as subprocesses: argument lists, never a shell, always a
-hard timeout, and no output trusted until `ffprobe` has looked at it. Exit 0
-on an unusable file is step 4's main silent failure, so `verify_media()` —
-not the exit code — is what says a render succeeded.
+hard timeout. ffmpeg can exit 0 on an unusable file, so `verify_media()`, not
+the exit code, is what says a render succeeded.
 """
 
 from __future__ import annotations
@@ -84,8 +83,7 @@ class MediaProbe:
 def run_media_tool(
     binary: str, arguments: list[str], *, timeout_seconds: float
 ) -> subprocess.CompletedProcess[str]:
-    """One argument list, `shell=False`, a hard timeout. Every value that ends
-    up in `arguments` is built by us from validated ids, never concatenated."""
+    """Every value in `arguments` is built from validated ids, never concatenated."""
     command = [binary, *arguments]
     logger.info("media_tool_started", binary=binary, argument_count=len(arguments))
 
@@ -126,8 +124,7 @@ def stderr_tail(stderr: str | None) -> str:
 
 
 def probe_media(path: Path, *, timeout_seconds: float = PROBE_TIMEOUT_SECONDS) -> MediaProbe:
-    """Reads the file's real shape off disk. The size check comes first and on
-    purpose: a zero-byte output is exactly what ffmpeg exiting 0 can leave."""
+    """Size first, on purpose: a zero-byte output is what ffmpeg exiting 0 leaves."""
     if not path.is_file():
         raise MediaProbeError(f"файл не існує: {path}")
 
@@ -165,8 +162,6 @@ def verify_media(
     duration_tolerance_ms: int = 0,
     timeout_seconds: float = PROBE_TIMEOUT_SECONDS,
 ) -> MediaProbe:
-    """The loud check §4 asks for: streams present, duration where it was
-    promised, size above zero. Raises rather than returning a verdict."""
     probe = probe_media(path, timeout_seconds=timeout_seconds)
 
     if require_video and not probe.video_streams:

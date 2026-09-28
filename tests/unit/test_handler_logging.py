@@ -1,7 +1,6 @@
-"""D-70: publication is the most consequential action in the system and it
-used to leave no trace until it succeeded. Every guard now names the branch
-it took, so a post that failed twice and then published can be read back out
-of the logs instead of out of the admin's memory.
+"""Publication is the most consequential action in the system, so every guard
+names the branch it took: a post that failed twice and then published can be
+read back out of the logs instead of out of the admin's memory.
 """
 
 from __future__ import annotations

@@ -1,9 +1,6 @@
-"""LRC parsing: a pure function from a source payload to timed lines. No
-network, no database, no logging of the lyrics themselves (S4B-R13 — a song
-text does not belong in the structured log, only its shape does).
-
-A single malformed line is dropped with a WARN; more than
-`MAX_DROPPED_LINE_RATIO` of them means this is not LRC at all, which is loud.
+"""LRC parsing: a pure function from a source payload to timed lines. The lyrics
+themselves are never logged, only their shape. A malformed line is dropped with
+a WARN; more than `MAX_DROPPED_LINE_RATIO` of them means the payload is not LRC.
 """
 
 from __future__ import annotations
@@ -19,8 +16,8 @@ logger = get_logger(__name__)
 # plain lyrics, an error page, HTML — not "a few crooked lines".
 MAX_DROPPED_LINE_RATIO = 0.2
 
-# `[mm:ss.xx]` and `[mm:ss.xxx]` per the contract; the fraction is optional
-# and `mm` may exceed 59, both of which real LRC payloads contain.
+# `[mm:ss.xx]` and `[mm:ss.xxx]`; the fraction is optional and `mm` may
+# exceed 59, both of which real LRC payloads contain.
 _TIMESTAMP_RE = re.compile(r"^(\d{1,4}):([0-5]?\d)(?:[.:](\d{1,3}))?$")
 # `[ar:...]`, `[ti:...]`, `[length:...]`, `[by:]`, `[offset:]` — ignored,
 # `offset` included: applying it would shift every timecode silently.
@@ -34,8 +31,7 @@ class LrcParseError(ValueError):
 
 @dataclass(frozen=True)
 class LrcLine:
-    """One timed line. `start_ms` is relative to the start of the *full*
-    track, which is also what `lyric.start_ms` stores (D-5)."""
+    """`start_ms` is relative to the start of the *full* track, as `lyric.start_ms`."""
 
     start_ms: int
     text: str
@@ -87,8 +83,7 @@ def parse_lrc(content: str) -> list[LrcLine]:
 
 
 def _split_tags(source_line: str) -> tuple[list[str], str]:
-    """The leading `[...]` run and whatever follows it. Tags only count at
-    the start: a `[` inside the lyrics is text, not a tag."""
+    """Tags only count at the start: a `[` inside the lyrics is text."""
     tags: list[str] = []
     position = 0
 

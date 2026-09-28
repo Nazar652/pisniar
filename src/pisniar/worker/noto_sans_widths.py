@@ -1,10 +1,7 @@
-"""Advance widths of `NotoSans-Regular.ttf`, in font units, baked by
-`scripts/generate_glyph_widths.py` on 2026-09-20. **Generated — do not edit
-by hand**; regenerate it and let `make test-fonts` pin the result.
-
-648 codepoints, chosen by `CODEPOINT_RANGES` in that script. Anything
-outside them is not missing data — it is what
-`text_metrics.FALLBACK_ADVANCE_UNITS` exists for.
+"""Advance widths of `NotoSans-Regular.ttf` in font units, baked by
+`scripts/generate_glyph_widths.py` on 2026-09-28. **Generated — do not edit
+by hand.** 648 codepoints from `CODEPOINT_RANGES`; any other codepoint
+is measured as `text_metrics.FALLBACK_ADVANCE_UNITS`.
 """
 
 from __future__ import annotations
@@ -13,9 +10,8 @@ SOURCE_FONT_FILE = "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf"
 
 UNITS_PER_EM = 1000
 
-# libass reads the ASS `Fontsize` as the ascender-to-descender cell height
-# rather than as the em square, so these two are not decoration: they are
-# what turns a font unit into a pixel (`text_metrics.FONT_SIZE_TO_EM_SCALE`).
+# libass reads `Fontsize` as the ascender-to-descender cell height, so these two
+# turn a font unit into a pixel (`text_metrics.FONT_SIZE_TO_EM_SCALE`).
 HHEA_ASCENDER = 1069
 HHEA_DESCENDER = -293
 

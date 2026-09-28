@@ -1,6 +1,6 @@
-"""MusicBrainz recording ISRC lookup (contract p.1): EXACT_ISRC class, no
-`matching` needed. Disabled without a contact — MusicBrainz's usage policy
-requires an identifiable `User-Agent`, and gate 2.0.4 found none configured.
+"""MusicBrainz recording ISRC lookup: EXACT_ISRC class, no `matching` needed.
+Disabled without a contact: MusicBrainz's usage policy requires an identifiable
+`User-Agent`.
 """
 
 from __future__ import annotations
@@ -94,15 +94,12 @@ def _result_from_payload(payload: dict[str, object]) -> MusicBrainzRecordingResu
 
 
 def _host_or_none(url: str) -> str | None:
-    """`httpx.URL()` is not a tolerant parser and MusicBrainz is publicly
-    editable: one control character, bad IDNA host or broken IPv6 literal
-    in a single url-rel used to fail the whole post (R2-7). `ValueError`
-    covers idna's `InvalidCodepoint`, which httpx does not wrap.
-    """
+    """MusicBrainz is publicly editable, and one bad url-rel must not fail the post.
+    `ValueError` covers idna's `InvalidCodepoint`, which httpx does not wrap."""
     try:
         return httpx.URL(url).host
     except (httpx.InvalidURL, ValueError):
         # Sanitized: a control character in the url-rel is exactly what
-        # gets it here, and the raw value would go into the log line (S3-7).
+        # gets it here, and the raw value would go into the log line.
         logger.warning("musicbrainz_url_rel_unparsable", url=sanitize_metadata_text(url))
         return None

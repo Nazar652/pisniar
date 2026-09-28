@@ -1,7 +1,6 @@
-"""V56/V58 against the real `source_fetch` table: a documented 404 leaves a
-negative row behind, a 503 leaves nothing at all. The clone of R2-5 — the
-unit tests prove the adapter's intent, this proves what the database holds
-after it (S4B-A12: an outage is never cached as "no lyrics").
+"""LRCLIB against the real `source_fetch` table: a documented 404 leaves a negative
+row behind, a 503 leaves nothing. The unit tests prove the adapter's intent; this
+proves what the database holds afterwards, since an outage is never "no lyrics".
 """
 
 from __future__ import annotations
@@ -33,8 +32,8 @@ SERVER_OVERLOADED_BODY = {
 
 
 def unique_artist_names() -> list[str]:
-    """A fresh pair per test: the cache row lives for an hour (D-40), so a
-    constant name would make the second run of the day a cache hit."""
+    """A fresh pair per test: the cache row lives for an hour, so a constant name
+    would make the second run of the day a cache hit."""
     return [f"Виконавець {uuid.uuid4().hex}", "0%Mercury"]
 
 
@@ -77,9 +76,8 @@ async def test_a_documented_404_is_cached_as_a_miss(
 async def test_a_503_leaves_no_negative_row_behind(
     source_cache: SourceCache, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """M60 with a mock, because D-91 showed a live 503 is not reproducible:
-    the admin must hear «джерело не відповіло», and the next render must be
-    free to ask again instead of reading an hour-old lie."""
+    """Mocked, since a live 503 cannot be reproduced on demand: the admin must hear
+    «джерело не відповіло», and the next render must be free to ask again."""
     monkeypatch.setattr(lrclib.THROTTLE, "min_interval_seconds", 0.0)
     monkeypatch.setattr(lrclib, "RETRY_BASE_DELAY_SECONDS", 0.0)
     artist_names = unique_artist_names()

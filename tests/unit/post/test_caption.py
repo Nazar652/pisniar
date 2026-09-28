@@ -1,8 +1,7 @@
-"""`build_caption`: the D-29 template plus step 3's changes — the media
-limit as the default (D-45), the language row (D-61), the clip first
-(D-64) — and the deterministic degradation order (genres -> platforms ->
-release title, never the first line/artist hashtags/languages/channel
-link)."""
+"""`build_caption`: the post template, the 1024 media limit as the default, the
+language row, the clip first, and the degradation order: genres -> platforms ->
+release title, never the first line, artist hashtags, languages or channel link.
+"""
 
 from __future__ import annotations
 
@@ -126,8 +125,8 @@ def test_digit_only_genre_name_is_skipped_with_warning() -> None:
 
 
 def test_a_rich_post_fits_the_media_limit_without_degrading() -> None:
-    """D-45's arithmetic: a realistic post is 150-650 units against 1024,
-    so nothing is dropped — degradation stays the rare branch."""
+    """A realistic post is 150-650 units against 1024, so nothing is dropped and
+    degradation stays the rare branch."""
     document, warnings = build_caption(
         artists=[ArtistInfo(name="hackedface")],
         title="but wait...",
@@ -156,8 +155,8 @@ def test_a_rich_post_fits_the_media_limit_without_degrading() -> None:
 
 
 def test_the_default_limit_is_the_media_limit_not_4096() -> None:
-    """D-45: the draft the admin approves must already be built for the
-    caption of a photo, or the channel would show a different text."""
+    """The draft the admin approves must already be built for a photo caption, or
+    the channel would show a different text."""
     assert MEDIA_CAPTION_LIMIT == 1024
 
     document, _ = build_caption(
@@ -212,8 +211,8 @@ def test_the_language_row_survives_without_any_genre() -> None:
 
 
 def test_a_manual_youtube_link_leads_the_row_and_is_marked_as_a_clip() -> None:
-    """D-64: `MANUAL` covers both the link the admin submits today and the
-    one the Mini App will paste on step 5."""
+    """`MANUAL` covers both the link the admin submits and the one the Mini App
+    will paste."""
     document, _ = build_caption(
         artists=[ArtistInfo(name="A")],
         title="T",
@@ -230,8 +229,8 @@ def test_a_manual_youtube_link_leads_the_row_and_is_marked_as_a_clip() -> None:
 
 
 def test_an_automatic_youtube_link_is_neither_first_nor_called_a_clip() -> None:
-    """Post 1 on live data: `ytmusic` returned a `youtube` link with the
-    same `videoId` as YouTube Music — a Topic upload, not a clip."""
+    """`ytmusic` can return a `youtube` link with the same `videoId` as YouTube
+    Music: a Topic upload, not a clip."""
     document, _ = build_caption(
         artists=[ArtistInfo(name="A")],
         title="T",
@@ -267,8 +266,8 @@ def _many_platforms(count: int) -> dict[str, PlatformLink]:
 
 
 def test_caption_degrades_to_fit_1024_limit() -> None:
-    """Step 3's real limit (1024, video caption) — degradation must fire
-    routinely here, not just in a contrived edge case."""
+    """At the real 1024 limit degradation must fire routinely, not just in a
+    contrived edge case."""
     document, _ = build_caption(
         artists=[ArtistInfo(name="Burned Time Machine"), ArtistInfo(name="0%Mercury")],
         title="A Reasonably Long Track Title For This Test",
@@ -305,9 +304,8 @@ def test_degradation_drops_genres_before_platforms() -> None:
 
 
 def test_degradation_protects_spotify_and_youtube_music_until_last() -> None:
-    # 72 sits between the minimal document with only the two protected
-    # platforms (68 units, language row included) and the 80 a third one
-    # would need.
+    # 72 sits between the minimum with only the two protected platforms (68 units,
+    # language row included) and the 80 a third platform would need.
     document, _ = build_caption(
         artists=[ArtistInfo(name="A")],
         title="T",
@@ -343,7 +341,7 @@ def test_degradation_never_touches_first_line_or_channel_link() -> None:
 
     text = plain_text(document)
     assert text.startswith("Very Long Artist Name Indeed — An Extremely Long Track Title")
-    # D-61 keeps the language out of degradation: it is always shown.
+    # The language is never degraded: it is always shown.
     assert "#українська" in text
     assert text.endswith("Піснярня 🇺🇦")
     channel_links = [
@@ -372,8 +370,8 @@ def test_degradation_reports_warning_when_still_over_limit() -> None:
 
 
 def test_a_malformed_album_id_degrades_to_plain_text_with_a_warning() -> None:
-    """R2-16: `escape_attribute` stops the XSS, but a space in the id is a
-    Telegram 400 on the whole post — a missing link costs far less."""
+    """`escape_attribute` stops the XSS, but a space in the id is a Telegram 400
+    on the whole post, and a missing link costs far less."""
     document, warnings = build_caption(
         artists=[ArtistInfo(name="Тол")],
         title="Сумніви",

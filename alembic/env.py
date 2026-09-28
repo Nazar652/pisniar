@@ -11,12 +11,8 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from pisniar.db.base import Base
 from pisniar.db.models import Post, SourceFetch, Track  # noqa: F401
 
-# this is the Alembic Config object, which provides
-# access to the values within the .ini file in use.
 config = context.config
 
-# Interpret the config file for Python logging.
-# This line sets up loggers basically.
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
@@ -35,7 +31,6 @@ config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
 
 
 def run_migrations_offline() -> None:
-    """Render SQL to stdout without a live DB connection."""
     url = config.get_main_option("sqlalchemy.url")
     context.configure(
         url=url,
@@ -43,7 +38,7 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         # compare_server_default defaults to False; without it, alembic
-        # check (V11) never catches a server_default drift.
+        # check never catches a server_default drift.
         compare_type=True,
         compare_server_default=True,
     )
@@ -54,7 +49,7 @@ def run_migrations_offline() -> None:
 
 def do_run_migrations(connection: Connection) -> None:
     # configure() must run before any execute() on this connection, or Alembic
-    # thinks an external caller owns the transaction and silently skips its commit (D-23).
+    # thinks an external caller owns the transaction and silently skips its commit.
     context.configure(
         connection=connection,
         target_metadata=target_metadata,
@@ -71,7 +66,6 @@ def do_run_migrations(connection: Connection) -> None:
 
 
 async def run_async_migrations() -> None:
-    """Open one NullPool connection and run migrations through it."""
     connectable = async_engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
@@ -85,8 +79,6 @@ async def run_async_migrations() -> None:
 
 
 def run_migrations_online() -> None:
-    """Run migrations in 'online' mode."""
-
     asyncio.run(run_async_migrations())
 
 

@@ -1,7 +1,5 @@
-"""Default hashtag rule (D-29): NFC -> split on whitespace -> drop
-disallowed characters per word -> first word unchanged, rest capitalized
--> glue together. A purely-digit or empty result emits no hashtag at all
-(Telegram doesn't highlight `#1995`, and a bare `#` breaks the layout).
+"""Default hashtag rule. A purely-digit or empty result emits none:
+Telegram doesn't highlight `#1995`, and a bare `#` breaks the layout.
 """
 
 from __future__ import annotations

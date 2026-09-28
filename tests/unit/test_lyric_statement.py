@@ -1,6 +1,6 @@
-"""Seams §2.1.1 and §2.1.2 at the database end. Both look pointless today —
-one orders by a column that happens to match the timecodes, the other filters
-on a NOT NULL column — and both are what keeps step 7 an addition.
+"""Two statements that look pointless today: one orders by a column that happens
+to match the timecodes, the other filters on a NOT NULL column. Both are what
+lets untimed lines arrive later without touching the render path.
 """
 
 from __future__ import annotations
@@ -27,9 +27,8 @@ def test_the_render_read_orders_by_line_index_and_never_by_the_timecode() -> Non
 
 
 def test_the_render_read_spells_the_timecode_predicate_out_while_it_is_a_tautology() -> None:
-    """`start_ms` is NOT NULL today, so this filters nothing. When step 7
-    runs `ALTER COLUMN start_ms DROP NOT NULL` — instant in Postgres — the
-    render path does not change by one character."""
+    """`start_ms` is NOT NULL today, so this filters nothing; dropping NOT NULL
+    later leaves the render path unchanged by one character."""
     sql = compiled_sql()
 
     assert "lyric.start_ms IS NOT NULL" in sql

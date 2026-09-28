@@ -1,7 +1,6 @@
 """The 720x1280 filtergraph and the assertions that make its output
-trustworthy. `in_range=pc:out_range=tv` plus `-color_range tv` is not a
-refinement: the cover arrives from the Spotify CDN as full-range JPEG, and a
-naive `format=yuv420p` yields `yuvj420p` every single time (D-79, measured).
+trustworthy. `in_range=pc:out_range=tv` plus `-color_range tv` is required:
+Spotify covers are full-range JPEG, and a plain `format=yuv420p` yields `yuvj420p`.
 """
 
 from __future__ import annotations
@@ -20,10 +19,8 @@ logger = get_logger(__name__)
 
 VIDEO_WIDTH = 720
 VIDEO_HEIGHT = 1280
-# D-92: the square cover is pushed up instead of being centred, and the band
-# it frees at the bottom is where step 4B draws the text — a long line then
-# overflows into black rather than onto the artist's face. `ass`'s own
-# `TEXT_BAND_TOP_PX` is this number plus the cover's side.
+# The cover sits high, not centred: the band below holds the lyrics, so a long
+# line overflows into black, not onto a face. `ass.TEXT_BAND_TOP_PX` builds on it.
 COVER_TOP_OFFSET_PX = 100
 VIDEO_FPS = 30
 VIDEO_CODEC = "libx264"
@@ -32,8 +29,8 @@ AUDIO_BITRATE = "192k"
 AUDIO_SAMPLE_RATE = "44100"
 AUDIO_CHANNELS = "2"
 
-# `api.telegram.org` refuses more (AS9). The gate measured 4.44 MB for the
-# worst realistic input, so this branch guards a render defect, not an input.
+# `api.telegram.org` refuses more. The worst realistic input renders to ~4.4 MB,
+# so hitting this means a render defect, not a big input.
 TELEGRAM_VIDEO_SIZE_LIMIT_BYTES = 50 * 1024 * 1024
 RENDER_DURATION_TOLERANCE_MS = 500
 
@@ -41,23 +38,22 @@ COVER_DOWNLOAD_TIMEOUT_SECONDS = 30.0
 COVER_MAX_BYTES = 8 * 1024 * 1024
 COVER_FILE_NAME = "cover.img"
 
-# Telegram caps a custom `thumbnail` at 320 px on either edge. Taken from the
-# rendered file's own first frame, so it shows the padded 720x1280 frame the
-# subscriber will see rather than the raw square cover.
+# Telegram caps a custom `thumbnail` at 320 px per edge. Cut from the rendered
+# file, so it shows the padded frame subscribers see, not the raw square cover.
 THUMBNAIL_MAX_EDGE = 320
 THUMBNAIL_TIMEOUT_SECONDS = 30.0
 
 # Bumped whenever the filtergraph or the encoder settings change: it is an
-# input to `params_hash`, so an old artifact stops being reused (V36).
+# input to `params_hash`, so an old artifact stops being reused.
 RENDERER_VERSION = "4B.1"
 
 
 class RenderError(RuntimeError):
-    """Base for every render failure — loud, never isolated (§4)."""
+    """Base for every render failure — loud, never isolated."""
 
 
 class MissingCoverError(RenderError):
-    """No cover to put in the frame; 4A's video is the cover plus audio."""
+    """No cover to put in the frame, and the cover is the frame."""
 
 
 class RenderTooLargeError(RenderError):
@@ -73,7 +69,7 @@ class EncoderQuality:
 
 
 DEFAULT_QUALITY = EncoderQuality(crf="23", maxrate="2000k", bufsize="4000k", preset="veryfast")
-# The single retry V34 allows before the post fails; never a silent send.
+# The single retry before the post fails; an oversized file is never sent.
 REDUCED_QUALITY = EncoderQuality(crf="30", maxrate="1200k", bufsize="2400k", preset="veryfast")
 
 
@@ -83,8 +79,8 @@ class RenderParameters:
     cover_path: Path
     fragment_start_ms: int
     fragment_end_ms: int
-    # §1.2: the `.ass` path comes in from outside as a path, never as a flag
-    # decided inside — that is what keeps 4B an addition instead of a rewrite.
+    # Passed in from outside, never decided here: subtitles stay an optional
+    # layer over the same filtergraph.
     subtitles_path: Path | None = None
 
     @property
@@ -102,8 +98,7 @@ def compute_params_hash(
     text_version: str | None = None,
     quality: EncoderQuality = DEFAULT_QUALITY,
 ) -> str:
-    """Covers every input the frames depend on, `text_version` included — in
-    4A it is always None, and the column keeps the hash auditable in 4B."""
+    """Must cover every input the frames depend on, or a stale render is reused."""
     payload = {
         "renderer_version": RENDERER_VERSION,
         "video_id": video_id,
@@ -128,9 +123,8 @@ def compute_params_hash(
 
 
 def build_filter_complex(subtitles_path: Path | None = None) -> str:
-    """`in_range=pc:out_range=tv` is the whole point (D-79); `pad` lifts the
-    square cover to `COVER_TOP_OFFSET_PX` (D-92), `setsar=1` keeps players
-    honest."""
+    """`in_range=pc:out_range=tv` handles full-range covers; `setsar=1` gives
+    square pixels, so players do not stretch the frame."""
     steps = [
         f"scale={VIDEO_WIDTH}:{VIDEO_HEIGHT}:force_original_aspect_ratio=decrease"
         f":flags=lanczos:in_range=pc:out_range=tv",
@@ -217,8 +211,6 @@ def render_fragment(
     timeout_seconds: float,
     quality: EncoderQuality = DEFAULT_QUALITY,
 ) -> MediaProbe:
-    """One ffmpeg pass, then `ffprobe` on what it produced. The exit code is
-    never the verdict — exit 0 on an unusable file is S4-R1."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     logger.info(
@@ -259,8 +251,7 @@ def render_fragment_within_size_limit(
     timeout_seconds: float,
     size_limit_bytes: int = TELEGRAM_VIDEO_SIZE_LIMIT_BYTES,
 ) -> tuple[MediaProbe, EncoderQuality]:
-    """The size assert, with the one lower-bitrate retry V34 allows. Nothing
-    is ever sent from here — an oversized render fails the post instead."""
+    """One lower-bitrate retry, then the post fails: an oversized render is never sent."""
     probe = render_fragment(parameters, output_path, timeout_seconds=timeout_seconds)
     if probe.size_bytes <= size_limit_bytes:
         return probe, DEFAULT_QUALITY
@@ -301,9 +292,8 @@ def build_thumbnail_arguments(video_path: Path, output_path: Path) -> list[str]:
 def render_thumbnail(
     video_path: Path, output_path: Path, *, timeout_seconds: float = THUMBNAIL_TIMEOUT_SECONDS
 ) -> Path | None:
-    """Cosmetic, so it returns `None` instead of raising: Telegram builds its
-    own preview when no thumbnail is attached, and losing that is never a
-    reason to fail a post that already has a verified video."""
+    """Cosmetic, so it returns `None` instead of raising: Telegram builds its own
+    preview, and that is no reason to fail a post with a verified video."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     try:
@@ -334,9 +324,7 @@ async def download_cover(
     """Product-critical, so not wrapped in `isolated_source_call`: without the
     cover there is no frame, and the post has no video to show."""
     if not cover_url:
-        raise MissingCoverError(
-            "у треку немає обкладинки — рендерити нічого, відео 4A це обкладинка плюс аудіо"
-        )
+        raise MissingCoverError("у треку немає обкладинки — без неї відео не зібрати")
 
     destination_directory.mkdir(parents=True, exist_ok=True)
     destination = destination_directory / COVER_FILE_NAME
@@ -362,7 +350,6 @@ def _seconds(milliseconds: int) -> str:
 
 
 def _escape_filter_path(path: Path) -> str:
-    """A filtergraph is its own mini-language: `:` and `\\` inside a path
-    argument terminate the option unless escaped. POSIX form — the worker
+    """`:` and `\\` end a filter option unless escaped. POSIX form: the worker
     container is Linux whatever host the tests run on."""
     return path.as_posix().replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")

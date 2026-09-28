@@ -1,6 +1,5 @@
-"""The filtergraph D-79 corrected, the encoder flags the acceptance criteria
-name, the size ceiling with its single retry (V34), and `params_hash` — the
-input that decides whether ffmpeg runs at all (V36).
+"""The filtergraph, the required encoder flags, the size ceiling with its single
+retry, and `params_hash`, the input that decides whether ffmpeg runs at all.
 """
 
 from __future__ import annotations
@@ -31,8 +30,8 @@ def parameters(subtitles_path: Path | None = None) -> video_render.RenderParamet
 
 
 def test_the_scale_filter_converts_the_range_instead_of_only_naming_the_format() -> None:
-    """D-79, measured on the gate: the cover arrives from the Spotify CDN as
-    full-range JPEG, and a naive `format=yuv420p` yields `yuvj420p` every time."""
+    """Measured: the cover arrives from the Spotify CDN as full-range JPEG, and a
+    naive `format=yuv420p` yields `yuvj420p` every time."""
     graph = video_render.build_filter_complex()
 
     assert "in_range=pc:out_range=tv" in graph
@@ -49,8 +48,8 @@ def test_the_frame_is_seven_twenty_by_twelve_eighty_with_square_pixels() -> None
 
 
 def test_the_cover_is_lifted_instead_of_centred_so_the_text_band_is_black() -> None:
-    """D-92: centring left the side lines over a busy cover; the bottom band
-    is now empty frame, and the offset is a constant, not `(oh-ih)/2`."""
+    """Centred, the cover sits under the side lines; lifted, the bottom band stays
+    empty frame, at a constant offset rather than `(oh-ih)/2`."""
     graph = video_render.build_filter_complex()
 
     assert video_render.COVER_TOP_OFFSET_PX == 100
@@ -62,8 +61,8 @@ def test_no_subtitle_filter_exists_in_4a() -> None:
 
 
 def test_a_subtitle_path_handed_in_from_outside_is_appended() -> None:
-    """§1.2: 4B passes a path in, it does not flip a flag inside — that is
-    what keeps 4B an addition to a verified filtergraph."""
+    """Subtitles come in as a path, not a flag flipped inside, so text is an
+    addition to a verified filtergraph."""
     graph = video_render.build_filter_complex(Path("/data/tmp/7/lyrics.ass"))
 
     assert "subtitles=/data/tmp/7/lyrics.ass" in graph
@@ -88,8 +87,6 @@ def pairs(arguments: list[str]) -> set[tuple[str, str]]:
 
 
 def test_every_encoder_flag_the_acceptance_criteria_name_is_present() -> None:
-    """S4-A5: 720x1280, yuv420p, +faststart, H.264 + AAC, plus the bitrate
-    ceiling the contract asks for."""
     arguments = video_render.build_ffmpeg_arguments(parameters(), OUTPUT_PATH)
     argument_pairs = pairs(arguments)
 
@@ -157,8 +154,8 @@ def test_the_hash_is_stable_for_identical_inputs() -> None:
     ],
 )
 def test_every_input_the_frames_depend_on_changes_the_hash(overrides: dict[str, Any]) -> None:
-    """§1.3: `text_version` is always None in 4A and still an input, so a 4B
-    render never reuses a 4A artifact."""
+    """`text_version` is an input even when it is `None`, so a render with text
+    never reuses one without."""
     baseline: dict[str, Any] = {
         "video_id": "n4bPzdIs_nc",
         "audio_duration_ms": 212_000,
@@ -228,8 +225,8 @@ def test_a_render_is_verified_by_ffprobe_not_by_the_exit_code(
 def test_a_render_ffprobe_refuses_fails_the_whole_call(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """S4-A7: ffmpeg exiting 0 on an unusable file is the step's main silent
-    failure, and the verdict comes from `verify_media`, not from the exit code."""
+    """ffmpeg can exit 0 on an unusable file, so the verdict comes from
+    `verify_media`, not from the exit code."""
     monkeypatch.setattr(
         video_render, "run_media_tool_checked", lambda binary, arguments, **kwargs: None
     )
@@ -277,8 +274,8 @@ def test_an_oversized_render_gets_exactly_one_lower_bitrate_attempt(
 def test_still_oversized_after_the_retry_fails_and_sends_nothing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """V34/S4-A6: the size is checked before Telegram ever sees the file, and
-    there is no branch here that sends one."""
+    """The size is checked before Telegram ever sees the file, and there is no
+    branch here that sends one."""
     calls = stub_ffmpeg(monkeypatch, [make_probe(60 * 1024 * 1024), make_probe(55 * 1024 * 1024)])
 
     with pytest.raises(video_render.RenderTooLargeError, match="дефект рендера"):
@@ -334,8 +331,8 @@ async def test_an_oversized_cover_is_refused_before_it_reaches_ffmpeg(tmp_path: 
 async def test_a_failed_cover_request_propagates_rather_than_being_isolated(
     tmp_path: Path,
 ) -> None:
-    """§4: `isolated_source_call` is about metadata sources, where a loss
-    means a poorer post. No cover means no product."""
+    """`isolated_source_call` is for metadata sources, where a loss means a
+    poorer post. No cover means no product."""
     client = build_cover_client(lambda request: httpx.Response(503))
     try:
         with pytest.raises(httpx.HTTPStatusError):

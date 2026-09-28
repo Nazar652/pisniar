@@ -1,8 +1,4 @@
-"""Command handlers.
-
-Reachable only by admins — `AdminAllowlistMiddleware` has already filtered
-everything else out by the time a handler runs.
-"""
+"""Command handlers, reachable only by admins (`AdminAllowlistMiddleware`)."""
 
 from __future__ import annotations
 
@@ -56,7 +52,7 @@ DOWNLOAD_DISPATCH_FAILED_ERROR = "не вдалося поставити зад�
 RENDER_DISPATCH_FAILED_ERROR = "не вдалося поставити задачу рендера відео в чергу"
 UNKNOWN_CALLBACK_ANSWER = "Невідома дія."
 
-# §6: the old draft's publish button is still live during a render, and a
+# The text draft's publish button is still live during a render, and a
 # refusal naming `downloading` would read to the admin like a breakage.
 MEDIA_IN_PROGRESS_STATUSES = frozenset(
     {PostStatus.DOWNLOADING, PostStatus.DOWNLOADED, PostStatus.RENDERING}
@@ -67,7 +63,7 @@ MEDIA_IN_PROGRESS_ANSWER = (
 )
 VIDEO_READY_ANSWER = "Відео для поста {post_id} уже готове — публікуйте кнопкою під прев'ю з відео."
 
-# D-64: a clip is a `youtube` link, never a `youtubeMusic` one — the latter
+# A clip is a `youtube` link, never a `youtubeMusic` one — the latter
 # is the canonical "— Topic" upload and belongs to the platform half.
 CLIP_PLATFORM = "youtube"
 
@@ -95,9 +91,6 @@ NOT_TRACK_REASON_UA = {
 
 
 class RetryBranch(StrEnum):
-    """What `/retry` is actually being asked to repeat. Four intents, not four
-    spellings of one — the distinction D-47 introduced and D-70 made visible."""
-
     RESOLVE = "resolve"
     DOWNLOAD = "download"
     RENDER = "render"
@@ -175,7 +168,7 @@ async def handle_retry(
     post_id = int(arguments[1].strip())
 
     # Bound before the first refusal can fire, not after the transaction:
-    # a `/retry` that never dispatches is exactly the one worth tracing (D-70).
+    # a `/retry` that never dispatches is exactly the one worth tracing.
     bind_post_id(post_id)
     logger.info("retry_requested", user_id=user_id, post_id=post_id)
 
@@ -185,7 +178,7 @@ async def handle_retry(
     async with session_scope(session_factory) as session:
         try:
             # Locked, not just read: without it two near-simultaneous
-            # `/retry` both pass the status check and dispatch (R2-12).
+            # `/retry` both pass the status check and dispatch.
             post = await session.get(Post, post_id, with_for_update={"nowait": True})
         except DBAPIError:
             await session.rollback()
@@ -209,7 +202,7 @@ async def handle_retry(
             stuck_status = post.status
             if not _stage_has_gone_stale(post, _stage_time_limit_seconds(stuck_status)):
                 # The self-edges exist for Celery redelivery, not as a button:
-                # a second task would race the first into two drafts (D-43/F-9).
+                # a second task would race the first into two drafts.
                 await message.answer(STALE_STAGE_ANSWER[stuck_status].format(post_id=post_id))
                 logger.warning(
                     "retry_refused",
@@ -220,7 +213,7 @@ async def handle_retry(
                 return
 
             # A self-edge changes no column, so the ORM `onupdate` never fires
-            # and every later /retry would pass this guard too (R3-4).
+            # and every later /retry would pass this guard too.
             post.updated_at = datetime.now(UTC)
             reclaimed_stale_stage = stuck_status.value
             branch = STALE_STAGE_BRANCH[stuck_status]
@@ -270,10 +263,8 @@ async def handle_retry(
 
 
 def _retry_branch_for_failed_post(post: Post) -> RetryBranch:
-    """V39/S4-R7: the stage is **read** from `failed_from_status`, never
-    guessed from `draft_message_id`. Step 4 put two stages between the draft
-    and the publication, and a post that failed while downloading has a draft
-    too — the D-47 rule would hand it to `publish_post` as a photo."""
+    """Read from `failed_from_status`, never guessed from `draft_message_id`: a
+    post that failed while downloading has a draft too."""
     stage = post.failed_from_status
     if stage is PostStatus.RESOLVING:
         return RetryBranch.RESOLVE
@@ -284,8 +275,8 @@ def _retry_branch_for_failed_post(post: Post) -> RetryBranch:
     if stage is PostStatus.PUBLISHING:
         return RetryBranch.REPUBLISH
 
-    # Rows that failed before migration 0004 carry no stage at all, and for
-    # them the D-47 rule is still exactly right: step 4 did not exist yet.
+    # Rows that failed before migration 0004 carry no stage; for them a draft
+    # means the resolve succeeded and only publication could have failed.
     return RetryBranch.REPUBLISH if post.draft_message_id is not None else RetryBranch.RESOLVE
 
 
@@ -308,11 +299,8 @@ async def handle_callback(
     session_factory: async_sessionmaker[AsyncSession],
     celery_client: Celery,
 ) -> None:
-    """The two inline triggers (D-46 publish, D-77 render). Reachable only by
-    admins for the same reason every command is: the allowlist is an *outer*
-    middleware on `dispatcher.update`, and `event_from_user` is populated for
-    a `callback_query` too — `test_callback_authorization.py` proves it.
-    """
+    """Admin-only like every command: the allowlist is an *outer* middleware on
+    `dispatcher.update`, and `event_from_user` is set for a `callback_query` too."""
     parsed = parse_callback(callback.data)
     if parsed is None or callback.from_user is None:
         logger.warning(
@@ -344,8 +332,8 @@ async def _handle_publish_tap(
     session_factory: async_sessionmaker[AsyncSession],
     celery_client: Celery,
 ) -> None:
-    # `published_by_user_id` is written on success only, so until now a
-    # refused or failed tap left no trace of who tapped at all (D-70).
+    # `published_by_user_id` is written on success only, so this is the only
+    # trace of who tapped a refused or failed publish.
     logger.info("publish_button_tapped", user_id=user_id, post_id=post_id)
 
     refusal: str | None = None
@@ -400,7 +388,7 @@ async def _handle_render_tap(
     session_factory: async_sessionmaker[AsyncSession],
     celery_client: Celery,
 ) -> None:
-    """D-77: the media chain starts here and nowhere else. Minutes of CPU and
+    """The media chain starts here and nowhere else. Minutes of CPU and
     hundreds of megabytes are spent only on a draft the admin approved."""
     logger.info("render_button_tapped", user_id=user_id, post_id=post_id)
 
@@ -421,7 +409,7 @@ async def _handle_render_tap(
         await callback.answer(refusal, show_alert=True)
         return
 
-    # D-68 order: database, keyboard, dispatch. Removing it before the commit
+    # Database, keyboard, dispatch: removing it before the commit
     # would strand a post the database then declined to move.
     await _remove_keyboard(bot, draft_reference, "render_keyboard_removal_failed")
 
@@ -445,9 +433,8 @@ async def _handle_render_tap(
 def _claim_post_for_publishing(
     post: Post | None, post_id: int, user_id: int
 ) -> tuple[str | None, tuple[int, int] | None]:
-    """Moves a locked post into `publishing`, or explains why it cannot be.
-    Returns `(refusal, draft_reference)` — exactly one of them is set. Each
-    refusal is logged where its branch lives, with its own reason (D-70)."""
+    """Returns `(refusal, draft_reference)`, exactly one of them set. Each refusal
+    is logged in its own branch with its own reason."""
     if post is None:
         logger.warning("publish_refused", reason="post_not_found", user_id=user_id, post_id=post_id)
         return f"Пост {post_id} не знайдено.", None
@@ -467,7 +454,7 @@ def _claim_post_for_publishing(
         return f"Пост {post_id} уже публікується.", None
 
     if post.status in MEDIA_IN_PROGRESS_STATUSES:
-        # S4-R14: `RESOLVED -> PUBLISHING` is still legal, so this tap would
+        # `RESOLVED -> PUBLISHING` is still legal, so this tap would
         # otherwise be refused by a state name instead of by a reason.
         logger.warning(
             "publish_refused",
@@ -496,8 +483,7 @@ def _claim_post_for_publishing(
 def _claim_post_for_media(
     post: Post | None, post_id: int, user_id: int
 ) -> tuple[str | None, tuple[int, int] | None]:
-    """The render button's mirror of `_claim_post_for_publishing`: moves a
-    locked post into `downloading`, or explains why it cannot go there."""
+    """The render button's mirror of `_claim_post_for_publishing`."""
     if post is None:
         logger.warning("render_refused", reason="post_not_found", user_id=user_id, post_id=post_id)
         return f"Пост {post_id} не знайдено.", None
@@ -540,9 +526,8 @@ def _claim_post_for_media(
 
 
 def _button_message_reference(post: Post) -> tuple[int, int] | None:
-    """Which message actually carries the button now. Once a preview exists
-    it is the preview: the text draft lost its keyboard when the preview
-    arrived, and editing a removed keyboard is a no-op at best."""
+    """Once a preview exists it carries the button: the text draft lost its
+    keyboard when the preview arrived."""
     if post.preview_chat_id is not None and post.preview_message_id is not None:
         return post.preview_chat_id, post.preview_message_id
     if post.draft_chat_id is not None and post.draft_message_id is not None:
@@ -573,9 +558,8 @@ async def handle_link(
     session_factory: async_sessionmaker[AsyncSession],
     celery_client: Celery,
 ) -> None:
-    """Any plain-text message is treated as a link submission — commands
-    above already claimed everything that starts with `/`. One link, or the
-    «platform link + clip» pair D-69 accepts in a single message."""
+    """Commands above already claimed everything starting with `/`. One link, or
+    a «platform link + clip» pair in one message."""
     if message.from_user is None or message.text is None:
         return
 
@@ -622,14 +606,13 @@ async def handle_link(
             await session.flush()
         except IntegrityError:
             # The worker's cleanup deleted this track between the SELECT and
-            # this INSERT; unhandled, aiogram answers the admin nothing (R2-13).
+            # this INSERT; unhandled, aiogram answers the admin nothing.
             await session.rollback()
             logger.warning("link_post_insert_lost_its_track")
             failure_answer = "Трек саме прибрали з бази. Надішліть посилання ще раз."
         except DBAPIError:
-            # `lock_timeout` lives on the bot engine too now, so an acquisition
-            # here can raise a plain `DBAPIError` — the clause above catches
-            # only its `IntegrityError` subclass, and the admin got silence.
+            # `lock_timeout` is on the bot engine too, so this can raise a plain
+            # `DBAPIError`, which the `IntegrityError` clause above misses.
             await session.rollback()
             logger.exception("link_database_error")
             failure_answer = "База даних зараз недоступна або зайнята. Надішліть посилання ще раз."
@@ -671,17 +654,15 @@ async def handle_link(
 
 
 def _stage_has_gone_stale(post: Post, time_limit_seconds: int) -> bool:
-    """The only way out of an in-progress state when the worker died mid-task
-    (R2-2). No race with F-9: Celery's hard limit kills a live task at its own
-    `time_limit`, so a running one is always fresher than this."""
+    """The only exit when the worker died mid-task. It never races a live task:
+    Celery's hard limit kills one first, so a running task is always fresher."""
     age_seconds = (datetime.now(UTC) - post.updated_at).total_seconds()
     return age_seconds > time_limit_seconds
 
 
 def _stage_time_limit_seconds(status: PostStatus) -> int:
-    """§3: each stage is measured against **its own** Celery hard limit. The
-    resolve's lives in `worker.celery_app`, the media ones in `Settings` —
-    which is exactly why raising one never widens the window of another."""
+    """Each stage against its own hard limit (resolve's in `worker.celery_app`,
+    the media ones in `Settings`), so raising one never widens another's window."""
     if status is PostStatus.DOWNLOADING:
         return settings.download_task_time_limit_seconds
     if status in (PostStatus.DOWNLOADED, PostStatus.RENDERING):
@@ -690,15 +671,12 @@ def _stage_time_limit_seconds(status: PostStatus) -> int:
 
 
 def _resolving_has_gone_stale(post: Post) -> bool:
-    """The `RESOLVING` case of the above, kept named because D-43's refusal
-    and F-9's non-race are both about this one state."""
     return _stage_has_gone_stale(post, TASK_TIME_LIMIT_SECONDS)
 
 
 def _split_links(text: str) -> list[str]:
-    """Whitespace-separated links, but only when *every* token is one: a
-    message with prose around a link stays a single unrecognized submission,
-    answered exactly as it was before D-69."""
+    """Only when *every* token is a link: prose around a link stays a single
+    unrecognized submission."""
     tokens = text.split()
     if len(tokens) > 1 and all(is_safe_url(token) for token in tokens):
         return tokens
@@ -709,7 +687,7 @@ def _reject_url(raw_url: str, classified: ClassifiedUrl) -> tuple[str, dict[str,
     """The three syntactic refusals as `(answer, log fields)`, so a pair is
     validated link by link rather than as one opaque blob."""
     # UNIQUE on a btree tops out near 2704 bytes and raises
-    # ProgramLimitExceededError, which `except IntegrityError` misses (F-22).
+    # ProgramLimitExceededError, which `except IntegrityError` misses.
     if not is_within_length_limit(raw_url) or not is_within_length_limit(classified.normalized_url):
         return (
             f"Посилання задовге (ліміт {MAX_NORMALIZED_URL_BYTES} байтів). "
@@ -747,9 +725,8 @@ def _reject_url(raw_url: str, classified: ClassifiedUrl) -> tuple[str, dict[str,
 def _select_track_source(
     submitted_urls: list[str], classified_urls: list[ClassifiedUrl]
 ) -> tuple[str, ClassifiedUrl, ClassifiedUrl | None]:
-    """Which link becomes `track.source_url` and which is seeded as the clip.
-    A pair resolves from its platform half (D-69): the clip's own metadata is
-    the raw YouTube caption, which is the whole reason the pair exists."""
+    """A pair resolves from its platform half: the clip's own metadata is
+    the raw YouTube caption."""
     clip = next((url for url in classified_urls if url.platform == CLIP_PLATFORM), None)
 
     for submitted_url, classified in zip(submitted_urls, classified_urls, strict=True):
@@ -760,10 +737,8 @@ def _select_track_source(
 
 
 def _seed_user_input_clip(track: Track, clip: ClassifiedUrl | None) -> None:
-    """Seeded immediately, not just at resolve time — a user-supplied clip
-    must survive even if resolution never completes. `manual` is the top tier,
-    so `merge_stored_platform_links` carries it into every later resolve, and
-    the admin's word is the only thing binding it to a platform link (D-69)."""
+    """Seeded now, so the clip survives a resolve that never completes; `manual`
+    is the top tier, so every later resolve keeps it."""
     if clip is None:
         return
 
@@ -783,12 +758,8 @@ async def _get_or_create_track(
     classified: ClassifiedUrl,
     clip: ClassifiedUrl | None = None,
 ) -> tuple[Track, bool]:
-    """Race-safe get-or-create on `source_url_normalized` (UNIQUE): two
-    concurrent submissions of the same link both miss the SELECT, one wins
-    the INSERT, the other re-reads the winner's row instead of erroring.
-    The clip is seeded before the flush — `platform_links` has a server
-    default, and re-reading one afterwards is a lazy load in an async session.
-    """
+    """Race-safe on UNIQUE `source_url_normalized`: the INSERT loser re-reads the
+    winner. Clip seeded before the flush: re-reading a server default is a lazy load."""
     existing = await _select_track_by_url(session, classified.normalized_url)
     if existing is not None:
         _seed_user_input_clip(existing, clip)
@@ -823,10 +794,8 @@ async def _mark_dispatch_failure(
     expected_status: PostStatus,
     error: str,
 ) -> None:
-    """D-53: the post is already committed as `RESOLVING`/`PUBLISHING`, so
-    leaving it there makes the bot's own "спробуйте /retry" advice false for
-    the next `TASK_TIME_LIMIT_SECONDS` — no task exists to move it on.
-    """
+    """The post is committed as in-progress with no task to move it, so the
+    bot's own "спробуйте /retry" advice would be false until it goes stale."""
     try:
         async with session_scope(session_factory) as session:
             post = await session.get(Post, post_id, with_for_update=True)
@@ -840,7 +809,7 @@ async def _mark_dispatch_failure(
 
 async def _dispatch_resolve_task(celery_client: Celery, post_id: int) -> bool:
     # `send_task()` blocks synchronously; off-loop, or an unreachable Redis
-    # stalls this single-loop process's event loop (D-23).
+    # stalls this single-loop process's event loop.
     try:
         await asyncio.to_thread(
             celery_client.send_task, RESOLVE_POST_TASK_NAME, kwargs={"post_id": post_id}
@@ -852,8 +821,7 @@ async def _dispatch_resolve_task(celery_client: Celery, post_id: int) -> bool:
 
 
 async def _dispatch_media_task(celery_client: Celery, task_name: str, post_id: int) -> bool:
-    """By name, like every other dispatch here: `bot/` must never import
-    `worker.tasks` (AGENTS.md), and the media tasks are no exception."""
+    """By name: `bot/` never imports `worker.tasks`."""
     try:
         await asyncio.to_thread(celery_client.send_task, task_name, kwargs={"post_id": post_id})
     except Exception:
@@ -865,9 +833,8 @@ async def _dispatch_media_task(celery_client: Celery, task_name: str, post_id: i
 async def _dispatch_publish_task(
     celery_client: Celery, post_id: int, published_by_user_id: int
 ) -> bool:
-    """By name, never by importing the task: `bot/` must not reach into
-    `worker/tasks` (AGENTS.md). `published_by_user_id` is whoever tapped the
-    button or ran `/retry`, not whoever submitted the link (D-62)."""
+    """`published_by_user_id` is whoever tapped the button or ran `/retry`, not
+    whoever submitted the link."""
     try:
         await asyncio.to_thread(
             celery_client.send_task,

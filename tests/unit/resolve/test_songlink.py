@@ -1,5 +1,6 @@
-"""`songlink`: `__NEXT_DATA__` parsing, 404 vs parse-error distinction (R2),
-429/Retry-After backoff — all via `httpx.MockTransport`, no real network."""
+"""`songlink`: `__NEXT_DATA__` parsing, the 404 vs parse-error distinction, and
+429/Retry-After backoff, all via `httpx.MockTransport`, no real network.
+"""
 
 from __future__ import annotations
 
@@ -41,7 +42,7 @@ async def test_fetch_and_parse_returns_not_found_on_404() -> None:
 
 
 async def test_fetch_and_parse_raises_parse_error_on_missing_next_data_script() -> None:
-    """Page structure drift (R2) must not masquerade as "not found"."""
+    """Page structure drift must not masquerade as "not found"."""
     transport = httpx.MockTransport(lambda request: httpx.Response(200, text="<html></html>"))
 
     async with make_client(transport) as client:
@@ -58,9 +59,8 @@ def build_page(page_props: str) -> str:
 
 
 async def test_an_in_page_quota_error_raises_instead_of_caching_emptiness() -> None:
-    """D-48, measured live: song.link answers a quota refusal with HTTP 200,
-    a `pageProps.error` and a stub `pageData` — a transport failure wearing
-    the shape of a positive payload."""
+    """Measured live: a quota refusal is HTTP 200 with a `pageProps.error` and a
+    stub `pageData`, a transport failure shaped like a positive payload."""
     quota_page = build_page(
         '{"error":{"statusCode":429},"cookies":{},"pageData":{"facebookPixelId":null}}'
     )
@@ -83,8 +83,8 @@ async def test_a_page_without_an_entity_raises_instead_of_a_found_result() -> No
 
 
 def test_a_cached_entityless_payload_raises_rather_than_resolving_to_nothing() -> None:
-    """A row written before the guard existed is still served for its TTL —
-    failing loudly beats handing the worker an all-`None` result (D-48)."""
+    """A cached row may predate the guard and is served for its TTL; failing
+    loudly beats handing the worker an all-`None` result."""
     with pytest.raises(songlink.SonglinkParseError, match="no entityData"):
         songlink._result_from_payload({"found": True, "page_data": {"facebookPixelId": None}})
 
@@ -169,9 +169,8 @@ def test_album_id_only_set_for_spotify_provider() -> None:
 
 
 async def test_a_body_over_the_limit_is_refused_while_streaming() -> None:
-    """R2-9: song.link is the one response read as text, and its chunked CDN
-    reply carries no `Content-Length` for the size hook to check — where it
-    does, the number counts compressed bytes, not what lands in memory."""
+    """song.link is the one response read as text; its chunked CDN reply has no
+    `Content-Length`, and where it has one it counts compressed bytes."""
     oversized = b"x" * (songlink.MAX_RESPONSE_BYTES + 1024)
     transport = httpx.MockTransport(lambda request: httpx.Response(200, content=oversized))
 
@@ -181,9 +180,8 @@ async def test_a_body_over_the_limit_is_refused_while_streaming() -> None:
 
 
 async def test_a_redirect_off_odesli_is_never_requested() -> None:
-    """D-56: the host check has to run *before* the hop is sent. With
-    `follow_redirects=True` httpx walked the chain inside `send()`, so the
-    worker had already contacted the internal address by then."""
+    """The host check must run before the hop is sent: with `follow_redirects=True`
+    httpx would contact the internal address inside `send()`."""
     requested_hosts: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:

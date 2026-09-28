@@ -1,7 +1,6 @@
-"""Top-level orchestration (contract p.27 addendum): resolve the input's
-own song.link entity, bridge YouTube input to Spotify when needed, then
-fan out ISRC-exact and name-search sources. The name-search fan-out always
-runs — even from a Spotify input, YouTube never arrives any other way (D-27).
+"""Top-level resolve: the input's own song.link entity, a YouTube-to-Spotify
+bridge when needed, then ISRC-exact and name-search sources. Name search always
+runs: even from a Spotify input, YouTube arrives no other way.
 """
 
 from __future__ import annotations
@@ -32,8 +31,8 @@ async def resolve_track(context: ResolveContext, classified_input: ClassifiedUrl
     track = ResolvedTrack()
 
     if classified_input.platform == "youtube":
-        # The clip the admin sent stays exactly as given — never overwritten
-        # by an automatically found `videoId` (contract addendum, rule 1/4).
+        # The clip the admin sent stays exactly as given, never overwritten
+        # by an automatically found `videoId`.
         link = PlatformLink(
             url=classified_input.normalized_url, source=USER_INPUT_SOURCE, match=MatchClass.MANUAL
         )
@@ -66,9 +65,8 @@ async def resolve_track(context: ResolveContext, classified_input: ClassifiedUrl
 
 
 async def resolve_genres(context: ResolveContext, track: ResolvedTrack) -> list[GenreInfo]:
-    """Deezer album genres, keyed by `track.deezer_album_id` — set only by
-    the ISRC-exact path (contract p.9/D-33). No album id -> no genres, the
-    genre line simply stays out of the caption rather than guessing."""
+    """Only the ISRC-exact path sets `deezer_album_id`; without it the genre
+    line stays out of the caption rather than guessing."""
     if track.deezer_album_id is None:
         return []
 
@@ -121,10 +119,8 @@ async def _bridge_youtube_to_spotify(context: ResolveContext, track: ResolvedTra
             if candidate.isrc:
                 await resolve_by_isrc(context, candidate.isrc, track)
             if candidate.url:
-                # song.link on the *bridged* Spotify URL gives the same
-                # streaming cluster a direct Spotify input would (D-27).
-                # Isolated, unlike the primary fetch: by here the ISRC fan-out
-                # has already filled the track, and raising threw it away.
+                # song.link on the bridged Spotify URL gives a Spotify input's cluster.
+                # Isolated, unlike the primary fetch: the ISRC fan-out filled the track.
                 bridged_result = await isolated_source_call(
                     track,
                     "songlink:bridge",
@@ -156,14 +152,14 @@ def _apply_songlink_result(track: ResolvedTrack, result: songlink.SonglinkResult
     merge.merge_cover_url(track, result.cover_url, source_tag)
 
     if matching.known_duration(track.duration_ms) is None:
-        # `0` is song.link's YouTube answer for "unknown", and assigning it
-        # raw used to lock the duration check off for the whole resolve.
+        # `0` is song.link's YouTube answer for "unknown"; stored raw, it would
+        # turn the duration check off for the whole resolve.
         track.duration_ms = matching.known_duration(result.duration_ms)
     if result.album_id_spotify and track.album_id_spotify is None:
         track.album_id_spotify = result.album_id_spotify
 
     for platform, url in result.platform_links.items():
-        # AGGREGATOR, not EXACT_ISRC (D-39): we trust Odesli's clustering
-        # here, we never verified the identifier ourselves.
+        # AGGREGATOR, not EXACT_ISRC: we trust Odesli's clustering here, we
+        # never verified the identifier ourselves.
         link = PlatformLink(url=url, source="songlink", match=MatchClass.AGGREGATOR)
         merge.merge_platform_link(track, platform, link)

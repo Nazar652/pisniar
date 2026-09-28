@@ -1,6 +1,6 @@
-"""`sanitize`: HTML escaping, control-character stripping (F-7) and href
-scheme validation (S2-A12, security review scope — five external sources
-fill hrefs and free text)."""
+"""`sanitize`: HTML escaping, control-character stripping and href scheme
+validation; five external sources fill hrefs and free text.
+"""
 
 from __future__ import annotations
 

@@ -61,13 +61,13 @@ def upgrade() -> None:
             "source", "request_key", name=op.f("uq_source_fetch_source_request_key")
         ),
     )
-    # Read on every TTL check and by the future staleness sweeper (D-40).
+    # Read on every TTL check.
     op.create_index(
         op.f("ix_source_fetch_fetched_at"), "source_fetch", ["fetched_at"], unique=False
     )
     op.add_column("post", sa.Column("draft_chat_id", sa.BigInteger(), nullable=True))
     op.add_column("post", sa.Column("draft_message_id", sa.BigInteger(), nullable=True))
-    # Same one-sided-pair CHECK as `channel_ref_complete` (D-5-style guard).
+    # Same one-sided-pair CHECK as `channel_ref_complete`.
     op.create_check_constraint(
         op.f("ck_post_draft_ref_complete"),
         "post",
@@ -83,8 +83,8 @@ def upgrade() -> None:
     op.add_column(
         "track", sa.Column("resolved_at", postgresql.TIMESTAMP(timezone=True), nullable=True)
     )
-    # Non-unique: a repost a year later is a legitimate second row, the
-    # index only powers the D-41 duplicate warning.
+    # Non-unique: a repost a year later is a legitimate second row; the
+    # index only serves the ISRC duplicate warning.
     op.create_index(op.f("ix_track_isrc"), "track", ["isrc"], unique=False)
     op.drop_column("track", "odesli_raw")
     op.drop_column("track", "odesli_fetched_at")

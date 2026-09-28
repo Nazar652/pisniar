@@ -1,6 +1,7 @@
-"""`telegram.preview`: the only safeguard step 4A has. A published post
-cannot be revoked (D-65), so the admin must see the exact file before it
-goes out — and see it once, no matter how often Celery redelivers."""
+"""`telegram.preview`: the only safeguard before publication. A published post
+cannot be revoked, so the admin must see the exact file before it goes out, and
+see it once, however often Celery redelivers.
+"""
 
 from __future__ import annotations
 
@@ -73,8 +74,8 @@ async def test_the_preview_carries_the_publish_button(tmp_path: Path) -> None:
 async def test_a_post_that_already_has_a_preview_is_never_sent_a_second_one(
     tmp_path: Path,
 ) -> None:
-    """The Celery-redelivery guard (D-28/M32): a second preview would leave
-    two publish buttons in the chat, each able to reach the channel."""
+    """A second preview would leave two publish buttons in the chat, each able to
+    reach the channel."""
     bot = make_bot()
     post = make_post(preview_message_id=42)
 

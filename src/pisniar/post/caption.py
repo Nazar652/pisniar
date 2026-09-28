@@ -1,8 +1,6 @@
-"""Assembling a `CaptionDocument` from track data (D-29 template) and, on
-overflow, degrading it deterministically: genres from the tail, then
-platforms from the tail (Spotify/YT Music protected until last), then the
-release title. First line/artist hashtags/languages/channel link are never
-touched. Built at the media limit (1024, D-45), not at publish time.
+"""Builds a `CaptionDocument` at the media caption limit (1024) and, on
+overflow, degrades it deterministically: genres from the tail, then platforms
+from the tail (Spotify/YT Music last), then the release title. Nothing else.
 """
 
 from __future__ import annotations
@@ -13,14 +11,12 @@ from pisniar.post.render import CaptionDocument, visible_length
 from pisniar.resolve.matching import is_valid_spotify_id
 from pisniar.resolve.types import ArtistInfo, GenreInfo, MatchClass, PlatformLink
 
-# D-45: the post carries a cover, and media drops Telegram's caption limit
-# from 4096 to 1024. Applied while building, so the admin approves the same
-# text subscribers see — a later rebuild would be a silent substitution.
+# A cover drops the caption limit from 4096 to 1024. Applied while
+# building, so the admin approves the exact text subscribers see.
 MEDIA_CAPTION_LIMIT = 1024
 
-# D-64: only a `youtube` link the admin put there by hand is a clip. An
-# automatic `youtube` hit is usually the "— Topic" upload, audio over a
-# still, and labelling that one "(кліп)" would be a lie.
+# Only a hand-placed `youtube` link is a clip; an automatic hit is
+# usually the "— Topic" upload, audio over a still.
 CLIP_PLATFORM = "youtube"
 CLIP_LABEL_SUFFIX = " (кліп)"
 
@@ -57,9 +53,8 @@ def platform_display_name(platform: str) -> str:
 
 
 def clip_platform(platform_links: dict[str, PlatformLink]) -> str | None:
-    """`MANUAL`, not `source == "user_input"` (D-64): the same rule has to
-    cover the link the admin submits today and the one step 5's Mini App
-    will paste with `source: "manual"`."""
+    """`MANUAL`, not `source == "user_input"`: a hand-pasted link with
+    `source: "manual"` is a clip too."""
     link = platform_links.get(CLIP_PLATFORM)
     if link is None or link.match is not MatchClass.MANUAL:
         return None
@@ -148,12 +143,12 @@ def _build_document(
             else:
                 if album_id_spotify:
                     # A stray space in the id is a Telegram 400 on the whole
-                    # post; plain text loses a link, not the post (R2-16).
+                    # post; plain text loses a link, not the post.
                     warnings.append(f"album_id_spotify «{album_id_spotify}» не base62, лінк знято")
                 document.append_text(release_title)
             document.append_text("»")
 
-    # Languages lead the line and are never dropped (D-61): they are always
+    # Languages lead the line and are never dropped: they are always
     # present, while genres are the first thing degradation gives up.
     groups = [_language_hashtags(languages, warnings), _genre_hashtags(genres, warnings)]
     hashtag_line = " · ".join(" ".join(group) for group in groups if group)

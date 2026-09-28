@@ -1,6 +1,5 @@
-"""Shared HTTP client construction and per-source throttling (contract
-p.14): each adapter gets its own `Throttler` instance so a slow MusicBrainz
-call never delays a Deezer call.
+"""Shared HTTP client and per-source throttling: each adapter has its own
+`Throttler`, so a slow MusicBrainz call never delays a Deezer call.
 """
 
 from __future__ import annotations
@@ -42,9 +41,7 @@ def build_http_client() -> httpx.AsyncClient:
 
 
 class Throttler:
-    """Serializes calls to at least `min_interval_seconds` apart. A cache
-    hit never calls `wait()`, so this only ever limits genuinely new
-    requests (contract p.14: "Кеш робить повторні запити неможливими")."""
+    """A cache hit never calls `wait()`, so this only limits genuinely new requests."""
 
     def __init__(self, min_interval_seconds: float) -> None:
         self.min_interval_seconds = min_interval_seconds

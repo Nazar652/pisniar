@@ -29,9 +29,8 @@ def zero_throttle_intervals(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 def fake_cache() -> SourceCache:
-    """Every call is a miss that goes straight to `fetch()`. Keeps adapter
-    tests off the database while still recording the request keys in
-    `fake_cache.get_or_fetch.await_args_list`."""
+    """Keeps adapter tests off the database while the request keys stay readable
+    in `fake_cache.get_or_fetch.await_args_list`."""
     cache = AsyncMock(spec=SourceCache)
 
     async def call_through(

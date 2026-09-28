@@ -67,9 +67,8 @@ def test_ping_task_executes_synchronously_checks_db_and_sends_alert(
 def test_ping_task_succeeds_even_when_the_alert_fails_to_deliver(
     eager_celery_app: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """`send_alert` returning `False` (its documented failure mode — see
-    `tests/unit/test_notifier.py`) must not fail the task itself: an alert
-    about a diagnostic is not the diagnostic."""
+    """`False` is `send_alert`'s documented failure mode, and an alert about a
+    diagnostic is not the diagnostic."""
     fake_session = AsyncMock()
 
     @asynccontextmanager

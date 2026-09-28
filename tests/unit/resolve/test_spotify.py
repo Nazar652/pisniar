@@ -1,5 +1,6 @@
-"""`spotify`: in-memory token caching (D-13), ISRC/name search, `/v1/tracks/{id}`
-parsing, and 429/Retry-After backoff — via `httpx.MockTransport`."""
+"""`spotify`: in-memory token caching, ISRC/name search, `/v1/tracks/{id}`
+parsing, and 429/Retry-After backoff, via `httpx.MockTransport`.
+"""
 
 from __future__ import annotations
 
@@ -163,8 +164,7 @@ async def test_request_retries_after_429_then_succeeds(fake_cache: SourceCache) 
 async def test_get_track_refuses_a_non_base62_id_without_issuing_a_request(
     fake_cache: SourceCache,
 ) -> None:
-    """R2-15: no caller yet, which is exactly why the trap had to be defused
-    now — the id goes straight into `/v1/tracks/<id>`."""
+    """The id goes straight into `/v1/tracks/<id>`."""
     requests_made = 0
 
     def handler(request: httpx.Request) -> httpx.Response:

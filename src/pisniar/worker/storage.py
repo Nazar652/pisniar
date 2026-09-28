@@ -1,7 +1,7 @@
-"""Everything the media pipeline touches on the `/data` volume: paths built
-only from numeric ids, a validated video id and a hex hash (§5 — never from a
-track title, which is both path traversal and Cyrillic filenames), the
-free-space check that runs *before* a download, and the atomic publish.
+"""The media pipeline's `/data` volume: paths built only from numeric ids, a
+validated video id and a hex hash (never a track title, which is both path
+traversal and Cyrillic filenames), the pre-download free-space check, and the
+atomic publish.
 """
 
 from __future__ import annotations
@@ -21,8 +21,8 @@ RENDER_DIRECTORY_NAME = "render"
 TMP_DIRECTORY_NAME = "tmp"
 SUBTITLES_FILE_NAME = "lyrics.ass"
 
-# `.partial` is part of the idempotency guard, not an optimization: with the
-# lock gone (§2), "the final name exists" is the only thing left to trust.
+# `.partial` is part of the idempotency guard: no lock is held during a download
+# or render, so "the final name exists" is the only thing left to trust.
 PARTIAL_SUFFIX = ".partial"
 
 _EXTENSION_RE = re.compile(r"^[A-Za-z0-9]{1,8}$")
@@ -44,13 +44,11 @@ class InsufficientDiskSpaceError(RuntimeError):
 
 
 def audio_directory(media_root: Path, track_id: int) -> Path:
-    """Per track (D-61), not per post: two posts of one recording must not
-    download it twice."""
+    """Per track, not per post: two posts of one recording must not download it twice."""
     return media_root / AUDIO_DIRECTORY_NAME / _numeric_id(track_id, "track_id")
 
 
 def audio_file_path(media_root: Path, track_id: int, video_id: str, extension: str) -> Path:
-    """`/data/audio/<track_id>/<video_id>.<ext>`."""
     return audio_directory(media_root, track_id) / f"{_video_id(video_id)}.{_extension(extension)}"
 
 
@@ -73,8 +71,7 @@ def render_directory(media_root: Path, post_id: int) -> Path:
 
 
 def render_file_path(media_root: Path, post_id: int, params_hash: str) -> Path:
-    """`/data/render/<post_id>/<params_hash>.mp4` — per post: the caption and
-    the fragment bounds belong to the publication, not to the recording."""
+    """Per post: the caption and fragment bounds belong to the publication."""
     return render_directory(media_root, post_id) / f"{_params_hash(params_hash)}.mp4"
 
 
@@ -85,15 +82,13 @@ def thumbnail_file_path(media_root: Path, post_id: int, params_hash: str) -> Pat
 
 
 def task_tmp_directory(media_root: Path, post_id: int) -> Path:
-    """`/data/tmp/<post_id>/` — removed in a `finally`, always."""
+    """Removed in a `finally`, always."""
     return media_root / TMP_DIRECTORY_NAME / _numeric_id(post_id, "post_id")
 
 
 def subtitles_file_path(media_root: Path, post_id: int) -> Path:
-    """`/data/tmp/<post_id>/lyrics.ass` — a numeric id and a constant name,
-    so the string that ends up inside the `subtitles=` filter argument can
-    carry no `,`, `;`, `[` or `]` (§4 p.8: `_escape_filter_path` covers the
-    other three, and this is what keeps the rest out of reach)."""
+    """A numeric id and a constant name keep `,` `;` `[` `]` out of the `subtitles=`
+    argument; `_escape_filter_path` covers the other three."""
     return task_tmp_directory(media_root, post_id) / SUBTITLES_FILE_NAME
 
 
@@ -140,9 +135,8 @@ def existing_artifact(path: Path) -> Path | None:
 
 
 def remove_post_artifacts(media_root: Path, post_id: int) -> None:
-    """Called only **after** the deleting transaction committed (§5): a
-    rollback would otherwise leave a row pointing at a file that is gone,
-    which is worse than a file with no row."""
+    """Only after the deleting commit: a rollback would otherwise leave a row
+    pointing at a missing file, which is worse than a file with no row."""
     directory = render_directory(media_root, post_id)
     if not directory.exists():
         return
@@ -152,8 +146,8 @@ def remove_post_artifacts(media_root: Path, post_id: int) -> None:
 
 
 def remove_track_artifacts(media_root: Path, track_id: int) -> None:
-    """The audio half of the same rule. Retention (Q8) keeps audio until step
-    6; this is the deletion path, not a sweeper."""
+    """The audio half of the same rule. Audio is otherwise kept: this is the
+    deletion path, not a sweeper."""
     directory = audio_directory(media_root, track_id)
     if not directory.exists():
         return

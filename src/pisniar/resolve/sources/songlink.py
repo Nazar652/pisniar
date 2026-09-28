@@ -1,6 +1,5 @@
-"""song.link (ядро, contract p.1): parses `__NEXT_DATA__` from the landing
-page — Odesli's own docs recommend this exact page for personal/casual use
-without an API key (their `v1-alpha.1` API returns 401 as of 2026, D-27).
+"""song.link: parses `__NEXT_DATA__` from the landing page, which Odesli's docs
+recommend for personal use without an API key (their `v1-alpha.1` API answers 401).
 """
 
 from __future__ import annotations
@@ -30,9 +29,8 @@ THROTTLE = Throttler(min_interval_seconds=1.0)
 MAX_RETRIES = 3
 DEFAULT_RETRY_DELAY_SECONDS = 2.0
 
-# The only adapter that follows redirects, so the only one where a hop
-# could leave Odesli entirely. Measured: `song.link` answers 308/302 to its
-# own relative paths, and the `?url=` form lands on `odesli.co` (R2-10).
+# The only adapter that follows redirects: `song.link` answers 308/302 to its
+# own relative paths, and the `?url=` form lands on `odesli.co`.
 ODESLI_HOST_SUFFIXES = ("song.link", "odesli.co")
 
 REQUEST_HEADERS = {"User-Agent": "pisniar-v2 (personal Telegram bot)"}
@@ -43,9 +41,8 @@ NEXT_DATA_RE = re.compile(
 
 
 class SonglinkParseError(RuntimeError):
-    """The page returned 200 but `__NEXT_DATA__` couldn't be parsed — a
-    page-structure drift (risk R2), not "track not found". The caller
-    should alert, not silently treat this as a miss."""
+    """A 200 page that does not parse: structure drift, not a miss, so the
+    caller alerts instead of caching it."""
 
 
 class _RateLimited(RuntimeError):
@@ -73,7 +70,7 @@ class SonglinkResult:
 
 async def fetch(client: httpx.AsyncClient, cache: SourceCache, external_url: str) -> SonglinkResult:
     # Through the normalizer, not the raw string: otherwise the same track
-    # submitted with a tracking suffix becomes a second cache row (F-17).
+    # submitted with a tracking suffix becomes a second cache row.
     cache_key = build_request_key("songlink:url:", normalize_url(external_url), casefold=False)
 
     async def do_fetch() -> dict[str, object]:
@@ -103,9 +100,8 @@ async def _fetch_and_parse(client: httpx.AsyncClient, external_url: str) -> dict
 
 
 async def _fetch_one_attempt(client: httpx.AsyncClient, start_url: httpx.URL) -> dict[str, object]:
-    """Redirects are walked by hand (D-56): `follow_redirects=True` sends
-    every hop inside `send()` and reads every intermediate body, so a check
-    afterwards only reported addresses the worker had already contacted."""
+    """Redirects are walked by hand: `follow_redirects=True` contacts every hop
+    inside `send()`, before any check could refuse it."""
     current_url = start_url
 
     for _hop in range(MAX_REDIRECTS + 1):
@@ -131,10 +127,8 @@ async def _fetch_one_attempt(client: httpx.AsyncClient, start_url: httpx.URL) ->
 
 
 async def _read_limited(response: httpx.Response) -> str:
-    """The size hook reads `Content-Length`, which song.link's chunked CDN
-    response does not send — and where it does, it counts compressed bytes.
-    Counting decoded chunks is the only limit that actually binds (R2-9).
-    """
+    """Counts decoded chunks: song.link's chunked CDN response sends no
+    `Content-Length`, and where one is sent it counts compressed bytes."""
     chunks: list[bytes] = []
     total_bytes = 0
     async for chunk in response.aiter_bytes():
@@ -149,8 +143,7 @@ async def _read_limited(response: httpx.Response) -> str:
 
 
 def _validated_redirect_target(response: httpx.Response) -> httpx.URL:
-    """The hop httpx would take next, validated before it is requested — a
-    refusal here means the worker never opens the connection (R2-10, D-56).
+    """Validated before it is requested, so a refused hop is never contacted.
     Fail-closed: answering "not found" instead would cache the refusal."""
     next_request = response.next_request
     if next_request is None:
@@ -181,7 +174,7 @@ def _parse_page(html: str) -> dict[str, object]:
         raise SonglinkParseError(f"unexpected song.link page structure: {error}") from error
 
     # A quota refusal arrives as HTTP 200 carrying `pageProps.error` beside a
-    # stub `pageData` — transport, never a miss, so it must not be cached (D-48).
+    # stub `pageData`: transport, never a miss, so it must not be cached.
     embedded_error = page_props.get("error")
     if embedded_error is not None:
         status_code = as_dict(embedded_error).get("statusCode")
@@ -207,8 +200,8 @@ def _result_from_payload(payload: dict[str, object]) -> SonglinkResult:
     if not payload.get("found"):
         return SonglinkResult(found=False)
 
-    # Guards the read path too: a row cached before this check existed would
-    # otherwise still be served as a valid, completely empty answer (D-48).
+    # Guards the read path too: a cached row without an entity must not be
+    # served as a valid, completely empty answer.
     page_data = as_dict(payload.get("page_data"))
     entity_data = _require_entity_data(page_data)
     release_date = as_dict(entity_data.get("releaseDate"))

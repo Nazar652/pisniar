@@ -99,7 +99,7 @@ def test_render_html_rejects_unsafe_href_scheme() -> None:
 
 
 def test_rendered_html_never_contains_a_bidi_override_from_metadata() -> None:
-    """F-7 end to end: a title carrying `U+202E` must not reach Telegram."""
+    """End to end: a title carrying `U+202E` must not reach Telegram."""
     document = CaptionDocument()
     document.append_text("Artist \u202e— Title")
 

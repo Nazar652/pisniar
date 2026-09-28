@@ -56,8 +56,8 @@ def test_metadata_tags_are_ignored_without_counting_as_damage() -> None:
 
 
 def test_an_offset_tag_is_ignored_rather_than_applied() -> None:
-    """Applying it would shift every timecode silently; the contract says
-    metatags are ignored, and `offset` is one."""
+    """Applying it would shift every timecode silently; metatags are ignored,
+    and `offset` is one."""
     parsed = lrc.parse_lrc("[offset:+5000]\n[00:01.00]рядок")
 
     assert parsed[0].start_ms == 1_000
@@ -137,7 +137,7 @@ def test_an_out_of_range_seconds_field_is_not_taken_as_a_timecode() -> None:
 def test_the_warning_carries_the_shape_of_the_dropped_line_not_its_text(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """S4B-R13: a song's words do not belong in the structured log."""
+    """A song's words do not belong in the structured log."""
     fake_logger = MagicMock()
     monkeypatch.setattr(lrc, "logger", fake_logger)
     content = "\n".join(f"[00:{second:02d}.00]рядок" for second in range(10))

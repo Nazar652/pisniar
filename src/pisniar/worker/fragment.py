@@ -1,7 +1,5 @@
-"""D-76: the fragment starts at the beginning of the track and runs 45
-seconds; a track shorter than that is taken whole. Deterministic, no
-heuristics. The bounds are absolute milliseconds from the start of the *full*
-track (D-5) — the seam step 6 and 4B both read, so it is never fragment-local.
+"""The fragment starts at 0 and runs 45 s (a shorter track whole), no heuristics.
+Bounds are absolute ms from the start of the *full* track, never fragment-local.
 """
 
 from __future__ import annotations
@@ -31,8 +29,6 @@ class FragmentBounds:
 
 
 def choose_fragment_bounds(track_duration_ms: int) -> FragmentBounds:
-    """The whole rule, in one expression: start at zero, end 45 s later or at
-    the end of the track, whichever comes first."""
     if track_duration_ms <= 0:
         raise FragmentBoundsError(
             f"тривалість треку має бути додатною, отримано {track_duration_ms}"
@@ -53,8 +49,6 @@ def choose_fragment_bounds(track_duration_ms: int) -> FragmentBounds:
 
 
 def stored_bounds(start_ms: int | None, end_ms: int | None) -> FragmentBounds | None:
-    """What is already on the post, if it is a whole pair. A one-sided pair is
-    not a fragment — `ck_post_fragment_bounds_valid` refuses to store one."""
     if start_ms is None or end_ms is None:
         return None
     if start_ms < 0 or end_ms <= start_ms:
@@ -63,6 +57,5 @@ def stored_bounds(start_ms: int | None, end_ms: int | None) -> FragmentBounds | 
 
 
 def bounds_within_track(bounds: FragmentBounds, track_duration_ms: int) -> bool:
-    """S4-A4: the bounds must lie inside `[0, duration_ms]` of the file that
-    is actually on disk, not of the duration some source once reported."""
+    """`track_duration_ms` is the file on disk, never a source-reported one."""
     return 0 <= bounds.start_ms < bounds.end_ms <= track_duration_ms

@@ -1,7 +1,7 @@
-"""`merge`: per-field source priority, the four-tier `platform_links`
-tie-break (`manual > exact_isrc > aggregator > confirmed`, D-39), the
-unsafe-scheme guard on the way in (F-8), and the stored-row merge that keeps
-an admin's overrides alive across a re-resolve (D-42)."""
+"""`merge`: per-field source priority, the four-tier `platform_links` tie-break
+(`manual > exact_isrc > aggregator > confirmed`), the unsafe-scheme guard on the way
+in, and the stored-row merge that keeps an admin's overrides across a re-resolve.
+"""
 
 from __future__ import annotations
 
@@ -150,9 +150,8 @@ def test_platform_link_does_not_downgrade_on_equal_priority_resubmission() -> No
 
 
 def test_unsafe_scheme_is_rejected_on_the_way_in_with_a_warning() -> None:
-    """F-8: MusicBrainz maps platform by host from a publicly editable
-    database, so a `javascript:` URL used to land in `platform_links` and
-    only blow up later, failing the whole post over one bad link."""
+    """MusicBrainz maps platform by host from a publicly editable database, so one
+    `javascript:` URL must not fail the whole post later."""
     track = ResolvedTrack()
 
     merge_platform_link(
@@ -179,8 +178,6 @@ def test_unsafe_candidate_does_not_displace_an_already_merged_safe_link() -> Non
 
 
 def test_stored_manual_link_survives_a_fresh_exact_isrc_resolve() -> None:
-    """D-42: step 5 writes a `manual` link, and the first `/retry` used to
-    overwrite it with whatever the automation happened to find."""
     track = ResolvedTrack()
     merge_platform_link(
         track, "spotify", make_link("spotify", MatchClass.EXACT_ISRC, "https://example.com/fresh")
@@ -247,8 +244,8 @@ def test_stored_link_with_an_unreadable_match_class_lands_in_the_bottom_tier() -
 
 
 def test_stored_artist_hashtag_survives_a_resolve_that_returned_none() -> None:
-    """D-29 makes `artists[].hashtag` the only manual override there is;
-    `/retry` used to write `null` straight over it."""
+    """`artists[].hashtag` is the only manual override there is, and a `/retry`
+    must not write `null` over it."""
     track = ResolvedTrack(artists=[ArtistInfo(name="0%Mercury")])
 
     merge_stored_artists(
@@ -277,8 +274,8 @@ def test_stored_artists_are_kept_when_the_resolve_returned_none_at_all() -> None
 
 
 def test_stored_artist_entry_for_a_different_name_is_ignored_when_it_holds_no_override() -> None:
-    """Nothing irreplaceable to lose, so the fresh name wins outright — the
-    R2-6 fallback below deliberately does not fire here."""
+    """Nothing irreplaceable to lose, so the fresh name wins outright and the
+    name-shape fallback below does not fire."""
     track = ResolvedTrack(artists=[ArtistInfo(name="New Name")])
 
     merge_stored_artists(track, [{"name": "Old Name", "hashtag": None}])
@@ -288,8 +285,6 @@ def test_stored_artist_entry_for_a_different_name_is_ignored_when_it_holds_no_ov
 
 
 def test_stored_artist_key_matching_ignores_case_and_repeated_whitespace() -> None:
-    """R2-6: the match key was the raw `name` string, so `"0%Mercury"` and
-    `"0%mercury"` were two different artists and the override vanished."""
     track = ResolvedTrack(artists=[ArtistInfo(name="0%Mercury")])
 
     merge_stored_artists(track, [{"name": "0%mercury", "hashtag": "ZeroPercentMercury"}])
@@ -298,10 +293,8 @@ def test_stored_artist_key_matching_ignores_case_and_repeated_whitespace() -> No
 
 
 def test_stored_artists_with_a_hashtag_survive_a_change_of_name_shape() -> None:
-    """R2-6, the real case: `spotify` lists artists separately while
-    `songlink:spotify` joins them into one string. One Spotify outage turned
-    two names into one, no key matched, and the override was gone silently.
-    """
+    """`spotify` lists artists separately while `songlink:spotify` joins them, so
+    one Spotify outage leaves no key to find the override by."""
     track = ResolvedTrack(artists=[ArtistInfo(name="Burned Time Machine, 0%Mercury")])
 
     merge_stored_artists(
@@ -321,9 +314,8 @@ def test_stored_artists_with_a_hashtag_survive_a_change_of_name_shape() -> None:
 
 
 def test_merge_stored_scalars_keeps_a_value_the_fresh_resolve_lost() -> None:
-    """R2-4: after the TTL (D-40) a re-resolve really goes to the network, so
-    one transient failure used to write `isrc = NULL` over a good value and
-    silently disable the D-41 duplicate warning for that track forever."""
+    """After the TTL a re-resolve really goes to the network, and one transient
+    failure must not null a good `isrc` and with it the duplicate warning."""
     track = ResolvedTrack(title="Creep")
 
     merge_stored_scalars(track, {"isrc": "GBAYE9200070", "title": None, "year": 1993})
@@ -334,8 +326,8 @@ def test_merge_stored_scalars_keeps_a_value_the_fresh_resolve_lost() -> None:
 
 
 def test_merge_stored_scalars_keeps_the_stored_album_id() -> None:
-    """D-45 made the album id a column, which only helps while a re-resolve
-    without song.link cannot null it — the album link is the payload."""
+    """The album link is built from this column, so a re-resolve without song.link
+    must not null it."""
     track = ResolvedTrack(title="Сумніви")
 
     merge_stored_scalars(track, {"album_id_spotify": "4yYXqedvSKuJlgI2IWsB0j"})
@@ -344,9 +336,8 @@ def test_merge_stored_scalars_keeps_the_stored_album_id() -> None:
 
 
 def test_merge_stored_scalars_keeps_the_stored_duration() -> None:
-    """Step 4 checks the downloaded audio against `track.duration_ms`, so the
-    R2-4 mechanic now nulls the yardstick itself: one failed source on a
-    `/retry` and the next download has nothing to be wrong against."""
+    """The download is checked against `track.duration_ms`, so one failed source
+    on a `/retry` must not null the yardstick."""
     track = ResolvedTrack(title="Creep")
 
     merge_stored_scalars(track, {"duration_ms": 238000})
@@ -363,9 +354,8 @@ def test_merge_stored_scalars_never_overwrites_a_fresh_value() -> None:
 
 
 def test_a_degraded_resolve_keeps_the_stored_title_and_artists() -> None:
-    """D-58: Spotify raised, so the title came from `songlink:youtube` — the
-    raw clip name. Lower priority than the stored one, but not `None`, so
-    only this guard stops it from overwriting what was already good."""
+    """The fresh title is the raw `songlink:youtube` clip name: lower priority, but
+    not `None`, so only this guard keeps the stored one."""
     track = ResolvedTrack(
         title="Bruise Pristine",
         artists=[ArtistInfo(name="Валентин Стрыкало-Бувайте")],
@@ -383,8 +373,8 @@ def test_a_degraded_resolve_keeps_the_stored_title_and_artists() -> None:
 
 
 def test_a_degraded_resolve_keeps_the_stored_title_when_only_youtube_answered() -> None:
-    """D-63, weak side: the fresh title is the raw clip name `songlink:youtube`
-    gave, so the stored clean one still wins despite the fresh resolve."""
+    """The fresh title is the raw clip name `songlink:youtube` gave, so the stored
+    clean one still wins."""
     track = ResolvedTrack(source_failures=["spotify:isrc: HTTP 503"])
     merge_title(track, "vesnavoseny - ніч минала", "songlink:youtube")
     merge_artists(track, ["vesnavoseny"], "songlink:youtube")
@@ -398,8 +388,8 @@ def test_a_degraded_resolve_keeps_the_stored_title_when_only_youtube_answered() 
 
 
 def test_a_degraded_resolve_takes_the_fresh_title_from_a_strong_source() -> None:
-    """D-63, strong side: the track reached Spotify since the stored resolve,
-    so its clean values must evict the D-57 clip ones even while iTunes fails."""
+    """Spotify answered this time, so its clean values must replace the stored
+    clip-derived ones even while iTunes fails."""
     track = ResolvedTrack(source_failures=["itunes: timeout"])
     merge_title(track, "Bruise Pristine", "spotify")
     merge_artists(track, ["Placebo"], "spotify")
@@ -413,8 +403,8 @@ def test_a_degraded_resolve_takes_the_fresh_title_from_a_strong_source() -> None
 
 
 def test_a_complete_resolve_still_overwrites_the_stored_title_and_artists() -> None:
-    """The guard is scoped to `source_failures`: with every source answering,
-    the fresh result is the authority and must win as before (D-42)."""
+    """The guard is scoped to `source_failures`: with every source answering, the
+    fresh result is the authority and must win."""
     track = ResolvedTrack(title="Creep", artists=[ArtistInfo(name="Radiohead")])
 
     keep_stored_title_and_artists_after_source_failure(

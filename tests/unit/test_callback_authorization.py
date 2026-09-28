@@ -1,7 +1,6 @@
-"""D-46 claimed the allowlist covers an inline button "automatically",
-because `event_from_user` is populated for a `callback_query` too. Publishing
-is the most destructive operation the system has, so that claim is verified
-here by feeding real updates through a real dispatcher rather than trusted.
+"""The allowlist is expected to cover inline buttons because `event_from_user` is
+populated for a `callback_query` too. Publishing is the most destructive operation
+there is, so that is verified with real updates through a real dispatcher.
 """
 
 from __future__ import annotations
@@ -23,9 +22,8 @@ STRANGER_ID = 999999999
 
 @pytest.fixture(autouse=True)
 def rejection_logger(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
-    """The module logger is a structlog lazy proxy that caches itself on
-    first use, and a cached proxy silently defeats `capture_logs()` in every
-    later test — so this file logs through a stand-in instead."""
+    """A cached structlog proxy silently defeats `capture_logs()` in every later
+    test, so this file logs through a stand-in."""
     fake_logger = MagicMock()
     monkeypatch.setattr(middlewares, "logger", fake_logger)
     return fake_logger
@@ -43,9 +41,8 @@ def reached() -> list[str]:
 
 @pytest.fixture
 def dispatcher(reached: list[str]) -> Iterator[Dispatcher]:
-    """Mirrors `build_dispatcher()`'s wiring with a spy router in place of
-    the real handlers — the production router is a singleton aiogram only
-    lets attach once, and this test needs its own."""
+    """Mirrors `build_dispatcher()` with a spy router: the production router is a
+    singleton aiogram lets attach only once."""
     dispatcher = Dispatcher(disable_fsm=True)
     dispatcher.update.outer_middleware(AdminAllowlistMiddleware(frozenset({ADMIN_ID})))
 
@@ -91,9 +88,8 @@ async def test_a_non_admin_button_tap_never_reaches_a_handler(
     rejection_logger: MagicMock,
     callback_data: str,
 ) -> None:
-    """Both buttons, not just the first: «Зробити відео» spends minutes of
-    CPU and hundreds of megabytes, and it arrived after D-46's claim was
-    verified — so it is verified here rather than assumed to inherit."""
+    """Both buttons: «Зробити відео» spends minutes of CPU and hundreds of
+    megabytes, so it is verified rather than assumed to inherit the check."""
     await dispatcher.feed_update(
         bot, make_callback_update(STRANGER_ID, callback_data=callback_data)
     )

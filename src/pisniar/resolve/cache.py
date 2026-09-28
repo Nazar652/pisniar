@@ -1,7 +1,6 @@
-"""The `source_fetch` cache (contract p.1): one row per `(source,
-request_key)`, refreshed once it goes stale (D-40). Every read and write
-runs in its own short session — never the caller's business transaction,
-whose rollback would otherwise undo the whole task (F-2/F-13).
+"""The `source_fetch` cache: one row per `(source, request_key)`, refreshed
+once stale. Every read and write runs in its own short session, never in the
+caller's business transaction, whose rollback would undo it.
 """
 
 from __future__ import annotations
@@ -28,9 +27,8 @@ KEY_SEPARATOR = "|"
 
 
 def normalize_key_part(value: str, *, casefold: bool = True) -> str:
-    """Whitespace-collapsed, separator-escaped, and casefolded for free-text
-    parts. Identifiers pass `casefold=False` — a Spotify id is base62, so
-    folding its case would merge two different tracks into one row."""
+    """Identifiers pass `casefold=False`: a Spotify id is base62, so folding its
+    case would merge two different tracks into one row."""
     collapsed = " ".join(value.split())
     if casefold:
         collapsed = collapsed.casefold()
@@ -38,9 +36,8 @@ def normalize_key_part(value: str, *, casefold: bool = True) -> str:
 
 
 def build_request_key(prefix: str, *parts: str, casefold: bool = True) -> str:
-    """`prefix` plus normalized `parts`. An over-long key keeps a readable
-    head and ends in a digest of the full value — deterministic, so the
-    cache still hits, and never long enough to blow the btree limit."""
+    """An over-long key keeps a readable head plus a digest of the full value:
+    deterministic, so the cache still hits, and within the btree limit."""
     key = prefix + KEY_SEPARATOR.join(normalize_key_part(part, casefold=casefold) for part in parts)
     if len(key.encode("utf-8")) <= MAX_REQUEST_KEY_BYTES:
         return key
@@ -62,9 +59,8 @@ def is_negative_payload(payload: dict[str, object]) -> bool:
 
 @dataclass(frozen=True)
 class SourceCache:
-    """Owns its own sessions on purpose: an adapter's cache write must be
-    visible to other tasks immediately, and must survive a business-side
-    rollback it knows nothing about."""
+    """Owns its sessions: a cache write must be visible to other tasks at once
+    and survive a business-side rollback it knows nothing about."""
 
     session_factory: async_sessionmaker[AsyncSession]
     ttl_seconds: int = DEFAULT_TTL_SECONDS
@@ -75,9 +71,8 @@ class SourceCache:
         request_key: str,
         fetch: Callable[[], Awaitable[dict[str, object]]],
     ) -> dict[str, object]:
-        """Return a still-fresh cached payload, or call `fetch()` and upsert
-        it. A stale row is a miss: without that, `{"found": false}` for a
-        release song.link had not indexed yet would stick forever (D-40)."""
+        """A stale row is a miss, so `{"found": false}` for a release song.link
+        has not indexed yet does not stick forever."""
         cached = await self._select_fresh(source, request_key)
         if cached is not None:
             return cached
@@ -123,13 +118,8 @@ class SourceCache:
             await session.commit()
 
     def _negative_overwrite_allowed(self, fetched_at: datetime) -> ColumnElement[bool]:
-        """A negative answer may replace a stale row or another negative one,
-        never a still-fresh positive: last-writer-wins let a single quota
-        error blank a whole release for the rest of the TTL (R2-5).
-
-        Three-valued on purpose — a positive payload has neither key, so both
-        comparisons are NULL and the `DO UPDATE` is skipped.
-        """
+        """A cached miss replaces a stale row or another miss, never a fresh hit.
+        Three-valued: a positive payload has neither key, so both comparisons are NULL."""
         cutoff = fetched_at - timedelta(seconds=self.ttl_seconds)
         return or_(
             SourceFetch.fetched_at <= cutoff,

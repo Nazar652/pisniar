@@ -1,7 +1,6 @@
-"""The one `send_video` call both the admin preview and the channel
-publication go through. Sharing it is what makes S4-A14 structural rather
-than a promise: the caption, `parse_mode` and every dimension reach Telegram
-from a single place, so the preview and the published post cannot diverge.
+"""The one `send_video` call both the admin preview and the channel publication
+go through: the caption, `parse_mode` and every dimension reach Telegram from a
+single place, so the preview and the published post cannot diverge.
 """
 
 from __future__ import annotations
@@ -39,9 +38,8 @@ async def send_rendered_video(
     *,
     reply_markup: InlineKeyboardMarkup | None = None,
 ) -> Message:
-    """The caption goes out exactly as stored — it is already rendered,
-    escaped HTML under the 1024 media limit, and the video limit is the same
-    one the photo caption already fits (D-45), so nothing is rebuilt here."""
+    """The caption goes out verbatim: the video caption limit is the same 1024
+    the photo caption already fits."""
     thumbnail = (
         FSInputFile(video.thumbnail_path)
         if video.thumbnail_path is not None and video.thumbnail_path.is_file()

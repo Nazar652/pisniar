@@ -105,9 +105,8 @@ async def test_an_existing_automatic_text_is_never_written_over(
 async def test_a_manual_text_is_never_written_over(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """The step 7 seam: the guard is "any line", not "any `lrclib` line".
-    The manual line sits at index 5, so a guard narrowed to `lrclib` would
-    insert 0-2 beside it without a single conflict."""
+    """The guard is "any line", not "any `lrclib` line": one narrowed to `lrclib`
+    would insert 0-2 beside the manual line at index 5 without a single conflict."""
     track_id = await make_track(session_factory)
     await add_line(session_factory, track_id, source="manual", text="правка адміна", line_index=5)
 
@@ -137,10 +136,8 @@ async def test_a_line_past_the_check_is_stored_cut_instead_of_failing_the_write(
 async def test_a_second_writer_waits_for_the_first_and_then_writes_nothing(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """`UNIQUE (track_id, line_index)` stops a duplicate index, not a mixed
-    set: two writers that both counted zero would interleave their lines.
-    The track lock serializes them, and under READ COMMITTED the second
-    one's count runs after the first one's commit — so it sees the lines."""
+    """UNIQUE stops a duplicate index, not a mixed set; the track lock plus READ
+    COMMITTED make the second writer count only after the first one commits."""
     track_id = await make_track(session_factory)
 
     async with session_factory() as first_writer:

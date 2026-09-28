@@ -1,7 +1,6 @@
-"""The caption document model and its serializers (contract p.4): a
-structured `CaptionDocument`, not a string — Telegram's limit is counted
-on *visible* text (UTF-16 code units), while URLs live in HTML entities
-and cost only their link text.
+"""The caption document model and its serializers. A structured document, not a
+string: Telegram counts the limit on *visible* text (UTF-16 code units), while
+URLs live in HTML entities and cost only their link text.
 """
 
 from __future__ import annotations
@@ -56,9 +55,8 @@ class CaptionDocument:
 
 
 class UnsafeHrefError(ValueError):
-    """A `LinkSegment` had a non-http(s) scheme — should be unreachable
-    given `urls.classify_url()`'s own check, but this is the last line of
-    defense at render time (security review)."""
+    """Unreachable given `urls.classify_url()`'s own check; the last line of
+    defense at render time."""
 
 
 def utf16_length(value: str) -> int:
