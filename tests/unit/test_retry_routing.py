@@ -141,3 +141,17 @@ def test_a_live_media_task_is_never_reclaimed(status: PostStatus) -> None:
 
     assert _stage_has_gone_stale(post_updated_seconds_ago(5), limit) is False
     assert _stage_has_gone_stale(post_updated_seconds_ago(limit - 1), limit) is False
+
+
+@pytest.mark.parametrize("status", [PostStatus.DOWNLOADED, PostStatus.RENDERING])
+def test_the_render_stale_window_follows_the_render_hard_limit(status: PostStatus) -> None:
+    """Five minutes is past the old four-minute window and inside the current one:
+    a render still waiting on LRCLIB must not be reclaimed under a live task."""
+    post = Post(track_id=1, created_by_user_id=111)
+    post.status = status
+    post.updated_at = datetime.now(UTC) - timedelta(seconds=300)
+
+    limit_seconds = _stage_time_limit_seconds(status)
+
+    assert limit_seconds == handlers.settings.render_task_time_limit_seconds == 420
+    assert not _stage_has_gone_stale(post, limit_seconds)

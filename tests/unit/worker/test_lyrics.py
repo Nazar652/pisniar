@@ -1,6 +1,7 @@
-"""`worker.lyrics`, the database-free half: which lines are written (timed
-ones only) and what happens to a line past the 500-character CHECK. The lock
-and the guard are proven against Postgres in `test_lyrics_persist.py`.
+"""`worker.lyrics`, the database-free half: which lines are written, a line past
+the 500-character CHECK, and `prepare_lyrics`' split between "no text" and a loud
+failure. The lock, the guard and the idle database are in `test_lyrics_persist.py`
+and `test_render_lyrics.py`.
 """
 
 from __future__ import annotations
@@ -8,11 +9,16 @@ from __future__ import annotations
 from typing import Any, cast
 from unittest.mock import MagicMock
 
+import httpx
 import pytest
+from celery.exceptions import SoftTimeLimitExceeded
+from sqlalchemy.exc import OperationalError
 
 from pisniar.db.models import MAX_LYRIC_TEXT_LENGTH
-from pisniar.resolve.sources.lrclib import LyricsLine, LyricsOutcome, LyricsResult
+from pisniar.resolve.lrc import LrcParseError
+from pisniar.resolve.sources.lrclib import LrclibApiError, LyricsLine, LyricsOutcome, LyricsResult
 from pisniar.worker import lyrics
+from pisniar.worker.ass import LyricLine
 from pisniar.worker.lyrics import LyricsPersistOutcome
 
 TRACK_ID = 7
@@ -110,3 +116,183 @@ async def test_a_result_with_nothing_to_write_never_opens_a_session() -> None:
 
     assert result.outcome is LyricsPersistOutcome.NOTHING_TO_WRITE
     assert result.source_outcome is LyricsOutcome.UNSYNCED
+
+
+QUERY = lyrics.LyricsQuery(
+    track_id=TRACK_ID, artist_names=("Burned Time Machine",), title="Покаяння", duration_ms=212_000
+)
+STORED_LINES = (LyricLine(line_index=0, start_ms=1_000, text="раз"),)
+
+
+class PrepareSpy:
+    """Replaces the three collaborators `prepare_lyrics` orchestrates and records
+    the order they ran in, so "no network when lines exist" is observed."""
+
+    def __init__(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        *,
+        stored_before: tuple[LyricLine, ...],
+        stored_after: tuple[LyricLine, ...] = (),
+        fetch_result: LyricsResult | BaseException | None = None,
+        persist_outcome: LyricsPersistOutcome = LyricsPersistOutcome.WRITTEN,
+    ) -> None:
+        self.calls: list[str] = []
+        self.stored = [stored_before, stored_after]
+        self.fetch_result = fetch_result
+        self.persist_outcome = persist_outcome
+
+        monkeypatch.setattr(lyrics, "load_renderable_lines", self.load)
+        monkeypatch.setattr(lyrics, "fetch_lyrics", self.fetch)
+        monkeypatch.setattr(lyrics, "persist_lyrics_in_own_transaction", self.persist)
+
+    async def load(self, session_factory: object, track_id: int) -> tuple[LyricLine, ...]:
+        self.calls.append("load")
+        return self.stored.pop(0)
+
+    async def fetch(self, *args: object, **kwargs: object) -> LyricsResult:
+        self.calls.append("fetch")
+        if isinstance(self.fetch_result, BaseException):
+            raise self.fetch_result
+        assert self.fetch_result is not None
+        return self.fetch_result
+
+    async def persist(
+        self, session_factory: object, track_id: int, result: LyricsResult
+    ) -> lyrics.LyricsPersistResult:
+        self.calls.append("persist")
+        return lyrics.LyricsPersistResult(
+            outcome=self.persist_outcome, source_outcome=result.outcome
+        )
+
+
+async def prepare() -> lyrics.PreparedLyrics:
+    return await lyrics.prepare_lyrics(MagicMock(), MagicMock(), MagicMock(), QUERY)
+
+
+async def test_stored_lines_are_used_and_lrclib_is_never_asked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    spy = PrepareSpy(monkeypatch, stored_before=STORED_LINES)
+
+    prepared = await prepare()
+
+    assert spy.calls == ["load"]
+    assert prepared == lyrics.PreparedLyrics(
+        lines=STORED_LINES, reason=lyrics.LYRICS_ALREADY_STORED
+    )
+
+
+async def test_fresh_synced_lyrics_are_persisted_then_read_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Rendered from what the table holds, not from the adapter's answer: the two
+    differ once a line is truncated to the CHECK."""
+    spy = PrepareSpy(
+        monkeypatch,
+        stored_before=(),
+        stored_after=STORED_LINES,
+        fetch_result=synced((1_000, "раз")),
+    )
+
+    prepared = await prepare()
+
+    assert spy.calls == ["load", "fetch", "persist", "load"]
+    assert prepared == lyrics.PreparedLyrics(lines=STORED_LINES, reason="lyrics_synced")
+
+
+async def test_lines_written_by_someone_else_meanwhile_count_as_already_stored(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    PrepareSpy(
+        monkeypatch,
+        stored_before=(),
+        stored_after=STORED_LINES,
+        fetch_result=synced((1_000, "інше")),
+        persist_outcome=LyricsPersistOutcome.KEPT_EXISTING,
+    )
+
+    prepared = await prepare()
+
+    assert prepared.reason == lyrics.LYRICS_ALREADY_STORED
+    assert prepared.lines == STORED_LINES
+
+
+@pytest.mark.parametrize(
+    "outcome",
+    [
+        LyricsOutcome.UNSYNCED,
+        LyricsOutcome.INSTRUMENTAL,
+        LyricsOutcome.ABSENT,
+        LyricsOutcome.REJECTED_BY_MATCHING,
+    ],
+)
+async def test_an_answer_without_timed_lines_carries_its_own_class(
+    monkeypatch: pytest.MonkeyPatch, outcome: LyricsOutcome
+) -> None:
+    PrepareSpy(monkeypatch, stored_before=(), fetch_result=LyricsResult(outcome=outcome))
+
+    prepared = await prepare()
+
+    assert prepared == lyrics.PreparedLyrics(lines=(), reason=outcome.value)
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        LrclibApiError("lrclib не відповів за 3 спроб: HTTP 503"),
+        LrcParseError("не розпізнано 9 рядків із 10"),
+        httpx.ConnectError("connection refused"),
+    ],
+)
+async def test_a_source_that_fails_means_a_video_without_text(
+    monkeypatch: pytest.MonkeyPatch, failure: BaseException
+) -> None:
+    spy = PrepareSpy(monkeypatch, stored_before=(), fetch_result=failure)
+
+    prepared = await prepare()
+
+    assert spy.calls == ["load", "fetch"]
+    assert prepared == lyrics.PreparedLyrics(
+        lines=(), reason=LyricsOutcome.SOURCE_UNAVAILABLE.value
+    )
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [SoftTimeLimitExceeded(), OperationalError("SELECT 1", {}, Exception("server closed"))],
+)
+async def test_a_timeout_or_a_database_error_under_the_fetch_is_never_swallowed(
+    monkeypatch: pytest.MonkeyPatch, failure: BaseException
+) -> None:
+    """The soft limit is reported as a timeout, and `SourceCache` talks to
+    Postgres inside the fetch: neither is the source failing."""
+    PrepareSpy(monkeypatch, stored_before=(), fetch_result=failure)
+
+    with pytest.raises(type(failure)):
+        await prepare()
+
+
+async def test_a_failed_persist_fails_loudly(monkeypatch: pytest.MonkeyPatch) -> None:
+    spy = PrepareSpy(monkeypatch, stored_before=(), fetch_result=synced((1_000, "раз")))
+
+    async def refuse(*args: object, **kwargs: object) -> object:
+        raise lyrics.LyricsPersistError("записано 0 рядків із 1")
+
+    monkeypatch.setattr(lyrics, "persist_lyrics_in_own_transaction", refuse)
+
+    with pytest.raises(lyrics.LyricsPersistError):
+        await prepare()
+    assert spy.calls == ["load", "fetch"]
+
+
+async def test_a_failed_read_of_stored_lines_fails_loudly(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def refuse(*args: object, **kwargs: object) -> object:
+        raise OperationalError("SELECT lyric", {}, Exception("server closed"))
+
+    monkeypatch.setattr(lyrics, "load_renderable_lines", refuse)
+
+    with pytest.raises(OperationalError):
+        await prepare()

@@ -323,9 +323,24 @@ suggest or introduce either.
   before the post fails. The measured worst realistic input is 4.44 MB, so
   that branch guards a render defect, not normal input.
 - `render.RenderParameters.subtitles_path` is an **optional path passed in from
-  outside**, not a flag decided inside, and `params_hash` already covers
-  `text_version` (always `None` in 4A). Both are the seams that keep step 4B
-  an addition to a verified filtergraph instead of a rewrite.
+  outside**, not a flag decided inside. `text_version` is a digest of the
+  generated `.ass` file (`None` for a video without text) and an input to
+  `params_hash`, so the lines, their timing, the fragment offset, the wrapping
+  and the styles all change the hash with nothing to bump by hand; the same
+  text reuses the file on the volume and never runs ffmpeg again.
+- **Lyrics are fetched in the long phase, with no session open.** Stored
+  renderable lines win and LRCLIB is never asked; otherwise
+  `worker.lyrics.prepare_lyrics` fetches, persists in its own short
+  transaction and reads the lines back as plain values. A source that fails
+  (`LrclibApiError`, `LrcParseError`, the network) means a video without text;
+  our own failures (persisting, reading, generating the `.ass`) fail the post.
+  `SoftTimeLimitExceeded` and `SQLAlchemyError` are re-raised before the one
+  broad `except` around `fetch_lyrics`. The reason class (`lyrics_synced`,
+  `lyrics_already_stored`, `lyrics_source_unavailable`, ...) travels in
+  `RenderOutcome.lyrics_reason` to where the preview is sent.
+- **The render limits cover LRCLIB's worst case.** Timeouts, retries and the
+  fallback search add up to ~187 s, so `render_task_*` is 360/420 s; the
+  hard limit is also the stale-render window `/retry` waits out.
 - **The chain is started by a button and continues by itself.** «Зробити
   відео» dispatches `download_post_audio`; that task dispatches
   `render_post_video` **after** its own commit, so a redelivered render can
@@ -360,6 +375,18 @@ suggest or introduce either.
   as a video and the video is gone, publication **fails loudly**; falling
   back to `send_photo` would put a different post in the channel than the one
   the admin approved.
+- **A post with a preview is never downloaded or rendered again**, so the
+  render publication takes is always the one the admin saw. `_video_for_publication`
+  picks the post's newest `render` row, and that is safe only because no row
+  can appear after `preview_message_id` is written: both media tasks exit
+  without work on a previewed post, and «Зробити відео» refuses it with a
+  sentence of its own before any status changes.
+- **A media task never acts on a `failed` post**: it can only get there by
+  redelivery. Every bot path (the button, each `/retry` branch, a stale
+  reclaim) writes the target status before it dispatches, and the download
+  commits `DOWNLOADED` before it chains the render. So `FAILED` is absent from
+  `DOWNLOAD_ENTRY_STATUSES`/`RENDER_ENTRY_STATUSES`, though the transition
+  table allows it.
 - **Cleanup has three levels.** `/data/tmp/<post_id>/` goes in a
   `finally`, always. Artifacts of deleted rows go **after** the commit — the
   reverse order would leave a surviving row pointing at a deleted file, and

@@ -1,6 +1,6 @@
-"""Lyrics persistence in a short transaction of its own; the LRCLIB request runs
-before it, never inside, so no lock is held across the network. Only timed
-lines are written, and never over existing lines of any `source`.
+"""The render's lyrics: stored lines first, LRCLIB only when there are none, with
+no session open during the request. Persistence is a short transaction of its
+own; only timed lines are written, never over existing lines of any `source`.
 """
 
 from __future__ import annotations
@@ -8,17 +8,26 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 
+import httpx
+from celery.exceptions import SoftTimeLimitExceeded
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from pisniar.db.models import MAX_LYRIC_TEXT_LENGTH, Lyric, Track
+from pisniar.db.models import MAX_LYRIC_TEXT_LENGTH, Lyric, Track, renderable_lyrics_statement
 from pisniar.logging import get_logger
-from pisniar.resolve.sources.lrclib import LyricsOutcome, LyricsResult
+from pisniar.resolve.cache import SourceCache
+from pisniar.resolve.sources.lrclib import LyricsOutcome, LyricsResult, fetch_lyrics
+from pisniar.worker.ass import LyricLine
 
 logger = get_logger(__name__)
 
 LRCLIB_SOURCE = "lrclib"
+
+# The reason class beside the adapter's own: the lines were already stored, so
+# LRCLIB was never asked.
+LYRICS_ALREADY_STORED = "lyrics_already_stored"
 
 
 class LyricsPersistOutcome(StrEnum):
@@ -162,3 +171,76 @@ async def _persist_under_track_lock(
         written_line_count=inserted_count,
         truncated_line_count=truncated_count,
     )
+
+
+@dataclass(frozen=True)
+class LyricsQuery:
+    track_id: int
+    artist_names: tuple[str, ...]
+    title: str
+    duration_ms: int | None
+
+
+@dataclass(frozen=True)
+class PreparedLyrics:
+    """`reason` is a class, never text: it goes to the log and to the admin."""
+
+    lines: tuple[LyricLine, ...]
+    reason: str
+
+
+async def load_renderable_lines(
+    session_factory: async_sessionmaker[AsyncSession], track_id: int
+) -> tuple[LyricLine, ...]:
+    """Plain values out of a session closed on return, so nothing lazily
+    reloads once the long phase starts."""
+    async with session_factory() as session:
+        rows = (await session.scalars(renderable_lyrics_statement(track_id))).all()
+        return tuple(
+            LyricLine(line_index=row.line_index, start_ms=row.start_ms, text=row.text)
+            for row in rows
+        )
+
+
+async def prepare_lyrics(
+    session_factory: async_sessionmaker[AsyncSession],
+    http_client: httpx.AsyncClient,
+    cache: SourceCache,
+    query: LyricsQuery,
+) -> PreparedLyrics:
+    """A source that fails means a video without text. Our own failures (persist,
+    read) raise, and so do timeouts and database errors raised under the fetch."""
+    stored = await load_renderable_lines(session_factory, query.track_id)
+    if stored:
+        return _prepared(query.track_id, stored, LYRICS_ALREADY_STORED)
+
+    try:
+        result = await fetch_lyrics(
+            http_client,
+            cache,
+            artist_names=query.artist_names,
+            title=query.title,
+            duration_ms=query.duration_ms,
+        )
+    except (SoftTimeLimitExceeded, SQLAlchemyError):
+        raise
+    except Exception:
+        logger.warning(
+            "lyrics_source_failed",
+            track_id=query.track_id,
+            reason=LyricsOutcome.SOURCE_UNAVAILABLE.value,
+            exc_info=True,
+        )
+        return _prepared(query.track_id, (), LyricsOutcome.SOURCE_UNAVAILABLE.value)
+
+    persisted = await persist_lyrics_in_own_transaction(session_factory, query.track_id, result)
+    lines = await load_renderable_lines(session_factory, query.track_id)
+
+    if persisted.outcome is LyricsPersistOutcome.KEPT_EXISTING:
+        return _prepared(query.track_id, lines, LYRICS_ALREADY_STORED)
+    return _prepared(query.track_id, lines, result.outcome.value)
+
+
+def _prepared(track_id: int, lines: tuple[LyricLine, ...], reason: str) -> PreparedLyrics:
+    logger.info("lyrics_prepared", track_id=track_id, reason=reason, line_count=len(lines))
+    return PreparedLyrics(lines=lines, reason=reason)

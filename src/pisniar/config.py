@@ -61,8 +61,10 @@ class Settings(BaseSettings):
     # `/retry`'s "resolve has gone stale" window, so they are never raised here.
     download_task_soft_time_limit_seconds: int = Field(default=120, gt=0)
     download_task_time_limit_seconds: int = Field(default=180, gt=0)
-    render_task_soft_time_limit_seconds: int = Field(default=180, gt=0)
-    render_task_time_limit_seconds: int = Field(default=240, gt=0)
+    # Covers LRCLIB's worst case (~187 s of timeouts and retries) on top of the
+    # render: a slow lyrics source must end as a video without text, not a timeout.
+    render_task_soft_time_limit_seconds: int = Field(default=360, gt=0)
+    render_task_time_limit_seconds: int = Field(default=420, gt=0)
 
     @field_validator("admin_ids", mode="before")
     @classmethod

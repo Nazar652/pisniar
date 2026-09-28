@@ -62,6 +62,10 @@ MEDIA_IN_PROGRESS_ANSWER = (
     "кнопка публікації буде під ним."
 )
 VIDEO_READY_ANSWER = "Відео для поста {post_id} уже готове — публікуйте кнопкою під прев'ю з відео."
+PREVIEW_ALREADY_SHOWN_ANSWER = (
+    "Відео для поста {post_id} уже показано в прев'ю, і повторно воно не рендериться: "
+    "у канал іде саме те відео. Якщо публікація не вдалася — /retry {post_id}."
+)
 
 # A clip is a `youtube` link, never a `youtubeMusic` one — the latter
 # is the canonical "— Topic" upload and belongs to the platform half.
@@ -509,6 +513,16 @@ def _claim_post_for_media(
             "render_refused", reason="already_rendered", user_id=user_id, post_id=post_id
         )
         return VIDEO_READY_ANSWER.format(post_id=post_id), None
+
+    if post.preview_message_id is not None:
+        logger.warning(
+            "render_refused",
+            reason="already_previewed",
+            status=post.status.value,
+            user_id=user_id,
+            post_id=post_id,
+        )
+        return PREVIEW_ALREADY_SHOWN_ANSWER.format(post_id=post_id), None
 
     try:
         set_post_status(post, PostStatus.DOWNLOADING)

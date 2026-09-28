@@ -569,6 +569,34 @@ async def test_a_render_tap_while_rendering_dispatches_nothing(
     assert "відео" in callback.answer.await_args.args[0]
 
 
+async def test_a_render_tap_after_the_preview_dispatches_nothing(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """A failed publication leaves the post `failed`, a legal source of
+    `downloading`; the preview, not the status, is what refuses the tap."""
+    post_id = await make_post_with_draft(
+        session_factory,
+        status=PostStatus.FAILED,
+        failed_from=PostStatus.PUBLISHING,
+        with_preview=True,
+    )
+    callback = make_callback(f"render:{post_id}")
+    bot = AsyncMock()
+    celery_client = MagicMock()
+
+    await handle_callback(callback, bot, session_factory, celery_client)
+
+    celery_client.send_task.assert_not_called()
+    bot.edit_message_reply_markup.assert_not_awaited()
+    assert callback.answer.await_args.args[0] == handlers.PREVIEW_ALREADY_SHOWN_ANSWER.format(
+        post_id=post_id
+    )
+
+    post = await load_post(session_factory, post_id)
+    assert post.status is PostStatus.FAILED
+    assert post.failed_from_status is PostStatus.PUBLISHING
+
+
 async def test_a_failed_render_dispatch_leaves_the_post_retryable(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:

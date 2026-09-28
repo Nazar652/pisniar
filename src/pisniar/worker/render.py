@@ -122,6 +122,17 @@ def compute_params_hash(
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+TEXT_VERSION_LENGTH = 16
+
+
+def text_version_of(subtitles_text: str | None) -> str | None:
+    """A digest of the `.ass` file itself, so a change to the lines, their timing,
+    the fragment offset, the wrapping or the styles all change the hash."""
+    if subtitles_text is None:
+        return None
+    return hashlib.sha256(subtitles_text.encode("utf-8")).hexdigest()[:TEXT_VERSION_LENGTH]
+
+
 def build_filter_complex(subtitles_path: Path | None = None) -> str:
     """`in_range=pc:out_range=tv` handles full-range covers; `setsar=1` gives
     square pixels, so players do not stretch the frame."""

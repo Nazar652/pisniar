@@ -294,8 +294,8 @@ class Render(Base):
         BigInteger, ForeignKey("post.id", ondelete="CASCADE"), nullable=False
     )
     params_hash: Mapped[str] = mapped_column(Text, nullable=False)
-    # Always null for now. It is an input to `params_hash`, so the column keeps
-    # that hash auditable once it is filled.
+    # A digest of the `.ass` file, null for a video without text. It is an input
+    # to `params_hash`, so the column keeps that hash auditable.
     text_version: Mapped[str | None] = mapped_column(Text)
     path: Mapped[str] = mapped_column(Text, nullable=False)
     size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)

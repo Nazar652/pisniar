@@ -61,9 +61,11 @@ from pisniar.telegram.publish import (
     publish_to_channel,
 )
 from pisniar.telegram.video import RenderedVideo
+from pisniar.worker import ass as ass_subtitles
 from pisniar.worker import download as audio_download
 from pisniar.worker import ffmpeg as media_tools
 from pisniar.worker import fragment as fragment_rule
+from pisniar.worker import lyrics as worker_lyrics
 from pisniar.worker import render as video_render
 from pisniar.worker import storage as media_storage
 from pisniar.worker.celery_app import (
@@ -925,14 +927,10 @@ async def _fail_publish(
         await bot.session.close()
 
 
-# Legal entries into DOWNLOADING / RENDERING per `db.states`. Anything else
-# is a Celery redelivery arriving at a post that has already moved on.
-DOWNLOAD_ENTRY_STATUSES = frozenset(
-    {PostStatus.RESOLVED, PostStatus.DOWNLOADING, PostStatus.FAILED}
-)
-RENDER_ENTRY_STATUSES = frozenset(
-    {PostStatus.DOWNLOADED, PostStatus.EDITING, PostStatus.RENDERING, PostStatus.FAILED}
-)
+# Legal entries per `db.states` minus FAILED: the bot writes the target status
+# before dispatching, so a task that finds FAILED is always a redelivery.
+DOWNLOAD_ENTRY_STATUSES = frozenset({PostStatus.RESOLVED, PostStatus.DOWNLOADING})
+RENDER_ENTRY_STATUSES = frozenset({PostStatus.DOWNLOADED, PostStatus.EDITING, PostStatus.RENDERING})
 
 MEDIA_TASK_TIMEOUT_ERROR = (
     "перевищено м'який ліміт часу задачі — це ТАЙМАУТ, а не помилка обробки; "
@@ -979,6 +977,7 @@ class RenderClaim:
     cover_url: str | None
     fragment_start_ms: int
     fragment_end_ms: int
+    lyrics_query: worker_lyrics.LyricsQuery
 
 
 @dataclass(frozen=True)
@@ -987,6 +986,9 @@ class RenderOutcome:
     path: Path
     size_bytes: int
     duration_ms: int
+    text_version: str | None
+    # Carried to the preview, so the admin can be told why a video has no text.
+    lyrics_reason: str
     # Cosmetic and therefore optional: Telegram builds its own preview when
     # it is missing, so a failed thumbnail never fails a verified render.
     thumbnail_path: Path | None = None
@@ -1061,6 +1063,14 @@ async def _claim_post_for_downloading(
         if post.status not in DOWNLOAD_ENTRY_STATUSES:
             logger.info(
                 "download_post_audio_task_arrived_at_settled_post",
+                post_id=post_id,
+                status=post.status.value,
+            )
+            return None
+
+        if post.preview_message_id is not None:
+            logger.info(
+                "download_post_audio_task_arrived_at_previewed_post",
                 post_id=post_id,
                 status=post.status.value,
             )
@@ -1276,7 +1286,7 @@ async def _render_post_video(post_id: int) -> None:
             return
 
         try:
-            outcome = await _render_video_off_transaction(claim, tmp_directory)
+            outcome = await _render_video_off_transaction(session_factory, claim, tmp_directory)
         except SoftTimeLimitExceeded:
             logger.error("render_post_video_soft_time_limit", post_id=post_id)
             await _fail_media_post(session_factory, post_id, MEDIA_TASK_TIMEOUT_ERROR)
@@ -1330,6 +1340,15 @@ async def _claim_post_for_rendering(
         if post.status not in RENDER_ENTRY_STATUSES:
             logger.info(
                 "render_post_video_task_arrived_at_settled_post",
+                post_id=post_id,
+                status=post.status.value,
+            )
+            return None
+
+        # Publication takes the newest `render` row, so it has to be the previewed one.
+        if post.preview_message_id is not None:
+            logger.info(
+                "render_post_video_task_arrived_at_previewed_post",
                 post_id=post_id,
                 status=post.status.value,
             )
@@ -1400,19 +1419,42 @@ async def _read_render_preconditions(
             cover_url=track.cover_url,
             fragment_start_ms=bounds.start_ms,
             fragment_end_ms=bounds.end_ms,
+            lyrics_query=worker_lyrics.LyricsQuery(
+                track_id=track.id,
+                artist_names=_artist_names(track.artists),
+                title=track.title or "",
+                duration_ms=track.duration_ms,
+            ),
         ),
         None,
     )
 
 
-async def _render_video_off_transaction(claim: RenderClaim, tmp_directory: Path) -> RenderOutcome:
-    """No transaction and no lock: ffmpeg runs for minutes."""
+def _artist_names(stored_artists: list[object]) -> tuple[str, ...]:
+    names = (entry.get("name") for entry in stored_artists if isinstance(entry, dict))
+    return tuple(name for name in names if isinstance(name, str) and name.strip())
+
+
+async def _render_video_off_transaction(
+    session_factory: async_sessionmaker[AsyncSession], claim: RenderClaim, tmp_directory: Path
+) -> RenderOutcome:
+    """No transaction and no lock: LRCLIB and ffmpeg together run for minutes.
+    The hash covers the subtitle file itself, so every input to the frames is in it."""
+    lyrics = await _prepare_lyrics_off_transaction(session_factory, claim)
+    subtitles_text = ass_subtitles.build_ass_subtitles(
+        lyrics.lines,
+        fragment_start_ms=claim.fragment_start_ms,
+        fragment_end_ms=claim.fragment_end_ms,
+    )
+    text_version = video_render.text_version_of(subtitles_text)
+
     params_hash = video_render.compute_params_hash(
         video_id=claim.video_id,
         audio_duration_ms=claim.audio_duration_ms,
         cover_url=claim.cover_url or "",
         fragment_start_ms=claim.fragment_start_ms,
         fragment_end_ms=claim.fragment_end_ms,
+        text_version=text_version,
     )
     final_path = media_storage.render_file_path(settings.media_root, claim.post_id, params_hash)
     expected_duration_ms = claim.fragment_end_ms - claim.fragment_start_ms
@@ -1431,12 +1473,19 @@ async def _render_video_off_transaction(claim: RenderClaim, tmp_directory: Path)
             expected_duration_ms=expected_duration_ms,
             duration_tolerance_ms=video_render.RENDER_DURATION_TOLERANCE_MS,
         )
-        logger.info("render_post_video_reused_artifact", post_id=claim.post_id, path=str(existing))
+        logger.info(
+            "render_post_video_reused_artifact",
+            post_id=claim.post_id,
+            path=str(existing),
+            lyrics_reason=lyrics.reason,
+        )
         return RenderOutcome(
             params_hash=params_hash,
             path=existing,
             size_bytes=probe.size_bytes,
             duration_ms=probe.duration_ms,
+            text_version=text_version,
+            lyrics_reason=lyrics.reason,
             thumbnail_path=media_storage.existing_artifact(thumbnail_path),
         )
 
@@ -1453,6 +1502,7 @@ async def _render_video_off_transaction(claim: RenderClaim, tmp_directory: Path)
         cover_path=cover_path,
         fragment_start_ms=claim.fragment_start_ms,
         fragment_end_ms=claim.fragment_end_ms,
+        subtitles_path=_write_subtitles(claim.post_id, subtitles_text),
     )
     staging = media_storage.staging_path(tmp_directory, final_path)
 
@@ -1484,14 +1534,47 @@ async def _render_video_off_transaction(claim: RenderClaim, tmp_directory: Path)
         crf=quality.crf,
         maxrate=quality.maxrate,
         has_thumbnail=staged_thumbnail is not None,
+        text_version=text_version,
+        lyrics_reason=lyrics.reason,
     )
     return RenderOutcome(
         params_hash=params_hash,
         path=final_path,
         size_bytes=probe.size_bytes,
         duration_ms=probe.duration_ms,
+        text_version=text_version,
+        lyrics_reason=lyrics.reason,
         thumbnail_path=thumbnail_path if staged_thumbnail is not None else None,
     )
+
+
+async def _prepare_lyrics_off_transaction(
+    session_factory: async_sessionmaker[AsyncSession], claim: RenderClaim
+) -> worker_lyrics.PreparedLyrics:
+    http_client = build_http_client()
+    try:
+        return await worker_lyrics.prepare_lyrics(
+            session_factory,
+            http_client,
+            SourceCache(
+                session_factory=session_factory, ttl_seconds=settings.source_fetch_ttl_seconds
+            ),
+            claim.lyrics_query,
+        )
+    finally:
+        await http_client.aclose()
+
+
+def _write_subtitles(post_id: int, subtitles_text: str | None) -> Path | None:
+    """`None` is «no text», never an empty file: the filtergraph then has no
+    `subtitles=` step at all."""
+    if subtitles_text is None:
+        return None
+
+    path = media_storage.subtitles_file_path(settings.media_root, post_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(subtitles_text, encoding="utf-8")
+    return path
 
 
 async def _finish_render(
@@ -1532,6 +1615,8 @@ async def _finish_render(
         size_bytes=outcome.size_bytes,
         duration_ms=outcome.duration_ms,
         preview_message_id=preview_message_id,
+        text_version=outcome.text_version,
+        lyrics_reason=outcome.lyrics_reason,
     )
 
 
@@ -1568,7 +1653,7 @@ def _upsert_render_statement(claim: RenderClaim, outcome: RenderOutcome) -> Post
         .values(
             post_id=claim.post_id,
             params_hash=outcome.params_hash,
-            text_version=None,
+            text_version=outcome.text_version,
             path=str(outcome.path),
             size_bytes=outcome.size_bytes,
             duration_ms=outcome.duration_ms,

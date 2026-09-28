@@ -220,8 +220,8 @@ def test_a_download_soft_limit_at_or_above_the_hard_limit_is_refused() -> None:
 def test_a_render_soft_limit_at_or_above_the_hard_limit_is_refused() -> None:
     with pytest.raises(pydantic.ValidationError) as excinfo:
         build_settings(
-            render_task_soft_time_limit_seconds=240,
-            render_task_time_limit_seconds=240,
+            render_task_soft_time_limit_seconds=420,
+            render_task_time_limit_seconds=420,
         )
 
     assert "render" in str(excinfo.value)
@@ -243,7 +243,8 @@ def test_media_task_limits_are_separate_from_the_resolve_ones(
 
     assert (TASK_SOFT_TIME_LIMIT_SECONDS, TASK_TIME_LIMIT_SECONDS) == (300, 360)
     assert settings.download_task_time_limit_seconds == 180
-    assert settings.render_task_time_limit_seconds == 240
+    assert settings.render_task_soft_time_limit_seconds == 360
+    assert settings.render_task_time_limit_seconds == 420
 
 
 def test_redaction_secrets_includes_spotify_client_secret() -> None:

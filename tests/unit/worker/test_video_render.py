@@ -403,3 +403,16 @@ def test_a_real_thumbnail_is_returned_by_path(
     monkeypatch.setattr(video_render, "run_media_tool_checked", write_jpeg)
 
     assert video_render.render_thumbnail(tmp_path / "a.mp4", output_path) == output_path
+
+
+def test_no_subtitles_means_no_text_version() -> None:
+    assert video_render.text_version_of(None) is None
+
+
+def test_the_text_version_is_a_short_digest_of_the_subtitle_file() -> None:
+    version = video_render.text_version_of("[Script Info]\nDialogue: раз\n")
+
+    assert version is not None
+    assert len(version) == video_render.TEXT_VERSION_LENGTH
+    assert version == video_render.text_version_of("[Script Info]\nDialogue: раз\n")
+    assert version != video_render.text_version_of("[Script Info]\nDialogue: два\n")

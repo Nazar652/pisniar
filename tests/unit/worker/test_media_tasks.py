@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -19,6 +20,13 @@ from pisniar.db.states import ALLOWED_TRANSITIONS, PostStatus
 from pisniar.worker import download as audio_download
 from pisniar.worker import ffmpeg as media_tools
 from pisniar.worker import tasks as worker_tasks
+from pisniar.worker.ass import AssGenerationError, LyricLine, build_ass_subtitles
+from pisniar.worker.lyrics import LYRICS_ALREADY_STORED, LyricsQuery, PreparedLyrics
+from pisniar.worker.render import text_version_of
+
+LYRICS_QUERY = LyricsQuery(
+    track_id=3, artist_names=("Burned Time Machine",), title="Покаяння", duration_ms=212_000
+)
 
 SOURCE_ROOT = Path(worker_tasks.__file__).resolve().parents[1]
 
@@ -27,14 +35,18 @@ def statuses_with_an_edge_into(target: PostStatus) -> frozenset[PostStatus]:
     return frozenset(status for status, allowed in ALLOWED_TRANSITIONS.items() if target in allowed)
 
 
-def test_the_download_entry_statuses_are_exactly_the_legal_ones() -> None:
-    assert statuses_with_an_edge_into(PostStatus.DOWNLOADING) == (
+def test_the_download_entry_statuses_are_the_legal_ones_except_failed() -> None:
+    """The bot writes the target status before dispatching, so a task that
+    finds `failed` can only be a redelivery."""
+    assert statuses_with_an_edge_into(PostStatus.DOWNLOADING) - {PostStatus.FAILED} == (
         worker_tasks.DOWNLOAD_ENTRY_STATUSES
     )
 
 
-def test_the_render_entry_statuses_are_exactly_the_legal_ones() -> None:
-    assert statuses_with_an_edge_into(PostStatus.RENDERING) == worker_tasks.RENDER_ENTRY_STATUSES
+def test_the_render_entry_statuses_are_the_legal_ones_except_failed() -> None:
+    assert statuses_with_an_edge_into(PostStatus.RENDERING) - {PostStatus.FAILED} == (
+        worker_tasks.RENDER_ENTRY_STATUSES
+    )
 
 
 def make_post(start_ms: int | None = None, end_ms: int | None = None) -> Post:
@@ -129,12 +141,15 @@ def test_the_upsert_refreshes_updated_at_itself() -> None:
             cover_url="https://cdn/cover.jpg",
             fragment_start_ms=0,
             fragment_end_ms=45_000,
+            lyrics_query=LYRICS_QUERY,
         ),
         worker_tasks.RenderOutcome(
             params_hash="a" * 64,
             path=Path("/data/render/7/" + "a" * 64 + ".mp4"),
             size_bytes=2_260_000,
             duration_ms=45_000,
+            text_version=None,
+            lyrics_reason="lyrics_absent",
         ),
     )
 
@@ -261,22 +276,58 @@ def render_claim() -> worker_tasks.RenderClaim:
         cover_url="https://cdn/cover.jpg",
         fragment_start_ms=0,
         fragment_end_ms=45_000,
+        lyrics_query=LYRICS_QUERY,
     )
 
 
-async def test_a_valid_render_on_the_volume_means_ffmpeg_is_never_invoked(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+LYRIC_LINES = (
+    LyricLine(line_index=0, start_ms=1_000, text="Перший рядок"),
+    LyricLine(line_index=1, start_ms=6_000, text="Другий рядок"),
+)
+
+
+def stub_prepared_lyrics(
+    monkeypatch: pytest.MonkeyPatch, lines: tuple[LyricLine, ...], reason: str
 ) -> None:
-    """Two parallel render tasks produce one file and one ffmpeg."""
-    monkeypatch.setattr(worker_tasks.settings, "media_root", tmp_path)
-    claim = render_claim()
-    params_hash = worker_tasks.video_render.compute_params_hash(
+    async def prepared(session_factory: object, claim: object) -> PreparedLyrics:
+        return PreparedLyrics(lines=lines, reason=reason)
+
+    monkeypatch.setattr(worker_tasks, "_prepare_lyrics_off_transaction", prepared)
+
+
+def expected_subtitles(claim: worker_tasks.RenderClaim) -> str | None:
+    return build_ass_subtitles(
+        LYRIC_LINES,
+        fragment_start_ms=claim.fragment_start_ms,
+        fragment_end_ms=claim.fragment_end_ms,
+    )
+
+
+def params_hash_for(claim: worker_tasks.RenderClaim, text_version: str | None) -> str:
+    return worker_tasks.video_render.compute_params_hash(
         video_id=claim.video_id,
         audio_duration_ms=claim.audio_duration_ms,
         cover_url=claim.cover_url or "",
         fragment_start_ms=claim.fragment_start_ms,
         fragment_end_ms=claim.fragment_end_ms,
+        text_version=text_version,
     )
+
+
+def fail_if_called(*args: object, **kwargs: object) -> object:
+    raise AssertionError("ffmpeg and the cover fetch must not run here")
+
+
+async def test_the_same_text_on_the_volume_means_ffmpeg_is_never_invoked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The hash is derived from the `.ass` itself, so a repeated render of the
+    same lines finds its own file and costs nothing."""
+    monkeypatch.setattr(worker_tasks.settings, "media_root", tmp_path)
+    claim = render_claim()
+    stub_prepared_lyrics(monkeypatch, LYRIC_LINES, LYRICS_ALREADY_STORED)
+
+    params_hash = params_hash_for(claim, text_version_of(expected_subtitles(claim)))
     final_path = worker_tasks.media_storage.render_file_path(tmp_path, claim.post_id, params_hash)
     final_path.parent.mkdir(parents=True)
     final_path.write_bytes(b"already rendered")
@@ -291,19 +342,152 @@ async def test_a_valid_render_on_the_volume_means_ffmpeg_is_never_invoked(
         ),
     )
     monkeypatch.setattr(worker_tasks.media_tools, "verify_media", lambda path, **k: probe)
-
-    def fail_if_called(*args: object, **kwargs: object) -> object:
-        raise AssertionError("ffmpeg must not run when a valid artifact already exists")
-
     monkeypatch.setattr(
         worker_tasks.video_render, "render_fragment_within_size_limit", fail_if_called
     )
     monkeypatch.setattr(worker_tasks.video_render, "download_cover", fail_if_called)
 
-    outcome = await worker_tasks._render_video_off_transaction(claim, tmp_path / "tmp" / "7")
+    outcome = await worker_tasks._render_video_off_transaction(
+        AsyncMock(), claim, tmp_path / "tmp" / "7"
+    )
 
     assert outcome.path == final_path
     assert outcome.params_hash == params_hash
+    assert outcome.lyrics_reason == LYRICS_ALREADY_STORED
+
+
+class RecordingRenderer:
+    """Stands in for ffmpeg: writes the staged file and keeps what it was given,
+    the subtitle file's content included, while that file still exists."""
+
+    def __init__(self) -> None:
+        self.parameters: list[worker_tasks.video_render.RenderParameters] = []
+        self.subtitles: list[str | None] = []
+
+    def __call__(
+        self,
+        parameters: worker_tasks.video_render.RenderParameters,
+        output_path: Path,
+        *,
+        timeout_seconds: float,
+    ) -> tuple[media_tools.MediaProbe, object]:
+        self.parameters.append(parameters)
+        subtitles_path = parameters.subtitles_path
+        self.subtitles.append(
+            subtitles_path.read_text(encoding="utf-8") if subtitles_path is not None else None
+        )
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(b"rendered")
+        probe = media_tools.MediaProbe(
+            path=output_path,
+            size_bytes=8,
+            duration_ms=45_000,
+            streams=(media_tools.StreamInfo("video", "h264", 720, 1280, "yuv420p", "tv"),),
+        )
+        return probe, worker_tasks.video_render.DEFAULT_QUALITY
+
+
+def install_renderer(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> RecordingRenderer:
+    renderer = RecordingRenderer()
+    monkeypatch.setattr(worker_tasks.settings, "media_root", tmp_path)
+    monkeypatch.setattr(worker_tasks.settings, "media_min_free_bytes", 1)
+    monkeypatch.setattr(worker_tasks.video_render, "render_fragment_within_size_limit", renderer)
+    monkeypatch.setattr(worker_tasks.video_render, "render_thumbnail", lambda *a, **k: None)
+
+    async def cover(http_client: object, cover_url: object, directory: Path) -> Path:
+        return directory / "cover.img"
+
+    monkeypatch.setattr(worker_tasks.video_render, "download_cover", cover)
+    return renderer
+
+
+async def test_lyrics_reach_ffmpeg_as_the_subtitles_file_and_the_hash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    renderer = install_renderer(monkeypatch, tmp_path)
+    stub_prepared_lyrics(monkeypatch, LYRIC_LINES, "lyrics_synced")
+    claim = render_claim()
+    subtitles = expected_subtitles(claim)
+    assert subtitles is not None
+
+    outcome = await worker_tasks._render_video_off_transaction(
+        AsyncMock(), claim, tmp_path / "tmp" / "7"
+    )
+
+    assert renderer.parameters[0].subtitles_path == (
+        worker_tasks.media_storage.subtitles_file_path(tmp_path, claim.post_id)
+    )
+    assert renderer.subtitles == [subtitles]
+    assert outcome.text_version == text_version_of(subtitles)
+    assert outcome.text_version is not None
+    assert outcome.params_hash == params_hash_for(claim, outcome.text_version)
+    assert outcome.params_hash != params_hash_for(claim, None)
+    assert outcome.lyrics_reason == "lyrics_synced"
+
+
+async def test_the_render_row_records_the_text_version_it_was_rendered_with(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_renderer(monkeypatch, tmp_path)
+    stub_prepared_lyrics(monkeypatch, LYRIC_LINES, "lyrics_synced")
+    claim = render_claim()
+
+    outcome = await worker_tasks._render_video_off_transaction(
+        AsyncMock(), claim, tmp_path / "tmp" / "7"
+    )
+    parameters = worker_tasks._upsert_render_statement(claim, outcome).compile().params
+
+    assert outcome.text_version is not None
+    assert parameters["text_version"] == outcome.text_version
+    assert parameters["params_hash"] == outcome.params_hash
+
+
+async def test_no_lyrics_means_no_subtitles_step_and_no_text_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A source that did not answer still yields a video, and the reason travels
+    with it to the preview."""
+    renderer = install_renderer(monkeypatch, tmp_path)
+    stub_prepared_lyrics(monkeypatch, (), "lyrics_source_unavailable")
+    claim = render_claim()
+
+    outcome = await worker_tasks._render_video_off_transaction(
+        AsyncMock(), claim, tmp_path / "tmp" / "7"
+    )
+
+    assert renderer.parameters[0].subtitles_path is None
+    assert outcome.text_version is None
+    assert outcome.params_hash == params_hash_for(claim, None)
+    assert outcome.lyrics_reason == "lyrics_source_unavailable"
+
+
+async def test_a_subtitle_generation_failure_fails_the_render_instead_of_dropping_the_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The generator is our code: a defect there must be heard, not turned into
+    a quietly textless video."""
+    install_renderer(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        worker_tasks.video_render, "render_fragment_within_size_limit", fail_if_called
+    )
+    stub_prepared_lyrics(monkeypatch, LYRIC_LINES, "lyrics_synced")
+
+    def broken_generator(*args: object, **kwargs: object) -> str | None:
+        raise AssGenerationError("генератор зламався")
+
+    monkeypatch.setattr(worker_tasks.ass_subtitles, "build_ass_subtitles", broken_generator)
+
+    with pytest.raises(AssGenerationError):
+        await worker_tasks._render_video_off_transaction(
+            AsyncMock(), render_claim(), tmp_path / "tmp" / "7"
+        )
+
+
+def test_the_lyrics_query_reads_only_real_artist_names() -> None:
+    assert worker_tasks._artist_names(
+        [{"name": "Burned Time Machine"}, {"name": " "}, {"hashtag": "x"}, "junk"]
+    ) == ("Burned Time Machine",)
 
 
 class FakeResult:
@@ -361,6 +545,8 @@ def media_fixtures(status: PostStatus) -> tuple[Post, Track]:
     }
     track.duration_ms = 212_000
     track.cover_url = "https://cdn/cover.jpg"
+    track.title = "Покаяння"
+    track.artists = [{"name": "Burned Time Machine", "hashtag": None, "spotify_id": None}]
 
     post = Post()
     post.id = 7
@@ -419,13 +605,17 @@ async def test_ffmpeg_runs_with_no_session_and_no_lock_open(
     open_sessions = install_fake_database(monkeypatch, post, track, asset)
     sessions_during_render: list[int] = []
 
-    async def spy_render(claim: object, tmp_directory: Path) -> worker_tasks.RenderOutcome:
+    async def spy_render(
+        session_factory: object, claim: object, tmp_directory: Path
+    ) -> worker_tasks.RenderOutcome:
         sessions_during_render.append(len(open_sessions))
         return worker_tasks.RenderOutcome(
             params_hash="b" * 64,
             path=Path("/data/render/7/" + "b" * 64 + ".mp4"),
             size_bytes=2_260_000,
             duration_ms=45_000,
+            text_version=None,
+            lyrics_reason="lyrics_absent",
         )
 
     monkeypatch.setattr(worker_tasks, "_render_video_off_transaction", spy_render)
@@ -580,12 +770,15 @@ async def test_a_timeout_during_the_preview_send_is_reported_as_a_timeout(
         cover_url="https://cdn/cover.jpg",
         fragment_start_ms=0,
         fragment_end_ms=45_000,
+        lyrics_query=LYRICS_QUERY,
     )
     outcome = worker_tasks.RenderOutcome(
         params_hash="a" * 64,
         path=Path("/data/render/7/" + "a" * 64 + ".mp4"),
         size_bytes=2_260_000,
         duration_ms=45_000,
+        text_version=None,
+        lyrics_reason="lyrics_absent",
     )
     monkeypatch.setattr(worker_tasks, "_finish_render", time_out)
 
@@ -619,14 +812,107 @@ async def test_a_failed_preview_send_fails_the_post_from_rendering(
         cover_url="https://cdn/cover.jpg",
         fragment_start_ms=0,
         fragment_end_ms=45_000,
+        lyrics_query=LYRICS_QUERY,
     )
     outcome = worker_tasks.RenderOutcome(
         params_hash="a" * 64,
         path=Path("/data/render/7/" + "a" * 64 + ".mp4"),
         size_bytes=2_260_000,
         duration_ms=45_000,
+        text_version=None,
+        lyrics_reason="lyrics_absent",
     )
 
     await worker_tasks._finish_render_or_fail(AsyncMock(), claim, outcome)
 
     assert reported == ["RuntimeError: telegram refused the upload"]
+
+
+def claim_fixtures(
+    status: PostStatus, *, preview_message_id: int | None
+) -> tuple[Post, list[FakeSession], Any]:
+    post, track = media_fixtures(status)
+    post.preview_message_id = preview_message_id
+    asset = AudioAsset()
+    asset.path = "/data/audio/3/n4bPzdIs_nc.opus"
+    asset.duration_ms = 212_000
+
+    sessions: list[FakeSession] = []
+
+    def session_factory() -> FakeSession:
+        session = FakeSession([], post, track, asset)
+        sessions.append(session)
+        return session
+
+    return post, sessions, session_factory
+
+
+@pytest.mark.parametrize(
+    ("claim_name", "status"),
+    [
+        ("_claim_post_for_downloading", PostStatus.RESOLVED),
+        ("_claim_post_for_downloading", PostStatus.DOWNLOADING),
+        ("_claim_post_for_rendering", PostStatus.DOWNLOADED),
+        ("_claim_post_for_rendering", PostStatus.RENDERING),
+    ],
+)
+async def test_a_previewed_post_is_never_downloaded_or_rendered_again(
+    claim_name: str, status: PostStatus
+) -> None:
+    """Publication takes the newest `render` row, which is the previewed one only
+    while no second row can appear after the preview."""
+    post, sessions, session_factory = claim_fixtures(status, preview_message_id=99)
+
+    claim = await getattr(worker_tasks, claim_name)(session_factory, 7)
+
+    assert claim is None
+    assert post.status is status
+    assert sum(session.commits for session in sessions) == 0
+
+
+@pytest.mark.parametrize("claim_name", ["_claim_post_for_downloading", "_claim_post_for_rendering"])
+async def test_a_task_that_finds_a_failed_post_leaves_it_alone(claim_name: str) -> None:
+    """Only a redelivery gets here; acting on it would re-render a post whose
+    publication has just failed."""
+    post, sessions, session_factory = claim_fixtures(PostStatus.FAILED, preview_message_id=None)
+
+    claim = await getattr(worker_tasks, claim_name)(session_factory, 7)
+
+    assert claim is None
+    assert post.status is PostStatus.FAILED
+    assert sum(session.commits for session in sessions) == 0
+
+
+@pytest.mark.parametrize(
+    ("claim_name", "status", "claimed_status"),
+    [
+        ("_claim_post_for_downloading", PostStatus.DOWNLOADING, PostStatus.DOWNLOADING),
+        ("_claim_post_for_rendering", PostStatus.RENDERING, PostStatus.RENDERING),
+        ("_claim_post_for_rendering", PostStatus.DOWNLOADED, PostStatus.RENDERING),
+    ],
+)
+async def test_a_post_without_a_preview_is_still_claimed(
+    claim_name: str, status: PostStatus, claimed_status: PostStatus
+) -> None:
+    """The statuses the bot and the download chain dispatch into keep working."""
+    post, sessions, session_factory = claim_fixtures(status, preview_message_id=None)
+
+    claim = await getattr(worker_tasks, claim_name)(session_factory, 7)
+
+    assert claim is not None
+    assert post.status is claimed_status
+    assert sum(session.commits for session in sessions) == 1
+
+
+async def test_the_render_claim_carries_the_lyrics_query_as_plain_values() -> None:
+    post, _, session_factory = claim_fixtures(PostStatus.DOWNLOADED, preview_message_id=None)
+
+    claim = await worker_tasks._claim_post_for_rendering(session_factory, post.id)
+
+    assert claim is not None
+    assert claim.lyrics_query == LyricsQuery(
+        track_id=3,
+        artist_names=("Burned Time Machine",),
+        title="Покаяння",
+        duration_ms=212_000,
+    )
