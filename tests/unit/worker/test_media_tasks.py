@@ -21,7 +21,12 @@ from pisniar.worker import download as audio_download
 from pisniar.worker import ffmpeg as media_tools
 from pisniar.worker import tasks as worker_tasks
 from pisniar.worker.ass import AssGenerationError, LyricLine, build_ass_subtitles
-from pisniar.worker.lyrics import LYRICS_ALREADY_STORED, LyricsQuery, PreparedLyrics
+from pisniar.worker.lyrics import (
+    LYRICS_ALREADY_STORED,
+    LYRICS_OUTSIDE_FRAGMENT,
+    LyricsQuery,
+    PreparedLyrics,
+)
 from pisniar.worker.render import text_version_of
 
 LYRICS_QUERY = LyricsQuery(
@@ -356,6 +361,55 @@ async def test_the_same_text_on_the_volume_means_ffmpeg_is_never_invoked(
     assert outcome.lyrics_reason == LYRICS_ALREADY_STORED
 
 
+def install_fake_logger(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
+    """A stand-in: a cached structlog proxy defeats `capture_logs()`."""
+    fake_logger = MagicMock()
+    monkeypatch.setattr(worker_tasks, "logger", fake_logger)
+    return fake_logger
+
+
+def logged(fake_logger: MagicMock, event: str) -> list[dict[str, Any]]:
+    return [call.kwargs for call in fake_logger.info.call_args_list if call.args == (event,)]
+
+
+async def test_a_reused_render_logs_the_text_it_was_rendered_with(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No ffmpeg on this path, so this line is the only place the log says
+    which text the reused file carries."""
+    fake_logger = install_fake_logger(monkeypatch)
+    monkeypatch.setattr(worker_tasks.settings, "media_root", tmp_path)
+    claim = render_claim()
+    stub_prepared_lyrics(monkeypatch, LYRIC_LINES, LYRICS_ALREADY_STORED)
+
+    text_version = text_version_of(expected_subtitles(claim))
+    params_hash = params_hash_for(claim, text_version)
+    final_path = worker_tasks.media_storage.render_file_path(tmp_path, claim.post_id, params_hash)
+    final_path.parent.mkdir(parents=True)
+    final_path.write_bytes(b"already rendered")
+
+    probe = media_tools.MediaProbe(
+        path=final_path,
+        size_bytes=final_path.stat().st_size,
+        duration_ms=45_000,
+        streams=(media_tools.StreamInfo("video", "h264", 720, 1280, "yuv420p", "tv"),),
+    )
+    monkeypatch.setattr(worker_tasks.media_tools, "verify_media", lambda path, **k: probe)
+
+    await worker_tasks._render_video_off_transaction(AsyncMock(), claim, tmp_path / "tmp" / "7")
+
+    assert logged(fake_logger, "render_post_video_reused_artifact") == [
+        {
+            "post_id": 7,
+            "track_id": 3,
+            "path": str(final_path),
+            "params_hash": params_hash,
+            "text_version": text_version,
+            "lyrics_reason": LYRICS_ALREADY_STORED,
+        }
+    ]
+
+
 class RecordingRenderer:
     """Stands in for ffmpeg: writes the staged file and keeps what it was given,
     the subtitle file's content included, while that file still exists."""
@@ -424,6 +478,23 @@ async def test_lyrics_reach_ffmpeg_as_the_subtitles_file_and_the_hash(
     assert outcome.params_hash == params_hash_for(claim, outcome.text_version)
     assert outcome.params_hash != params_hash_for(claim, None)
     assert outcome.lyrics_reason == "lyrics_synced"
+
+
+async def test_a_fresh_render_logs_its_track_and_text_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_logger = install_fake_logger(monkeypatch)
+    install_renderer(monkeypatch, tmp_path)
+    stub_prepared_lyrics(monkeypatch, LYRIC_LINES, "lyrics_synced")
+
+    outcome = await worker_tasks._render_video_off_transaction(
+        AsyncMock(), render_claim(), tmp_path / "tmp" / "7"
+    )
+
+    [rendered] = logged(fake_logger, "render_post_video_rendered")
+    assert (rendered["post_id"], rendered["track_id"]) == (7, 3)
+    assert rendered["text_version"] == outcome.text_version
+    assert rendered["lyrics_reason"] == "lyrics_synced"
 
 
 async def test_the_render_row_records_the_text_version_it_was_rendered_with(
@@ -916,3 +987,207 @@ async def test_the_render_claim_carries_the_lyrics_query_as_plain_values() -> No
         title="Покаяння",
         duration_ms=212_000,
     )
+
+
+PREVIEW_CHAT_ID = 555
+PREVIEW_MESSAGE_ID = 9_001
+
+
+class NoticePipeline:
+    """The render task with its database faked and Telegram replaced: records
+    every session it opened and what `send_alert` saw when it ran."""
+
+    def __init__(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        self.post, self.track = media_fixtures(PostStatus.DOWNLOADED)
+        self.asset = AudioAsset()
+        self.asset.path = "/data/audio/3/n4bPzdIs_nc.opus"
+        self.asset.duration_ms = 212_000
+        self.sessions: list[FakeSession] = []
+        self.alerts: list[dict[str, object]] = []
+        self.failures: list[str] = []
+
+        monkeypatch.setattr(worker_tasks.settings, "media_root", tmp_path)
+        monkeypatch.setattr(worker_tasks, "build_engine", lambda *a, **k: FakeEngine())
+        monkeypatch.setattr(worker_tasks, "build_session_factory", lambda engine: self.session)
+        monkeypatch.setattr(worker_tasks, "build_bot", MagicMock(return_value=AsyncMock()))
+        monkeypatch.setattr(worker_tasks, "_deliver_preview_for", self.deliver_preview)
+        monkeypatch.setattr(worker_tasks, "send_alert", self.send_alert)
+        monkeypatch.setattr(worker_tasks, "_fail_media_post", self.fail)
+
+    def session(self) -> FakeSession:
+        session = FakeSession([], self.post, self.track, self.asset)
+        self.sessions.append(session)
+        return session
+
+    async def deliver_preview(self, post: Post, outcome: object) -> None:
+        post.preview_chat_id = PREVIEW_CHAT_ID
+        post.preview_message_id = PREVIEW_MESSAGE_ID
+
+    async def send_alert(
+        self, bot: object, chat_id: int, text: str, *, reply_to_message_id: int | None = None
+    ) -> bool:
+        self.alerts.append(
+            {
+                "chat_id": chat_id,
+                "text": text,
+                "reply_to_message_id": reply_to_message_id,
+                "status": self.post.status,
+                "commits": sum(session.commits for session in self.sessions),
+            }
+        )
+        return True
+
+    async def fail(self, session_factory: object, post_id: int, error: str) -> None:
+        self.failures.append(error)
+
+    def render_returns(
+        self, monkeypatch: pytest.MonkeyPatch, *, text_version: str | None, reason: str
+    ) -> None:
+        async def rendered(
+            session_factory: object, claim: object, tmp_directory: Path
+        ) -> worker_tasks.RenderOutcome:
+            return worker_tasks.RenderOutcome(
+                params_hash="c" * 64,
+                path=Path("/data/render/7/" + "c" * 64 + ".mp4"),
+                size_bytes=2_260_000,
+                duration_ms=45_000,
+                text_version=text_version,
+                lyrics_reason=reason,
+            )
+
+        monkeypatch.setattr(worker_tasks, "_render_video_off_transaction", rendered)
+
+
+async def test_a_video_without_text_is_explained_under_its_preview_after_the_commit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pipeline = NoticePipeline(monkeypatch, tmp_path)
+    pipeline.render_returns(monkeypatch, text_version=None, reason="lyrics_absent")
+
+    await worker_tasks._render_post_video(7)
+
+    assert pipeline.alerts == [
+        {
+            "chat_id": PREVIEW_CHAT_ID,
+            "text": "Пост 7: Тексту цього треку в LRCLIB немає — відео без тексту.",
+            "reply_to_message_id": PREVIEW_MESSAGE_ID,
+            "status": PostStatus.RENDERED,
+            # transaction 1 and transaction 2 are both committed by then
+            "commits": 2,
+        }
+    ]
+    assert pipeline.failures == []
+
+
+async def test_a_video_with_text_gets_no_notice(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pipeline = NoticePipeline(monkeypatch, tmp_path)
+    pipeline.render_returns(monkeypatch, text_version="0123456789abcdef", reason="lyrics_synced")
+
+    await worker_tasks._render_post_video(7)
+
+    assert pipeline.post.status is PostStatus.RENDERED
+    assert pipeline.alerts == []
+
+
+async def test_the_log_of_a_video_with_text_runs_to_its_preview_and_no_notice(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without the last line the log of a video with text ends in silence, which
+    reads the same as a notice that was never attempted."""
+    pipeline = NoticePipeline(monkeypatch, tmp_path)
+    fake_logger = install_fake_logger(monkeypatch)
+    pipeline.render_returns(monkeypatch, text_version="0123456789abcdef", reason="lyrics_synced")
+
+    await worker_tasks._render_post_video(7)
+
+    assert logged(fake_logger, "render_post_video_preview_sent") == [
+        {"post_id": 7, "track_id": 3, "preview_message_id": PREVIEW_MESSAGE_ID}
+    ]
+    [finished] = logged(fake_logger, "render_post_video_finished")
+    assert (finished["post_id"], finished["track_id"]) == (7, 3)
+    assert finished["text_version"] == "0123456789abcdef"
+    assert logged(fake_logger, "render_post_video_no_text_notice_not_needed") == [
+        {"post_id": 7, "text_version": "0123456789abcdef"}
+    ]
+
+
+async def test_a_failed_notice_leaves_the_post_rendered_and_the_task_quiet(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The notice explains a video that is already in the chat; losing it must
+    never fail the post nor surface as a task error Celery would record."""
+    pipeline = NoticePipeline(monkeypatch, tmp_path)
+    pipeline.render_returns(monkeypatch, text_version=None, reason="lyrics_source_unavailable")
+
+    async def broken_send(*args: object, **kwargs: object) -> bool:
+        raise RuntimeError("telegram is down")
+
+    monkeypatch.setattr(worker_tasks, "send_alert", broken_send)
+
+    await worker_tasks._render_post_video(7)
+
+    assert pipeline.post.status is PostStatus.RENDERED
+    assert pipeline.failures == []
+
+
+async def test_a_redelivered_render_sends_no_second_notice(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pipeline = NoticePipeline(monkeypatch, tmp_path)
+    pipeline.render_returns(monkeypatch, text_version=None, reason="lyrics_absent")
+
+    await worker_tasks._render_post_video(7)
+    await worker_tasks._render_post_video(7)
+
+    assert len(pipeline.alerts) == 1
+
+
+async def test_a_reused_file_without_text_is_explained_too(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No ffmpeg on this path, yet the admin still needs the reason."""
+    pipeline = NoticePipeline(monkeypatch, tmp_path)
+    stub_prepared_lyrics(monkeypatch, (), "lyrics_instrumental")
+    claim = render_claim()
+
+    final_path = worker_tasks.media_storage.render_file_path(
+        tmp_path, claim.post_id, params_hash_for(claim, None)
+    )
+    final_path.parent.mkdir(parents=True)
+    final_path.write_bytes(b"already rendered")
+    probe = media_tools.MediaProbe(
+        path=final_path,
+        size_bytes=final_path.stat().st_size,
+        duration_ms=45_000,
+        streams=(media_tools.StreamInfo("video", "h264", 720, 1280, "yuv420p", "tv"),),
+    )
+    monkeypatch.setattr(worker_tasks.media_tools, "verify_media", lambda path, **k: probe)
+    monkeypatch.setattr(
+        worker_tasks.video_render, "render_fragment_within_size_limit", fail_if_called
+    )
+
+    await worker_tasks._render_post_video(7)
+
+    assert [alert["text"] for alert in pipeline.alerts] == [
+        "Пост 7: Трек інструментальний — відео без тексту, так і має бути."
+    ]
+
+
+async def test_lines_that_all_miss_the_fragment_are_reported_as_such(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An empty `.ass` from stored lines is not "no lyrics found": the text exists,
+    the chosen fragment just holds none of it."""
+    renderer = install_renderer(monkeypatch, tmp_path)
+    late_lines = (LyricLine(line_index=0, start_ms=120_000, text="Пізній рядок"),)
+    stub_prepared_lyrics(monkeypatch, late_lines, LYRICS_ALREADY_STORED)
+
+    outcome = await worker_tasks._render_video_off_transaction(
+        AsyncMock(), render_claim(), tmp_path / "tmp" / "7"
+    )
+
+    assert renderer.subtitles == [None]
+    assert outcome.text_version is None
+    assert outcome.lyrics_reason == LYRICS_OUTSIDE_FRAGMENT

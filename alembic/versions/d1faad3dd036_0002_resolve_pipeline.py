@@ -1,15 +1,9 @@
 """0002_resolve_pipeline
 
-Irreversible by data: `downgrade()` drops `source_fetch`, destroying the
-whole resolver cache, and `odesli_raw`/`odesli_fetched_at` come back empty.
-Deployment order is always: stop `bot`/`worker` -> migrate (one-shot
-container) -> start the new image; no rolling window exists (F-28).
-
-Edited after it had already been applied: `ix_track_isrc` and the draft
-index were added to this revision, not to a follow-up. A database whose
-`alembic_version` was stamped before that edit will not get them from
-`upgrade head` — only `alembic check` notices, which is why `make migrate`
-now runs it (R2-18).
+Irreversible by data: `downgrade()` drops the whole `source_fetch` cache, and
+`odesli_raw`/`odesli_fetched_at` come back empty. A database stamped at this
+revision may lack `ix_track_isrc` and the draft index: `upgrade head` does not
+add them, and only `alembic check` reports the drift.
 
 Revision ID: d1faad3dd036
 Revises: 080f73d1e7e5

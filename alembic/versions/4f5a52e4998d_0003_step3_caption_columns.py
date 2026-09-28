@@ -1,13 +1,9 @@
 """0003_step3_caption_columns
 
-Three columns step 3's caption needs, all added while the tables are
-practically empty (7 tracks, 12 posts): `track.album_id_spotify` (D-45,
-previously alive only inside a rendered `href`), `track.languages` (D-61)
-and `post.published_by_user_id` (D-62).
-
-`languages` is filled for existing rows by its own `server_default`, a DDL
-default rather than an `UPDATE` — so no row's `updated_at` goes stale
-behind the ORM's back.
+Three columns the caption needs: `track.album_id_spotify`, `track.languages`
+and `post.published_by_user_id`. `languages` fills existing rows through its
+`server_default`, a DDL default rather than an `UPDATE`, so no row's
+`updated_at` goes stale behind the ORM.
 
 Revision ID: 4f5a52e4998d
 Revises: d1faad3dd036

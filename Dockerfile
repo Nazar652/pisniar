@@ -1,7 +1,5 @@
 # syntax=docker/dockerfile:1.7
-# One multi-stage file builds every target: `bot`/`worker` bake source in;
-# `bot-dev`/`worker-dev` bind-mount it instead (compose.override.yml). ffmpeg/fonts
-# (step 4) land only in worker's final stage, so adding them invalidates nothing shared.
+# ffmpeg and fonts go only into the worker stages, so changing them invalidates no shared layer.
 
 FROM python:3.13-slim AS base
 
@@ -49,7 +47,7 @@ USER app
 # ---- dev: only dependencies baked in; source is bind-mounted at runtime --
 
 # `pisniar` itself isn't installed (only third-party deps); PYTHONPATH stands
-# in until compose.override.yml's bind mount populates /app/src at runtime (D-23).
+# in until compose.override.yml's bind mount populates /app/src at runtime.
 
 FROM base AS source-dev
 
@@ -75,7 +73,7 @@ CMD ["watchfiles", "--filter", "python", "python -m pisniar.bot.main", "/app/src
 # ---- worker ------------------------------------------------------------
 
 FROM source-prod AS worker
-# apt-get needs root back; hand it off again after, or runtime stays root (D-23).
+# apt-get needs root back; hand it off again after, or runtime stays root.
 USER root
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg fonts-noto-core && rm -rf /var/lib/apt/lists/*

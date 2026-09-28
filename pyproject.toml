@@ -42,11 +42,8 @@ select = [
     "C4",
     "RUF",
 ]
-# RUF001 (ambiguous Cyrillic/Latin look-alikes in string literals) is off:
-# this project is Ukrainian-language, and the rule fires on nearly every
-# sentence, so it stopped carrying signal (user decision). RUF002/RUF003
-# (same check for docstrings/comments) stay on — they catch real mixed-script
-# typos, e.g. a stray Latin letter inside Cyrillic prose.
+# RUF001 (Cyrillic/Latin look-alikes in strings) fires on nearly every Ukrainian sentence.
+# RUF002/RUF003 stay on: in docstrings and comments they catch a stray Latin letter.
 ignore = ["RUF001"]
 
 [tool.ruff.lint.isort]
@@ -59,21 +56,14 @@ root = ["src", "tests"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-# Explicit, not relying on pytest-asyncio's own default (which it has
-# announced changing) — but "function", matching what an unset default
-# already resolves to (`request.scope`) for the overwhelmingly common case:
-# a function-scoped async fixture. Setting this to "session" here once sent
-# every async fixture *without* its own explicit `loop_scope=` into the
-# session loop, including function-scoped ones like `db_session`
-# (`tests/integration/conftest.py`) — whose `AsyncSession`/asyncpg connection
-# would then be created in one loop and torn down in another, which asyncpg
-# does not support. The one genuinely session-scoped fixture
-# (`test_database_url`) sets `loop_scope="session"` on itself instead.
+# "session" would move function-scoped async fixtures such as `db_session` into the session
+# loop, and asyncpg cannot tear a connection down in another loop than it was created in.
 asyncio_default_fixture_loop_scope = "function"
 asyncio_default_test_loop_scope = "function"
 markers = [
     "integration: requires a running Postgres/Redis (run inside docker compose)",
     "fonts: requires fontconfig and the worker image's fonts (run via `make test-fonts`)",
+    "repo: reads docs and build files from the checkout, so it runs on the host (`make check`)",
 ]
 
 [dependency-groups]

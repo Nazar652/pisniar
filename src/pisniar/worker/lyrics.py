@@ -28,6 +28,22 @@ LRCLIB_SOURCE = "lrclib"
 # The reason class beside the adapter's own: the lines were already stored, so
 # LRCLIB was never asked.
 LYRICS_ALREADY_STORED = "lyrics_already_stored"
+# Timed lines exist, yet the fragment has none of them, so the `.ass` is empty.
+LYRICS_OUTSIDE_FRAGMENT = "lyrics_outside_fragment"
+
+# One sentence per class: "LRCLIB did not answer" and "LRCLIB has no text" call
+# for different things from the admin.
+NO_TEXT_NOTICES = {
+    LyricsOutcome.ABSENT.value: "Тексту цього треку в LRCLIB немає — відео без тексту.",
+    LyricsOutcome.UNSYNCED.value: "Текст знайдено, але без таймкодів — у відео його немає.",
+    LyricsOutcome.INSTRUMENTAL.value: "Трек інструментальний — відео без тексту, так і має бути.",
+    LyricsOutcome.SOURCE_UNAVAILABLE.value: "LRCLIB не відповів — відео зібрано без тексту.",
+    LyricsOutcome.REJECTED_BY_MATCHING.value: (
+        "Знайдений текст належить іншому треку — не використано."
+    ),
+    LYRICS_OUTSIDE_FRAGMENT: "Текст є, але жоден рядок не потрапляє у вибраний фрагмент.",
+}
+UNEXPLAINED_NO_TEXT_NOTICE = "Відео зібрано без тексту."
 
 
 class LyricsPersistOutcome(StrEnum):
@@ -239,6 +255,31 @@ async def prepare_lyrics(
     if persisted.outcome is LyricsPersistOutcome.KEPT_EXISTING:
         return _prepared(query.track_id, lines, LYRICS_ALREADY_STORED)
     return _prepared(query.track_id, lines, result.outcome.value)
+
+
+def reason_after_subtitles(
+    track_id: int, prepared: PreparedLyrics, subtitles_text: str | None
+) -> str:
+    """Decided where the `.ass` is built: only there is it known whether the
+    fragment holds any of the lines."""
+    if subtitles_text is not None or not prepared.lines:
+        return prepared.reason
+
+    logger.info(
+        "lyrics_prepared",
+        track_id=track_id,
+        reason=LYRICS_OUTSIDE_FRAGMENT,
+        line_count=len(prepared.lines),
+    )
+    return LYRICS_OUTSIDE_FRAGMENT
+
+
+def no_text_notice(post_id: int, reason: str, text_version: str | None) -> str | None:
+    """`None` while the video carries text: the subtitle digest decides that, not
+    the reason, which only explains an absence."""
+    if text_version is not None:
+        return None
+    return f"Пост {post_id}: {NO_TEXT_NOTICES.get(reason, UNEXPLAINED_NO_TEXT_NOTICE)}"
 
 
 def _prepared(track_id: int, lines: tuple[LyricLine, ...], reason: str) -> PreparedLyrics:

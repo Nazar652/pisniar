@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from pisniar.db.models import Post, Track
 from pisniar.db.session import build_engine, build_session_factory
 from pisniar.db.states import PostStatus, set_post_status
+from pisniar.resolve.matching import is_valid_isrc
 from pisniar.resolve.types import ArtistInfo, MatchClass, PlatformLink, ResolvedTrack
 from pisniar.worker import tasks as worker_tasks
 
@@ -41,6 +42,15 @@ def deliver_draft_mock(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
     mock = AsyncMock()
     monkeypatch.setattr(worker_tasks, "deliver_draft", mock)
     return mock
+
+
+def unique_isrc() -> str:
+    # Tracks of earlier runs stay in the test database, so the random part has to be wide.
+    return f"UA{uuid.uuid4().hex[:3].upper()}{uuid.uuid4().int % 10**7:07d}"
+
+
+def test_unique_isrc_is_a_valid_isrc() -> None:
+    assert all(is_valid_isrc(unique_isrc()) for _ in range(1000))
 
 
 async def make_resolving_post(db_session: AsyncSession) -> int:
@@ -178,7 +188,7 @@ async def test_an_empty_re_resolve_fails_the_post_instead_of_deleting_the_track(
     track_id = track.id
 
     track.resolved_at = datetime.now(UTC)
-    track.isrc = f"UA{uuid.uuid4().hex[:3].upper()}2500009"
+    track.isrc = unique_isrc()
     track.artists = [{"name": "0%Mercury", "hashtag": "ZeroPercentMercury", "spotify_id": None}]
     track.platform_links = {
         "spotify": {
@@ -354,7 +364,7 @@ async def test_re_resolve_keeps_the_manual_link_and_the_artist_hashtag(
     await db_session.commit()
 
     resolved = ResolvedTrack(
-        isrc=f"UA{uuid.uuid4().hex[:3].upper()}2500003",
+        isrc=unique_isrc(),
         title="Покаяння",
         artists=[ArtistInfo(name="0%Mercury")],
         platform_links={
@@ -403,7 +413,7 @@ async def test_duplicate_isrc_raises_an_admin_warning(
 ) -> None:
     """A Spotify link and a YouTube link of one recording make two tracks that
     `source_url_normalized` never connects; only the ISRC can."""
-    shared_isrc = f"UA{uuid.uuid4().hex[:3].upper()}2500001"
+    shared_isrc = unique_isrc()
     earlier_url = f"https://open.spotify.com/track/{uuid.uuid4().hex}"
     earlier_track = Track(
         source_url=earlier_url, source_url_normalized=earlier_url, isrc=shared_isrc
@@ -447,7 +457,7 @@ async def test_no_duplicate_warning_for_the_first_track_with_that_isrc(
     point_task_at_test_database: AsyncMock,
 ) -> None:
     resolved = ResolvedTrack(
-        isrc=f"UA{uuid.uuid4().hex[:3].upper()}2500002",
+        isrc=unique_isrc(),
         title="Creep",
         artists=[ArtistInfo(name="Radiohead")],
         platform_links={
@@ -544,7 +554,7 @@ async def test_an_empty_re_resolve_never_nulls_the_stored_isrc(
 ) -> None:
     """A transient source failure must not write `isrc = NULL`: the duplicate-ISRC
     warning for that track could then never fire again."""
-    stored_isrc = f"UA{uuid.uuid4().hex[:3].upper()}2500004"
+    stored_isrc = unique_isrc()
     post_id = await make_resolving_post(db_session)
     post = await db_session.get(Post, post_id)
     assert post is not None
@@ -848,7 +858,7 @@ async def test_two_posts_of_the_same_track_both_resolve_successfully(
     """Holding the track lock across the whole resolve would make the second post
     of the same track hit `lock_timeout`."""
     monkeypatch.setattr(worker_tasks, "LOCK_TIMEOUT_MS", 300)
-    shared_isrc = f"UA{uuid.uuid4().hex[:3].upper()}2500007"
+    shared_isrc = unique_isrc()
 
     async def slow_resolve(*args: object, **kwargs: object) -> ResolvedTrack:
         await asyncio.sleep(1.0)
@@ -991,7 +1001,7 @@ async def test_a_slow_draft_delivery_does_not_fail_the_second_post_of_the_track(
     """`deliver_draft` must not run between the track lock and its commit:
     aiogram's default session timeout is 60 s."""
     monkeypatch.setattr(worker_tasks, "LOCK_TIMEOUT_MS", 300)
-    shared_isrc = f"UA{uuid.uuid4().hex[:3].upper()}2500011"
+    shared_isrc = unique_isrc()
 
     async def slow_delivery(*args: object, **kwargs: object) -> None:
         await asyncio.sleep(1.0)
@@ -1091,7 +1101,7 @@ async def test_the_duplicate_warning_closes_its_read_transaction_before_telegram
 ) -> None:
     """The duplicate check's SELECT opens a transaction, which must not stay open
     through `build_bot()` and two `send_alert` calls."""
-    shared_isrc = f"UA{uuid.uuid4().hex[:3].upper()}2500012"
+    shared_isrc = unique_isrc()
     marker = uuid.uuid4().hex
     earlier_url = f"https://open.spotify.com/track/earlier{marker}"
     earlier_track = Track(

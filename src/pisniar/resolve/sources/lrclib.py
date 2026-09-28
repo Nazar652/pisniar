@@ -121,8 +121,13 @@ async def fetch_lyrics(
         return LyricsResult(outcome=LyricsOutcome.ABSENT)
 
     cache_key = build_request_key("lrclib:lyrics:", artist_query, normalized_title)
+    # For the log only: "LRCLIB answered" and "the cache answered" read differently.
+    asked_lrclib = False
 
     async def do_fetch() -> dict[str, object]:
+        nonlocal asked_lrclib
+        asked_lrclib = True
+
         record = await _get_record(client, artist_query, normalized_title)
         if record is not None:
             # Classified here as well as on the read path: an empty positive
@@ -147,6 +152,7 @@ async def fetch_lyrics(
         outcome=result.outcome.value,
         line_count=len(result.lines),
         artist_count=len(artist_names),
+        from_cache=not asked_lrclib,
     )
     return result
 

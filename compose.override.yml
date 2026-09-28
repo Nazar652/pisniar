@@ -1,6 +1,5 @@
 # Dev-only: bind mounts for hot reload, loopback-only host ports, console logs.
-# WATCHFILES_FORCE_POLLING=1: inotify doesn't propagate through a Windows
-# bind mount, so polling is the only hot-reload mode that works here (D-23).
+# WATCHFILES_FORCE_POLLING=1: inotify does not propagate through a Windows bind mount.
 
 services:
   migrate:
@@ -22,11 +21,10 @@ services:
       - ./alembic:/app/alembic
       - ./alembic.ini:/app/alembic.ini
       # Dev-only: `source-prod` never `COPY tests` in, so `make test-int`
-      # only works against this bind mount (D-23).
+      # only works against this bind mount.
       - ./tests:/app/tests
-      # pytest reads its markers and options from here, and the baked copy
-      # only refreshes on a rebuild — which for `worker` means re-fetching
-      # the ffmpeg layer (D-23).
+      # pytest reads its markers and options from here; the baked copy refreshes only
+      # on a rebuild, which for `worker` means re-fetching the ffmpeg layer.
       - ./pyproject.toml:/app/pyproject.toml
     environment:
       ENVIRONMENT: dev

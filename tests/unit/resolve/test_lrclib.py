@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Any, cast
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
@@ -511,6 +511,30 @@ async def test_the_cache_key_ignores_case_but_not_the_composition_of_the_string(
 
     assert recording.keys[0] == recording.keys[1]
     assert recording.keys[2] != recording.keys[0]
+
+
+async def test_the_outcome_log_tells_a_cached_answer_from_a_live_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A post's history must show whether LRCLIB was asked; a stand-in logger,
+    because a cached structlog proxy defeats `capture_logs()`."""
+    fake_logger = MagicMock()
+    monkeypatch.setattr(lrclib, "logger", fake_logger)
+    cache, _ = make_cache()
+    handler = always(httpx.Response(200, json=SYNCED_RECORD))
+
+    await fetch(handler, cache=cache)
+    await fetch(handler, cache=cache)
+
+    outcome_calls = [
+        call.kwargs
+        for call in fake_logger.info.call_args_list
+        if call.args == ("lrclib_lyrics_outcome",)
+    ]
+    assert [(call["outcome"], call["from_cache"]) for call in outcome_calls] == [
+        (LyricsOutcome.SYNCED.value, False),
+        (LyricsOutcome.SYNCED.value, True),
+    ]
 
 
 # no database session spans a request

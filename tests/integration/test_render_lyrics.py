@@ -9,7 +9,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import ANY, AsyncMock, MagicMock
 
 import asyncpg
 import httpx
@@ -353,10 +353,53 @@ async def test_an_unavailable_lrclib_still_yields_a_video_without_text(
 
     await worker_tasks._render_post_video(post_id)
 
-    alerts.assert_not_awaited()
     post, render = await render_row_of(session_factory, post_id)
     assert post.status is PostStatus.RENDERED
     assert render.text_version is None
     assert renderer.subtitles == [None]
     assert await lyric_count(session_factory, track_id) == 0
     assert preview.lyrics_reasons == ["lyrics_source_unavailable"]
+
+    # The only alert is the notice under the preview, not a failure.
+    alerts.assert_awaited_once_with(
+        ANY,
+        111,
+        f"Пост {post_id}: LRCLIB не відповів — відео зібрано без тексту.",
+        reply_to_message_id=post_id + PREVIEW_MESSAGE_OFFSET,
+    )
+
+
+async def test_a_redelivered_render_explains_the_missing_text_only_once(
+    session_factory: async_sessionmaker[AsyncSession],
+    alerts: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Celery redelivers after the `RENDERED` commit when the worker dies before
+    the ack; the second run must stop at the claim, before any notice."""
+    post_id, _, _, _ = await make_downloaded_post(session_factory)
+
+    async def not_found(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/search"):
+            return httpx.Response(200, json=[])
+        return httpx.Response(
+            404,
+            json={"message": "Failed", "name": "TrackNotFound", "statusCode": 404},
+        )
+
+    install_pipeline(monkeypatch, not_found)
+
+    await worker_tasks._render_post_video(post_id)
+    await worker_tasks._render_post_video(post_id)
+
+    alerts.assert_awaited_once_with(
+        ANY,
+        111,
+        f"Пост {post_id}: Тексту цього треку в LRCLIB немає — відео без тексту.",
+        reply_to_message_id=post_id + PREVIEW_MESSAGE_OFFSET,
+    )
+
+    async with session_factory() as session:
+        renders = await session.scalar(
+            select(func.count()).select_from(Render).where(Render.post_id == post_id)
+        )
+    assert renders == 1

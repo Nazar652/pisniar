@@ -1298,18 +1298,20 @@ async def _render_post_video(post_id: int) -> None:
         finally:
             media_storage.remove_tree_quietly(tmp_directory)
 
-        await _finish_render_or_fail(session_factory, claim, outcome)
+        preview = await _finish_render_or_fail(session_factory, claim, outcome)
+        if preview is not None:
+            await _notify_about_missing_text(claim.post_id, outcome, preview)
     finally:
         await engine.dispose()
 
 
 async def _finish_render_or_fail(
     session_factory: async_sessionmaker[AsyncSession], claim: RenderClaim, outcome: RenderOutcome
-) -> None:
+) -> PreviewReference | None:
     """`RENDERED` has no edge to `FAILED`, so a preview delivery failure is
     reported from `RENDERING`, the state that can legally fail."""
     try:
-        await _finish_render(session_factory, claim, outcome)
+        return await _finish_render(session_factory, claim, outcome)
     except SoftTimeLimitExceeded:
         # Before the blanket handler: Celery raises it as an ordinary
         # exception, and "помилка" would hide the truth, which is a timeout.
@@ -1318,6 +1320,51 @@ async def _finish_render_or_fail(
     except Exception as error:
         logger.exception("render_post_video_finish_failed", post_id=claim.post_id)
         await _fail_media_post(session_factory, claim.post_id, _describe_media_error(error))
+    return None
+
+
+@dataclass(frozen=True)
+class PreviewReference:
+    chat_id: int
+    message_id: int
+
+
+async def _notify_about_missing_text(
+    post_id: int, outcome: RenderOutcome, preview: PreviewReference
+) -> None:
+    """Sent after the `RENDERED` commit and never raising: a lost notice is a log
+    line, never a failed post or a retried task. Not in the caption, which is verbatim."""
+    notice = worker_lyrics.no_text_notice(post_id, outcome.lyrics_reason, outcome.text_version)
+    if notice is None:
+        logger.info(
+            "render_post_video_no_text_notice_not_needed",
+            post_id=post_id,
+            text_version=outcome.text_version,
+        )
+        return
+
+    try:
+        bot = build_bot(settings)
+        try:
+            delivered = await send_alert(
+                bot, preview.chat_id, notice, reply_to_message_id=preview.message_id
+            )
+        finally:
+            await bot.session.close()
+    except SoftTimeLimitExceeded:
+        # The post is already `RENDERED`; the sync wrapper would try to fail it.
+        logger.error("render_post_video_no_text_notice_timed_out", post_id=post_id)
+        return
+    except Exception:
+        logger.warning("render_post_video_no_text_notice_failed", post_id=post_id, exc_info=True)
+        return
+
+    logger.info(
+        "render_post_video_no_text_notice",
+        post_id=post_id,
+        lyrics_reason=outcome.lyrics_reason,
+        delivered=delivered,
+    )
 
 
 async def _claim_post_for_rendering(
@@ -1447,6 +1494,9 @@ async def _render_video_off_transaction(
         fragment_end_ms=claim.fragment_end_ms,
     )
     text_version = video_render.text_version_of(subtitles_text)
+    lyrics_reason = worker_lyrics.reason_after_subtitles(
+        claim.lyrics_query.track_id, lyrics, subtitles_text
+    )
 
     params_hash = video_render.compute_params_hash(
         video_id=claim.video_id,
@@ -1476,8 +1526,11 @@ async def _render_video_off_transaction(
         logger.info(
             "render_post_video_reused_artifact",
             post_id=claim.post_id,
+            track_id=claim.track_id,
             path=str(existing),
-            lyrics_reason=lyrics.reason,
+            params_hash=params_hash,
+            text_version=text_version,
+            lyrics_reason=lyrics_reason,
         )
         return RenderOutcome(
             params_hash=params_hash,
@@ -1485,7 +1538,7 @@ async def _render_video_off_transaction(
             size_bytes=probe.size_bytes,
             duration_ms=probe.duration_ms,
             text_version=text_version,
-            lyrics_reason=lyrics.reason,
+            lyrics_reason=lyrics_reason,
             thumbnail_path=media_storage.existing_artifact(thumbnail_path),
         )
 
@@ -1528,6 +1581,7 @@ async def _render_video_off_transaction(
     logger.info(
         "render_post_video_rendered",
         post_id=claim.post_id,
+        track_id=claim.track_id,
         params_hash=params_hash,
         size_bytes=probe.size_bytes,
         duration_ms=probe.duration_ms,
@@ -1535,7 +1589,7 @@ async def _render_video_off_transaction(
         maxrate=quality.maxrate,
         has_thumbnail=staged_thumbnail is not None,
         text_version=text_version,
-        lyrics_reason=lyrics.reason,
+        lyrics_reason=lyrics_reason,
     )
     return RenderOutcome(
         params_hash=params_hash,
@@ -1543,7 +1597,7 @@ async def _render_video_off_transaction(
         size_bytes=probe.size_bytes,
         duration_ms=probe.duration_ms,
         text_version=text_version,
-        lyrics_reason=lyrics.reason,
+        lyrics_reason=lyrics_reason,
         thumbnail_path=thumbnail_path if staged_thumbnail is not None else None,
     )
 
@@ -1579,7 +1633,7 @@ def _write_subtitles(post_id: int, subtitles_text: str | None) -> Path | None:
 
 async def _finish_render(
     session_factory: async_sessionmaker[AsyncSession], claim: RenderClaim, outcome: RenderOutcome
-) -> None:
+) -> PreviewReference | None:
     """Transaction 2: the lock held across one Telegram upload is the delivery guard.
     Preview first, then `RENDERED`, so `RENDERED` means «прев'ю вже в чаті адміна»."""
     async with session_factory() as session:
@@ -1590,7 +1644,7 @@ async def _finish_render(
             logger.error(
                 "render_post_video_post_locked_on_finish", post_id=claim.post_id, error=str(error)
             )
-            return
+            return None
 
         if post is None or post.status is not PostStatus.RENDERING:
             logger.info(
@@ -1598,12 +1652,23 @@ async def _finish_render(
                 post_id=claim.post_id,
                 status=None if post is None else post.status.value,
             )
-            return
+            return None
 
         await session.execute(_upsert_render_statement(claim, outcome))
 
         await _deliver_preview_for(post, outcome)
+        preview_chat_id = post.preview_chat_id
         preview_message_id = post.preview_message_id
+        assert preview_chat_id is not None and preview_message_id is not None
+
+        # Before the commit: a crash here leaves the preview in the chat, and
+        # this line is then its only trace.
+        logger.info(
+            "render_post_video_preview_sent",
+            post_id=claim.post_id,
+            track_id=claim.track_id,
+            preview_message_id=preview_message_id,
+        )
 
         set_post_status(post, PostStatus.RENDERED)
         await session.commit()
@@ -1611,6 +1676,7 @@ async def _finish_render(
     logger.info(
         "render_post_video_finished",
         post_id=claim.post_id,
+        track_id=claim.track_id,
         params_hash=outcome.params_hash,
         size_bytes=outcome.size_bytes,
         duration_ms=outcome.duration_ms,
@@ -1618,6 +1684,7 @@ async def _finish_render(
         text_version=outcome.text_version,
         lyrics_reason=outcome.lyrics_reason,
     )
+    return PreviewReference(chat_id=preview_chat_id, message_id=preview_message_id)
 
 
 def _rendered_video(outcome: RenderOutcome) -> RenderedVideo:

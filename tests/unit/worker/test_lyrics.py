@@ -296,3 +296,70 @@ async def test_a_failed_read_of_stored_lines_fails_loudly(
 
     with pytest.raises(OperationalError):
         await prepare()
+
+
+@pytest.mark.parametrize(
+    ("reason", "sentence"),
+    [
+        ("lyrics_absent", "Тексту цього треку в LRCLIB немає — відео без тексту."),
+        ("lyrics_unsynced", "Текст знайдено, але без таймкодів — у відео його немає."),
+        ("lyrics_instrumental", "Трек інструментальний — відео без тексту, так і має бути."),
+        ("lyrics_source_unavailable", "LRCLIB не відповів — відео зібрано без тексту."),
+        (
+            "lyrics_rejected_by_matching",
+            "Знайдений текст належить іншому треку — не використано.",
+        ),
+        (
+            "lyrics_outside_fragment",
+            "Текст є, але жоден рядок не потрапляє у вибраний фрагмент.",
+        ),
+    ],
+)
+def test_every_reason_for_a_missing_text_has_its_own_sentence(reason: str, sentence: str) -> None:
+    """ "LRCLIB did not answer" and "LRCLIB has nothing" ask different things of the
+    admin, so no two classes may share a sentence."""
+    assert lyrics.no_text_notice(42, reason, None) == f"Пост 42: {sentence}"
+
+
+def test_no_two_reasons_share_a_sentence() -> None:
+    sentences = list(lyrics.NO_TEXT_NOTICES.values())
+
+    assert len(set(sentences)) == len(sentences)
+    assert lyrics.UNEXPLAINED_NO_TEXT_NOTICE not in sentences
+
+
+@pytest.mark.parametrize("reason", ["lyrics_synced", lyrics.LYRICS_ALREADY_STORED])
+def test_a_video_with_text_gets_no_notice(reason: str) -> None:
+    assert lyrics.no_text_notice(42, reason, "0123456789abcdef") is None
+
+
+def test_a_video_with_text_gets_no_notice_whatever_the_reason_says() -> None:
+    """The subtitle digest decides whether text is in the frames; the reason only
+    explains an absence."""
+    assert lyrics.no_text_notice(42, "lyrics_absent", "0123456789abcdef") is None
+
+
+def test_a_video_without_text_is_reported_even_for_an_unforeseen_reason() -> None:
+    assert lyrics.no_text_notice(42, "lyrics_synced", None) == (
+        f"Пост 42: {lyrics.UNEXPLAINED_NO_TEXT_NOTICE}"
+    )
+
+
+def test_lines_that_all_miss_the_fragment_are_a_class_of_their_own() -> None:
+    prepared = lyrics.PreparedLyrics(lines=STORED_LINES, reason=lyrics.LYRICS_ALREADY_STORED)
+
+    assert lyrics.reason_after_subtitles(TRACK_ID, prepared, None) == (
+        lyrics.LYRICS_OUTSIDE_FRAGMENT
+    )
+
+
+def test_drawn_lines_keep_the_reason_they_came_with() -> None:
+    prepared = lyrics.PreparedLyrics(lines=STORED_LINES, reason="lyrics_synced")
+
+    assert lyrics.reason_after_subtitles(TRACK_ID, prepared, "[Script Info]\n") == "lyrics_synced"
+
+
+def test_no_lines_at_all_keep_the_sources_reason() -> None:
+    prepared = lyrics.PreparedLyrics(lines=(), reason="lyrics_absent")
+
+    assert lyrics.reason_after_subtitles(TRACK_ID, prepared, None) == "lyrics_absent"

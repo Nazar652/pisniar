@@ -4,8 +4,9 @@
 
 `pisniar` — a Telegram bot that automates posting music tracks to a channel:
 resolve a link's metadata, prepare a post, render a vertical video fragment
-(step 4A: cover plus audio, no text; step 4B adds the karaoke text), publish.
-Steps 2-4A are implemented; step 4A is awaiting manual acceptance.
+(the cover, the audio and synced lyrics under the cover), publish.
+Steps 1-4B are implemented. Step 4B is awaiting manual acceptance; the manual
+acceptance of step 4A has partly passed.
 
 ## Stack and runtime
 
@@ -36,6 +37,7 @@ make check       # uv sync --frozen + uv lock --check + ruff format --check + ru
 make up           # docker compose up -d --wait
 make ps            # docker compose ps
 make test-int      # full test suite (unit + integration) inside the bot container
+make test-fonts    # the subtitle font and the glyph-width table, inside the worker container
 make migrate       # alembic upgrade head inside the bot container
 make revision m="add lyric table"   # alembic revision --autogenerate
 make alembic-check # alembic check: model/migration drift
@@ -59,9 +61,11 @@ suggest or introduce either.
   `callback_data` grammar, `aiogram` only) — the full resolve pipeline
   (`resolve.service`/`resolve.registry`, the six source adapters, `post/`
   caption building) runs only in `pisniar/worker/`.
-- `pisniar/resolve/` (six source adapters + ISRC-first matching/merge) and
-  `pisniar/post/` (caption/hashtags/sanitize/render) never import `bot/` or
-  `worker/` — they are pure libraries the worker orchestrates.
+- `pisniar/resolve/` (six source adapters + ISRC-first matching/merge, plus
+  the LRCLIB adapter and the LRC parser) and `pisniar/post/`
+  (caption/hashtags/sanitize/render) never import `bot/` or `worker/` — they
+  are pure libraries the worker orchestrates. LRCLIB is not one of the six:
+  `resolve.service` never calls it, only `worker.lyrics` does, at render time.
 - The one edge back the other way is `post.sanitize`, which `resolve/` may
   import (`musicbrainz` logs a source-supplied URL through it) — and it is
   the **only** `post/` module allowed there. That works because
@@ -250,7 +254,7 @@ suggest or introduce either.
   the caption is built at 1024 and never rebuilt at publish time: the admin
   has to approve the exact text subscribers see.
 
-## Media pipeline conventions (`pisniar/worker/`, step 4A)
+## Media pipeline conventions (`pisniar/worker/`)
 
 - **The audio source is `platform_links["youtubeMusic"]` and there is no
   fallback under any condition.** `download.youtube_music_video_id()` reads
@@ -317,30 +321,25 @@ suggest or introduce either.
 - **`scale=...:in_range=pc:out_range=tv` plus `-color_range tv` is required,
   not a refinement.** The cover arrives from the Spotify CDN as
   full-range JPEG, and a naive `format=yuv420p` produces `yuvj420p` *every
-  time* — measured with real ffmpeg, not assumed. The render is 720x1280,
-  H.264 + AAC, `+faststart`, explicit fps, `-maxrate`/`-bufsize`, and its size is asserted
-  against the 50 MB Telegram ceiling with exactly one lower-bitrate retry
-  before the post fails. The measured worst realistic input is 4.44 MB, so
-  that branch guards a render defect, not normal input.
+  time*; `subtitles=` takes `yuv420p` directly and changes neither. The render
+  is 720x1280, H.264 + AAC, `+faststart`, explicit fps, `-maxrate`/`-bufsize`,
+  and its size is asserted against the 50 MB Telegram ceiling with exactly one
+  lower-bitrate retry before the post fails. The worst realistic input renders
+  to ~4.4 MB, so that branch guards a render defect, not normal input.
 - `render.RenderParameters.subtitles_path` is an **optional path passed in from
-  outside**, not a flag decided inside. `text_version` is a digest of the
-  generated `.ass` file (`None` for a video without text) and an input to
-  `params_hash`, so the lines, their timing, the fragment offset, the wrapping
-  and the styles all change the hash with nothing to bump by hand; the same
-  text reuses the file on the volume and never runs ffmpeg again.
-- **Lyrics are fetched in the long phase, with no session open.** Stored
-  renderable lines win and LRCLIB is never asked; otherwise
-  `worker.lyrics.prepare_lyrics` fetches, persists in its own short
-  transaction and reads the lines back as plain values. A source that fails
-  (`LrclibApiError`, `LrcParseError`, the network) means a video without text;
-  our own failures (persisting, reading, generating the `.ass`) fail the post.
-  `SoftTimeLimitExceeded` and `SQLAlchemyError` are re-raised before the one
-  broad `except` around `fetch_lyrics`. The reason class (`lyrics_synced`,
-  `lyrics_already_stored`, `lyrics_source_unavailable`, ...) travels in
-  `RenderOutcome.lyrics_reason` to where the preview is sent.
-- **The render limits cover LRCLIB's worst case.** Timeouts, retries and the
-  fallback search add up to ~187 s, so `render_task_*` is 360/420 s; the
-  hard limit is also the stale-render window `/retry` waits out.
+  outside**, not a flag decided inside: `None` means the filtergraph has no
+  `subtitles=` step at all, never an empty file.
+- **The frame is the cover on top and the lyrics below it.** The cover is
+  scaled into 720x1280 and padded at `render.COVER_TOP_OFFSET_PX` (100 px), so a
+  square cover fills 100…820 and `ass.TEXT_BAND_TOP_PX` (820) starts the text
+  band; a long line overflows into black, never onto the image. The band holds
+  three slots — previous, current, next — at y 955/1050/1145
+  (`SLOT_SPACING_PX` 95), centred by `\an5` plus an explicit `\pos`. The
+  current line is 44 px white and wraps to two lines, the neighbours 32 px
+  half-transparent and one line; the rest is cut with `…`. `test_ass.py` pins
+  the cover offset and the band against each other, and any change to the
+  filtergraph or the encoder bumps `render.RENDERER_VERSION`, an input to
+  `params_hash`.
 - **The chain is started by a button and continues by itself.** «Зробити
   відео» dispatches `download_post_audio`; that task dispatches
   `render_post_video` **after** its own commit, so a redelivered render can
@@ -400,6 +399,77 @@ suggest or introduce either.
   `render_thumbnail()` returns `None` instead of raising, and a missing file
   is not a send failure — Telegram builds its own preview.
 
+## Lyrics and subtitles (`worker/lyrics.py`, `worker/ass.py`, `resolve/sources/lrclib.py`)
+
+- **The text path runs in the render's long phase, with no session open.**
+  Stored renderable lines win and LRCLIB is never asked; only when there are
+  none does `worker.lyrics.prepare_lyrics` fetch, persist in a short
+  transaction of its own and read the lines back as plain values. Then
+  `ass.build_ass_subtitles` shifts them into fragment time, and
+  `render.text_version_of` hashes the resulting `.ass` text. `text_version`
+  (`None` without text) is an input to `params_hash`, so the lines, their
+  timing, the fragment offset, the wrapping and the styles all change the
+  hash with nothing to bump by hand; the same text finds its own file on the
+  volume and never runs ffmpeg again. The `.ass` lives in `/data/tmp/<post_id>/`
+  and is regenerated on every render.
+- **"No text" and "the post fails" are split by whose failure it is.** A video
+  without text: every LRCLIB class but synced (absent, unsynced, instrumental,
+  rejected by matching), `LrclibApiError`, `LrcParseError`, a network error,
+  and synced lines that miss the fragment (`lyrics_outside_fragment`). A failed
+  post: persisting, reading the lines back, generating the `.ass`
+  (`AssGenerationError`), plus `SoftTimeLimitExceeded` and `SQLAlchemyError`,
+  which are re-raised before the one broad `except` around `fetch_lyrics` —
+  the cache under it talks to Postgres, and a dead database is not "no text".
+  LRCLIB is deliberately not behind `isolated_source_call`: that `except` is
+  its isolation, and `RenderOutcome.lyrics_reason` carries the class to where
+  the preview is sent.
+- **A video without text is explained in three places**, since each can fail
+  alone: the structured log, `render.text_version IS NULL`, and a notice
+  answering the preview in its chat — never in the caption, which is verbatim.
+  `lyrics_outside_fragment` is decided where the `.ass` is built (lines exist,
+  the fragment holds none). The notice is sent through `send_alert` after the
+  `RENDERED` commit, only while `text_version` is `None`, one sentence per
+  class; a lost notice is a log line, never a failed post, and a redelivery
+  stops at the claim before it.
+- **LRCLIB is classified by the body, never by the status.** Synced,
+  unsynced, instrumental and the documented miss are the only answers; the
+  miss is a 404 whose JSON body has `"name": "TrackNotFound"` **and**
+  `"statusCode": 404`. Everything else raises `LrclibApiError` and is **never
+  cached**: 429, 500/502/503/504 or a transport error after three attempts,
+  any other non-200 status, a non-JSON body, a 404 with any other body, and the
+  empty positive (a 200 with both lyric
+  fields empty and `instrumental` not `true`). A cached "no lyrics" for an
+  outage would hide the text for a whole TTL. A cached row is re-verified on
+  the read path, not trusted.
+- **LRCLIB compares the artist string exactly** (case aside), and stores one
+  joined string, so the artists are joined with `", "` — either half of a duo
+  alone answers 404. A documented 404 only proves our exact string is unknown,
+  so `/api/search` by title follows before the miss is final, and every
+  candidate goes through `matching.is_match()` against the track's artists,
+  title and `duration_ms`. The duration is never sent to LRCLIB.
+- **Song text reaches libass as untrusted input.** libass executes override
+  blocks inside the text (`{\an7\fs90}` moves and resizes a line), and ASS
+  has no escape inside a line, so `ass.escape_ass_text` replaces `{`/`}` with
+  `(`/`)` and drops `\` altogether — no `\N`, `\h` or `\an7` from a lyric. The
+  only `\N` in the file is the wrapper's own.
+- **A font name missing from the image falls back to Noto Sans silently.**
+  `fc-match` answers an unknown family with the same file as an installed
+  one, so a wrong `ass.FONT_FAMILY` shows up only as rectangles in a video.
+  The one guard is `tests/integration/test_ass_font.py` (`make test-fonts`),
+  which checks the family against `fc-list :lang=uk` inside the worker.
+- **libass reads `Fontsize` as the ascender-to-descender cell height**, not
+  the em square, so every width is scaled by `text_metrics.FONT_SIZE_TO_EM_SCALE`
+  (derived from the font's `hhea` metrics, never a literal). Line widths come
+  from `worker/noto_sans_widths.py`, a table of real advance widths baked by
+  `scripts/generate_glyph_widths.py` from the worker image's font — generated,
+  never edited by hand, and pinned to that font by the same `make test-fonts`
+  test, so a font package update fails loudly instead of wrapping with stale
+  numbers. An unknown codepoint counts as a full em and kerning is ignored:
+  both err wide, so a line wraps early rather than leaving the frame.
+- **The render limits cover LRCLIB's worst case.** Timeouts, retries and the
+  fallback search add up to ~187 s, so `render_task_*` is 360/420 s; the
+  hard limit is also the stale-render window `/retry` waits out.
+
 ## Data conventions
 
 - Every duration/offset is `BIGINT` milliseconds — never a float number of
@@ -412,6 +482,11 @@ suggest or introduce either.
   a raw `text("UPDATE ...")`) bypasses the ORM and must set
   `updated_at = now()` itself in that same statement — otherwise the row's
   `updated_at` goes stale with no way to fix it after the fact.
+- A migration runs with `bot` and `worker` stopped: stop them, run the one-shot
+  `migrate` service, start the new image. There is no rolling window in which
+  old code meets the new schema.
+- Autogenerate never emits a `CHECK` constraint on an existing table, so such
+  a constraint is written into the revision by hand.
 - `track.duration_ms` (migration `0004`) is what the downloaded audio is
   checked against, so it has to outlive the resolve that found it: it is in
   `merge.STORED_SCALAR_FIELDS`, and without that entry the first `/retry` with
@@ -437,9 +512,31 @@ suggest or introduce either.
   track; a reused artifact keeps
   the version that actually produced it.
 - `render` is keyed to a **post**. `params_hash` covers every input the frames
-  depend on, `text_version` included, so a 4B render never reuses a 4A file.
-  Both tables refuse a zero size or a zero duration at the CHECK level — that
-  is the shape a silent ffmpeg or yt-dlp failure takes.
+  depend on, `text_version` included, so a render never reuses a file with
+  other text or none. Both tables refuse a zero size or a zero duration at the
+  CHECK level — that is the shape a silent ffmpeg or yt-dlp failure takes.
+- `lyric` (migration `0006`) is one line per row, keyed to a **track**
+  (`ON DELETE CASCADE`, like `audio_asset`), so posts of one recording share
+  the text. It holds **only synced lines** (`start_ms` is `NOT NULL`); plain
+  text without timecodes is never stored and is visible only as the reason
+  class `lyrics_unsynced` in the log and the admin's notice. `line_index` is
+  the only order, `start_ms` orders nothing, and there is no `end_ms` — the
+  render derives it. The render path reads the table only through
+  `models.renderable_lyrics_statement`, which spells `start_ms IS NOT NULL`
+  out, so allowing untimed lines later changes no render code. `text` is raw
+  as the source gave it (the ASS substitution happens at render time) and
+  bounded at 500 characters by a CHECK; a longer line is cut, never dropped,
+  because a `line_index` gap would read like a line deleted by hand. `source`
+  is `'lrclib'` or `'manual'`.
+- **Lines are written only onto a track that has none, of any `source`.** The
+  writer locks the track `FOR NO KEY UPDATE` (the lock the resolve takes, which
+  `INSERT INTO post` still passes), counts its lines and inserts only when the
+  count is zero, in one short transaction. The lock is what makes that guard
+  atomic: under READ COMMITTED a second writer counts only after the first
+  commits, while `UNIQUE (track_id, line_index)` stops a duplicate index, not a
+  mix of two writers' lines. **Every future writer, the manual editor
+  included, must take the same lock.** An insert that lands short raises and
+  rolls back rather than committing a partial set.
 
 ## Where things stand
 
@@ -449,17 +546,23 @@ building at the 1024 media limit, idempotent draft delivery, `/retry`); and
 channel publication (an inline button under the draft, a channel preflight,
 an idempotent `send_photo` with the cover, `published_by_user_id`).
 
-**Step 4A (audio download, fragment, static vertical video — no text) is
-complete end to end and awaiting manual acceptance.** «Зробити
-відео» under a draft starts the chain; the worker downloads the audio from
-`youtubeMusic`, picks the fragment, renders a verified 720x1280 file
-and delivers it to the admin as a **preview with a publish button**;
-publication then sends that same file with that same caption as
-`send_video`. `/retry` routes by the stage that failed, every in-progress
-state has an exit, and the video is deleted after a successful publication.
+Step 4A (audio download, fragment, vertical video) is implemented, and its
+manual acceptance has partly passed. «Зробити відео» under a draft starts the
+chain; the worker downloads the audio from `youtubeMusic`, picks the fragment,
+renders a verified 720x1280 file and delivers it to the admin as a **preview
+with a publish button**; publication then sends that same file with that same
+caption as `send_video`. `/retry` routes by the stage that failed, every
+in-progress state has an exit, and the video is deleted after a successful
+publication.
 
-Step 4B adds LRCLIB plus an ASS subtitle track over the already-verified
-filtergraph. Step 5 adds the Mini App, which edits a published caption
+**Step 4B (synced lyrics in the video) is implemented and awaiting manual
+acceptance.** The render takes the track's stored lines or fetches them from
+LRCLIB, stores the synced ones, and draws previous, current and next line
+under the cover as an ASS subtitle track. A video without text still goes to
+the preview, with a notice under it saying why. A previewed post is never
+rendered again, so publication always sends the file the admin saw.
+
+Step 5 adds the Mini App, which edits a published caption
 through the stored `channel_chat_id`/`channel_message_id`. Revoking a
 published post is deliberately not implemented — a wrong post is
 deleted by hand in Telegram, and the row goes on saying `published`.

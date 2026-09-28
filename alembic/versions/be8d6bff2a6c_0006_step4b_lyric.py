@@ -1,21 +1,9 @@
 """0006_step4b_lyric
 
-Step 4B's only schema change: one line of lyrics per row, keyed to a
-**track** (precedent `audio_asset`, D-61) with `ON DELETE CASCADE` — stored
-text is not a reason to refuse deleting a track.
-
-`start_ms` is absolute from the start of the *full* track (D-5), so render
-time computes `ass_t = lyric.start_ms - post.fragment_start_ms`. It is
-`NOT NULL` here: step 7 drops that with `ALTER COLUMN ... DROP NOT NULL`,
-which Postgres does instantly, and the render path already spells the
-`start_ms IS NOT NULL` predicate out (seam §2.1.2).
-
-There is no `end_ms` (D-4): the boundary is derived at render time from the
-next line, a per-line ceiling and the fragment end.
-
-A brand-new table, so no column is backfilled and no existing row's
-`updated_at` goes stale behind the ORM. `post.render_params_hash` is
-deliberately **not** part of this revision (D-87).
+One line of lyrics per row, keyed to a **track** with `ON DELETE CASCADE`:
+stored text is not a reason to refuse deleting a track. `start_ms` is absolute
+from the start of the full track; there is no `end_ms`, the render derives it
+from the next line, a per-line ceiling and the fragment end.
 
 Revision ID: be8d6bff2a6c
 Revises: 501740df6176

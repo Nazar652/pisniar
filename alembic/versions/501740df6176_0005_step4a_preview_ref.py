@@ -1,19 +1,9 @@
 """0005_step4a_preview_ref
 
-The admin-facing video preview (AS11, a consequence of D-65): a separate
-message from the text draft, because `editMessageMedia` cannot turn a text
-message into a media one — so it needs its own chat/message reference,
-shaped exactly like `draft_chat_id`/`draft_message_id`.
-
-A separate revision rather than an addition to `0004` (D-81): `0004` is
-already applied to a database holding 23 posts, and columns appended to an
-applied revision never reach it while `alembic check` starts reporting drift.
-
-Both columns are nullable, so nothing is backfilled and no row's `updated_at`
-goes stale behind the ORM.
-
-`ck_post_preview_ref_complete` is written by hand: autogenerate never emits
-CHECK constraints on an existing table.
+The video preview's own chat/message reference, shaped like the draft pair:
+`editMessageMedia` cannot turn the text draft into media, so the preview is a
+separate message. Both columns are nullable, so nothing is backfilled.
+`ck_post_preview_ref_complete` is hand-written, like every CHECK on an existing table.
 
 Revision ID: 501740df6176
 Revises: 199284e533b4

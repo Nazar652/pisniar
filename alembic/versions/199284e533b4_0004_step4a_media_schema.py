@@ -1,17 +1,9 @@
 """0004_step4a_media_schema
 
-Step 4A's schema, added while the tables are still practically empty (22
-tracks, 23 posts): `track.duration_ms` (the resolve knew it and threw it
-away, the same gap `album_id_spotify` had before D-45),
-`post.failed_from_status` (Q5/D-77: which stage failed, recorded instead of
-inferred from `draft_message_id`, which step 4 breaks), and the two artifact
-tables — `audio_asset` per **track**, `render` per **post**.
-
-Every new column is nullable or belongs to a table created empty, so nothing
-is backfilled and no row's `updated_at` goes stale behind the ORM.
-
-`ck_post_failed_from_status_valid` is written by hand: autogenerate never
-emits CHECK constraints on an existing table.
+The media schema: `track.duration_ms`, `post.failed_from_status` and the two
+artifact tables, `audio_asset` per **track** and `render` per **post**. Every
+new column is nullable or in a new table, so nothing is backfilled.
+`ck_post_failed_from_status_valid` is hand-written, like every CHECK on an existing table.
 
 Revision ID: 199284e533b4
 Revises: 4f5a52e4998d
