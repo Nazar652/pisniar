@@ -261,7 +261,9 @@ def _is_documented_miss(response: httpx.Response) -> bool:
 
     body = as_dict(_json_body(response))
     error_name = as_str(body.get("name"))
-    error_code = body.get("code")
+    # `statusCode`, not `code`: the literal body, re-measured from the
+    # container — `{"message": ..., "name": "TrackNotFound", "statusCode": 404}`.
+    error_code = body.get("statusCode")
 
     if error_code == NOT_FOUND_STATUS_CODE and error_name in NOT_FOUND_ERROR_NAMES:
         return True

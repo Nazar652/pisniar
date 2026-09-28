@@ -54,17 +54,18 @@ EMPTY_POSITIVE_RECORD: dict[str, object] = {
     "syncedLyrics": "",
 }
 
-# The literal bodies gate 4B.0.4 recorded — the material the whitelist is
-# built from, and the reason 404 and 503 are distinguishable at all.
+# The literal bodies, re-captured from the container on 2026-09-28 — the
+# field is `statusCode`; an earlier fixture that guessed `code` let the real
+# 404 raise as an outage while every mock stayed green.
 TRACK_NOT_FOUND_BODY = {
-    "code": 404,
-    "name": "TrackNotFound",
     "message": "Failed to find specified track",
+    "name": "TrackNotFound",
+    "statusCode": 404,
 }
 SERVER_OVERLOADED_BODY = {
-    "code": 503,
+    "message": "The server is busy, please retry in a moment",
     "name": "ServerOverloaded",
-    "message": "Server is overloaded, please try again later",
+    "statusCode": 503,
 }
 
 
@@ -247,7 +248,19 @@ async def test_a_404_with_an_undocumented_body_raises() -> None:
     """The whitelist is a whitelist: a 404 naming a different error is an
     unverified combination, not a second way of saying "not found"."""
     cache, recording = make_cache()
-    body = {"code": 404, "name": "SomethingElse", "message": "?"}
+    body = {"message": "?", "name": "SomethingElse", "statusCode": 404}
+
+    with pytest.raises(LrclibApiError, match="недокументованим тілом"):
+        await fetch(always(httpx.Response(404, json=body)), cache=cache)
+
+    assert recording.stored == {}
+
+
+async def test_the_miss_is_read_off_status_code_not_a_guessed_code_field() -> None:
+    """The live 404 has no `code`. Keying on it turned every real miss into
+    «не відповіло» and the search fallback never ran."""
+    body = {"message": "Failed to find specified track", "name": "TrackNotFound", "code": 404}
+    cache, recording = make_cache()
 
     with pytest.raises(LrclibApiError, match="недокументованим тілом"):
         await fetch(always(httpx.Response(404, json=body)), cache=cache)

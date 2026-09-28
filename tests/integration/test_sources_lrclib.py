@@ -21,14 +21,14 @@ pytestmark = pytest.mark.integration
 
 TITLE = "Покаяння"
 TRACK_NOT_FOUND_BODY = {
-    "code": 404,
-    "name": "TrackNotFound",
     "message": "Failed to find specified track",
+    "name": "TrackNotFound",
+    "statusCode": 404,
 }
 SERVER_OVERLOADED_BODY = {
-    "code": 503,
+    "message": "The server is busy, please retry in a moment",
     "name": "ServerOverloaded",
-    "message": "Server is overloaded, please try again later",
+    "statusCode": 503,
 }
 
 
