@@ -279,8 +279,8 @@ def _retry_branch_for_failed_post(post: Post) -> RetryBranch:
     if stage is PostStatus.PUBLISHING:
         return RetryBranch.REPUBLISH
 
-    # Rows that failed before migration 0004 carry no stage; for them a draft
-    # means the resolve succeeded and only publication could have failed.
+    # A row with no stage predates the column; for it a draft means the resolve
+    # succeeded and only publication could have failed.
     return RetryBranch.REPUBLISH if post.draft_message_id is not None else RetryBranch.RESOLVE
 
 

@@ -64,7 +64,7 @@ clean: ## docker compose down -v (also drops the postgres volume)
 	$(COMPOSE) down -v
 
 test-int: ## full test suite (unit + integration) inside the bot container
-	$(COMPOSE) run --rm bot pytest -q -m "not fonts and not repo"
+	$(COMPOSE) run --rm bot pytest -q -m "not fonts"
 
 # Separate from `test-int`: the fonts live only in the worker image, and a missing font family
 # falls back silently, so this is what stops a typo in `ass.FONT_FAMILY` reaching a video.

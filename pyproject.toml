@@ -1,7 +1,7 @@
 [project]
 name = "pisniar"
 version = "0.1.0"
-description = "Music channel posting bot — infrastructure skeleton (step 1)"
+description = "Telegram bot that posts music tracks to a channel"
 requires-python = ">=3.13,<3.14"
 dependencies = [
     "aiogram>=3.31.0,<4",
@@ -63,7 +63,6 @@ asyncio_default_test_loop_scope = "function"
 markers = [
     "integration: requires a running Postgres/Redis (run inside docker compose)",
     "fonts: requires fontconfig and the worker image's fonts (run via `make test-fonts`)",
-    "repo: reads docs and build files from the checkout, so it runs on the host (`make check`)",
 ]
 
 [dependency-groups]

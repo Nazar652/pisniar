@@ -5,8 +5,6 @@
 `pisniar` — a Telegram bot that automates posting music tracks to a channel:
 resolve a link's metadata, prepare a post, render a vertical video fragment
 (the cover, the audio and synced lyrics under the cover), publish.
-Steps 1-4B are implemented. Step 4B is awaiting manual acceptance; the manual
-acceptance of step 4A has partly passed.
 
 ## Stack and runtime
 
@@ -51,7 +49,7 @@ suggest or introduce either.
 ## Architectural boundaries
 
 - `pisniar/api/` never imports `pisniar/bot/handlers` — this is what keeps
-  the health/readiness API extractable into its own service later without a
+  the health/readiness API extractable into its own service without a
   rewrite.
 - `pisniar/worker/` never imports `pisniar/bot/`, and `pisniar/bot/` never
   imports `pisniar/worker/tasks` directly. The bot dispatches Celery tasks by
@@ -103,7 +101,7 @@ suggest or introduce either.
   one is wrapped.
 - Every terminal branch of `resolve_post` alerts the admin **whether or not
   the database write succeeded** — Telegram does not depend on Postgres, and
-  a restart of it is a documented manual-acceptance step here. `_fail_post`
+  Postgres can restart while Telegram stays up. `_fail_post`
   and `_clean_up_non_track` both report what they could not write
   instead of raising past their own alert.
 - A Telegram alert delivery failure (`pisniar.telegram.notifier.send_alert`)
@@ -154,10 +152,9 @@ suggest or introduce either.
   (`resolve`, `download`, `render`, `republish`). The stage is never inferred
   from `draft_message_id`: a post that failed while downloading has a draft
   too, and reading that as a failed publication would publish the cover
-  photo of a post whose video never rendered. Rows that failed before
-  migration `0004` carry no stage; for them alone a draft still means "the
-  resolve succeeded, publication failed" — correct, because no media stage
-  existed when they failed.
+  photo of a post whose video never rendered. A `failed` row with no stage
+  recorded predates the column; for it alone a draft means "the resolve
+  succeeded, publication failed" — no media stage existed when it failed.
 - **Every in-progress state has an exit when the worker dies mid-task**,
   and each is measured against **its own** Celery hard limit:
   `RESOLVING` against `worker.celery_app.TASK_TIME_LIMIT_SECONDS`,
@@ -243,9 +240,9 @@ suggest or introduce either.
   objects.** If the admin submitted a YouTube clip, `["youtube"]` holds
   that exact clip (`source: "user_input"`) and is never touched again.
   `["youtubeMusic"]` is always resolved separately via `ytmusicapi` (the
-  canonical "— Topic" recording). **Step 4 must download audio using the
-  `videoId` from `platform_links["youtubeMusic"]`, never `["youtube"]`** —
-  the latter may hold a clip with intro/outro or different mastering.
+  canonical "— Topic" recording). **Audio is downloaded using the `videoId`
+  from `platform_links["youtubeMusic"]`, never `["youtube"]`** — the latter
+  may hold a clip with intro/outro or different mastering.
 - `post.caption` already contains **rendered, escaped Telegram HTML**
   (`pisniar.post.render.render_html`). Whoever sends it (the channel publish
   included) must pass it through as-is with `parse_mode="HTML"` — escaping it
@@ -284,7 +281,7 @@ suggest or introduce either.
   written with `ON CONFLICT DO UPDATE` (which must set `updated_at` itself —
   a Core statement never fires the ORM `onupdate`).
 - **The exit code is never the verdict.** `ffmpeg` exiting 0 on an unusable
-  file is this step's main silent failure, so `ffmpeg.verify_media()` decides:
+  file is the media pipeline's main silent failure, so `ffmpeg.verify_media()` decides:
   size above zero, the required streams present, the duration where it was
   promised. A downloaded file is checked the same way against
   `track.duration_ms` with `matching.DURATION_TOLERANCE_MS` — that is what
@@ -317,7 +314,7 @@ suggest or introduce either.
 - **The fragment rule has no heuristics**: start at 0, length 45 s,
   a shorter track taken whole. `post.fragment_start_ms`/`fragment_end_ms` are
   absolute from the start of the **full** track. Bounds already on the post win
-  (step 6 will write them by hand) as long as they still fit the downloaded file.
+  as long as they still fit the downloaded file.
 - **`scale=...:in_range=pc:out_range=tv` plus `-color_range tv` is required,
   not a refinement.** The cover arrives from the Spotify CDN as
   full-range JPEG, and a naive `format=yuv420p` produces `yuvj420p` *every
@@ -346,7 +343,7 @@ suggest or introduce either.
   never outrun the `DOWNLOADED` it needs. A failed internal dispatch fails
   the post, exactly like a failed resolve dispatch, rather than leaving it in
   a state no task will move it out of.
-- **The preview is the only safeguard the step has.** Publication cannot be
+- **The preview is the only safeguard before publication.** Publication cannot be
   revoked, so `RENDERED` means «прев'ю вже в чаті адміна»: the render
   task sends the video, writes `preview_chat_id`/`preview_message_id`, sets
   the status and commits, in that order — the draft's `RESOLVED` rule,
@@ -391,7 +388,7 @@ suggest or introduce either.
   reverse order would leave a surviving row pointing at a deleted file, and
   an orphan file is the safer half. Retention: the video is removed
   after a **successful** publication (Telegram holds the copy now), audio
-  lives until step 6, and there is no sweeper. The `render` row stays as the
+  is never removed, and there is no sweeper. The `render` row stays as the
   record of what was published; only its file is gone.
 - **The thumbnail is derived, not stored.** `<params_hash>.jpg` sits beside
   its `.mp4`, cut from the rendered file's own first frame, so it needs no
@@ -478,7 +475,7 @@ suggest or introduce either.
 - Lyric timecodes are absolute from the start of the full track, not the
   fragment. At render time: `ass_t = lyric.start_ms - post.fragment_start_ms`.
 - `updated_at` is maintained by an ORM-level `onupdate`, not a database
-  trigger. Any future migration that updates rows in place (`op.execute("UPDATE ...")`,
+  trigger. A migration that updates rows in place (`op.execute("UPDATE ...")`,
   a raw `text("UPDATE ...")`) bypasses the ORM and must set
   `updated_at = now()` itself in that same statement — otherwise the row's
   `updated_at` goes stale with no way to fix it after the fact.
@@ -487,22 +484,21 @@ suggest or introduce either.
   old code meets the new schema.
 - Autogenerate never emits a `CHECK` constraint on an existing table, so such
   a constraint is written into the revision by hand.
-- `track.duration_ms` (migration `0004`) is what the downloaded audio is
+- `track.duration_ms` is what the downloaded audio is
   checked against, so it has to outlive the resolve that found it: it is in
   `merge.STORED_SCALAR_FIELDS`, and without that entry the first `/retry` with
   a failed source would null it: `merge_stored_scalars` keeps a stored value
   only for the fields listed there.
-- `post.failed_from_status` (migration `0004`) records **which stage failed**,
+- `post.failed_from_status` records **which stage failed**,
   written by `set_post_status()` next to `last_error` and cleared on the way
   out of `FAILED`. The stage cannot be inferred from `draft_message_id`,
   because a post that failed while downloading also has a draft.
-- `post.preview_chat_id`/`preview_message_id` (migration `0005`) are
-  the video preview's own reference, shaped exactly like the draft pair —
-  a `CHECK` against a one-sided pair plus a partial unique index. They live
-  in their own revision because `0004` is applied to a database holding real
-  posts: columns appended to an applied revision never reach it, and
-  `alembic check` then reports drift. A change to an applied revision
-  always goes into a new one.
+- `post.preview_chat_id`/`preview_message_id` are the video preview's own
+  reference, shaped exactly like the draft pair — a `CHECK` against a
+  one-sided pair plus a partial unique index.
+- A schema change always goes into a new revision, never into an applied
+  one: `upgrade head` skips a revision that changed after it ran, and
+  `alembic check` then reports drift.
 - `audio_asset` is keyed to a **track** (`ON DELETE CASCADE`, unlike
   `post.track_id`'s `RESTRICT`: an artifact is not a reason to refuse deleting
   its track, and a file without a row is the safe side). `duration_ms` there is
@@ -515,7 +511,7 @@ suggest or introduce either.
   depend on, `text_version` included, so a render never reuses a file with
   other text or none. Both tables refuse a zero size or a zero duration at the
   CHECK level — that is the shape a silent ffmpeg or yt-dlp failure takes.
-- `lyric` (migration `0006`) is one line per row, keyed to a **track**
+- `lyric` is one line per row, keyed to a **track**
   (`ON DELETE CASCADE`, like `audio_asset`), so posts of one recording share
   the text. It holds **only synced lines** (`start_ms` is `NOT NULL`); plain
   text without timecodes is never stored and is visible only as the reason
@@ -523,7 +519,7 @@ suggest or introduce either.
   the only order, `start_ms` orders nothing, and there is no `end_ms` — the
   render derives it. The render path reads the table only through
   `models.renderable_lyrics_statement`, which spells `start_ms IS NOT NULL`
-  out, so allowing untimed lines later changes no render code. `text` is raw
+  out, so the render code does not rely on the column's `NOT NULL`. `text` is raw
   as the source gave it (the ASS substitution happens at render time) and
   bounded at 500 characters by a CHECK; a longer line is cut, never dropped,
   because a `line_index` gap would read like a line deleted by hand. `source`
@@ -534,35 +530,25 @@ suggest or introduce either.
   count is zero, in one short transaction. The lock is what makes that guard
   atomic: under READ COMMITTED a second writer counts only after the first
   commits, while `UNIQUE (track_id, line_index)` stops a duplicate index, not a
-  mix of two writers' lines. **Every future writer, the manual editor
-  included, must take the same lock.** An insert that lands short raises and
+  mix of two writers' lines. **Every writer of `lyric` must take the same
+  lock.** An insert that lands short raises and
   rolls back rather than committing a partial set.
 
-## Where things stand
+## The flow end to end
 
-Steps 1-3 are implemented: the infrastructure skeleton; link -> post draft
-(URL classification, ISRC-first resolution across six sources, caption
-building at the 1024 media limit, idempotent draft delivery, `/retry`); and
-channel publication (an inline button under the draft, a channel preflight,
-an idempotent `send_photo` with the cover, `published_by_user_id`).
+An admin sends a link; the bot classifies it, the worker resolves it across
+six sources ISRC-first, builds the caption at the 1024 media limit and
+delivers a draft with `/retry` on failure. «Опублікувати в канал» under the
+draft sends the cover with that caption as `send_photo` and records
+`published_by_user_id`.
 
-Step 4A (audio download, fragment, vertical video) is implemented, and its
-manual acceptance has partly passed. «Зробити відео» under a draft starts the
-chain; the worker downloads the audio from `youtubeMusic`, picks the fragment,
-renders a verified 720x1280 file and delivers it to the admin as a **preview
-with a publish button**; publication then sends that same file with that same
-caption as `send_video`. `/retry` routes by the stage that failed, every
-in-progress state has an exit, and the video is deleted after a successful
-publication.
+«Зробити відео» starts the media chain instead: the worker downloads the
+audio from `youtubeMusic`, picks the fragment, takes the track's stored
+lyric lines or fetches them from LRCLIB, renders a verified 720x1280 file
+with previous, current and next line under the cover, and delivers it as a
+**preview with a publish button**. A video without text still reaches the
+preview, with a notice under it saying why. Publication sends that same file
+with that same caption as `send_video`, and the file is deleted afterwards.
 
-**Step 4B (synced lyrics in the video) is implemented and awaiting manual
-acceptance.** The render takes the track's stored lines or fetches them from
-LRCLIB, stores the synced ones, and draws previous, current and next line
-under the cover as an ASS subtitle track. A video without text still goes to
-the preview, with a notice under it saying why. A previewed post is never
-rendered again, so publication always sends the file the admin saw.
-
-Step 5 adds the Mini App, which edits a published caption
-through the stored `channel_chat_id`/`channel_message_id`. Revoking a
-published post is deliberately not implemented — a wrong post is
+Revoking a published post is deliberately not implemented — a wrong post is
 deleted by hand in Telegram, and the row goes on saying `published`.

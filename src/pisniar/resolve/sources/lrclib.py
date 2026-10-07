@@ -92,8 +92,8 @@ class LyricsResult:
 
 
 def join_artist_names(artist_names: Sequence[str]) -> str:
-    """The single value LRCLIB compares against: `Burned Time Machine, 0%Mercury`
-    answers 200 where either half alone answers 404."""
+    """LRCLIB matches the artist string exactly, so a duo is sent as one
+    joined value; either artist alone answers 404."""
     return ARTIST_JOIN_SEPARATOR.join(
         " ".join(name.split()) for name in artist_names if name and name.strip()
     )

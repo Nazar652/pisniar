@@ -87,8 +87,8 @@ def upgrade() -> None:
         ),
         sa.Column("post_id", sa.BigInteger(), nullable=False),
         sa.Column("params_hash", sa.Text(), nullable=False),
-        # Always NULL in 4A. It is an input to `params_hash`, so the column is
-        # what keeps that hash auditable once 4B starts filling it.
+        # NULL for a render without lyrics. It is an input to `params_hash`, so
+        # the column is what keeps that hash auditable.
         sa.Column("text_version", sa.Text(), nullable=True),
         sa.Column("path", sa.Text(), nullable=False),
         sa.Column("size_bytes", sa.BigInteger(), nullable=False),

@@ -5,7 +5,7 @@ link's metadata, prepare a post, render a vertical video fragment, publish.
 See `AGENTS.md` for a terse, code-facing map of the stack and the
 architectural boundaries that are easy to break without knowing them.
 
-This repository is at **step 4B**: an admin sends a link, the bot classifies
+An admin sends a link, the bot classifies
 it, the worker resolves it across six external sources (song.link, Spotify,
 Deezer, iTunes, `ytmusicapi`, MusicBrainz) with an ISRC-first matching
 discipline, builds an HTML caption, and delivers a draft back with `/retry`
@@ -20,8 +20,7 @@ renders a 720x1280 video of the cover plus that audio, and sends it
 back as a **preview with its own publish button**. Publishing from there
 puts that exact file, with that exact caption, into the channel as a video.
 The preview is not a convenience — a published post cannot be revoked, so
-it is the one place a wrong fragment can still be caught. Manual choice of
-the fragment arrives in step 6.
+it is the one place a wrong fragment can still be caught.
 
 The video carries the track's **synced lyrics** under the cover: the
 previous, current and next line, timed to the audio. They come from
@@ -29,8 +28,7 @@ previous, current and next line, timed to the audio. They come from
 the same recording reuses them without asking again. When there is no usable
 text (none in LRCLIB, none with timecodes, an instrumental, no answer from
 LRCLIB, or no line inside the fragment), the video is rendered without it,
-and a short notice under the preview says why. Editing the text by hand
-arrives in step 7.
+and a short notice under the preview says why.
 
 ## Prerequisites
 
