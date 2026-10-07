@@ -74,6 +74,8 @@ class ResolvedTrack:
     # Sources that raised instead of answering. Kept apart from
     # `warnings` because the admin is alerted about these, not just logged.
     source_failures: list[str] = field(default_factory=list)
+    # automatic links the host list refused; the admin is told about these too
+    link_rejections: list[str] = field(default_factory=list)
 
     # Internal bookkeeping for `merge.py`'s priority rules — the highest
     # priority rank that has won each field/platform so far.

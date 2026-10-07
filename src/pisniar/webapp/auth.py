@@ -71,11 +71,11 @@ def validate_init_data(init_data: str, bot_token: str, now: int, window: AuthWin
     except ValueError:
         raise InitDataError("malformed") from None
 
-    names = [name for name, _ in pairs]
+    names = [name for name, value in pairs]
     if len(set(names)) != len(names):
         raise InitDataError("duplicate_key")
     # aiogram drops blank values before it hashes; refusing them keeps both parsers on one view.
-    if any(not value for _, value in pairs):
+    if any(not value for name, value in pairs):
         raise InitDataError("malformed")
     fields = dict(pairs)
     if "hash" not in fields:
@@ -84,13 +84,13 @@ def validate_init_data(init_data: str, bot_token: str, now: int, window: AuthWin
     if not check_webapp_signature(bot_token, init_data):
         raise InitDataError("bad_signature")
 
-    auth_date = _parse_int(fields.get("auth_date"))
+    auth_date = parse_integer(fields.get("auth_date"))
     if auth_date is None:
         raise InitDataError("bad_auth_date")
     if not now - window.max_age_seconds <= auth_date <= now + window.max_future_seconds:
         raise InitDataError("auth_date_out_of_window")
 
-    return _user_id_of(fields.get("user"))
+    return read_user_id(fields.get("user"))
 
 
 def session_key(bot_token: str) -> bytes:
@@ -104,7 +104,7 @@ def issue_session_token(user_id: int, bot_token: str, now: int, ttl_seconds: int
         sort_keys=True,
     ).encode()
     signature = hmac.new(session_key(bot_token), payload, hashlib.sha256).digest()
-    return f"{_b64encode(payload)}.{_b64encode(signature)}"
+    return f"{encode_base64url(payload)}.{encode_base64url(signature)}"
 
 
 def verify_session_token(token: str, bot_token: str, now: int) -> int:
@@ -113,8 +113,8 @@ def verify_session_token(token: str, bot_token: str, now: int) -> int:
     if len(parts) != 2:
         raise InitDataError("token_malformed")
 
-    payload = _b64decode(parts[0])
-    signature = _b64decode(parts[1])
+    payload = decode_base64url(parts[0])
+    signature = decode_base64url(parts[1])
     if payload is None or signature is None:
         raise InitDataError("token_malformed")
 
@@ -132,7 +132,7 @@ def verify_session_token(token: str, bot_token: str, now: int) -> int:
     user_id = claims.get("uid")
     issued_at = claims.get("iat")
     expires_at = claims.get("exp")
-    if not (_is_int(user_id) and _is_int(issued_at) and _is_int(expires_at)):
+    if not (is_integer(user_id) and is_integer(issued_at) and is_integer(expires_at)):
         raise InitDataError("token_malformed")
     if expires_at <= now:
         raise InitDataError("token_expired")
@@ -168,7 +168,7 @@ def require_admin(request: Request) -> AdminUser:
     return AdminUser(user_id=user_id)
 
 
-def _user_id_of(raw_user: str | None) -> int:
+def read_user_id(raw_user: str | None) -> int:
     if raw_user is None:
         raise InitDataError("missing_user")
     try:
@@ -178,12 +178,12 @@ def _user_id_of(raw_user: str | None) -> int:
     if not isinstance(user, dict):
         raise InitDataError("bad_user")
     user_id = user.get("id")
-    if not _is_int(user_id):
+    if not is_integer(user_id):
         raise InitDataError("bad_user")
     return user_id
 
 
-def _parse_int(value: str | None) -> int | None:
+def parse_integer(value: str | None) -> int | None:
     if value is None:
         return None
     try:
@@ -192,15 +192,15 @@ def _parse_int(value: str | None) -> int | None:
         return None
 
 
-def _is_int(value: object) -> TypeGuard[int]:
+def is_integer(value: object) -> TypeGuard[int]:
     return isinstance(value, int) and not isinstance(value, bool)
 
 
-def _b64encode(data: bytes) -> str:
+def encode_base64url(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
 
 
-def _b64decode(text: str) -> bytes | None:
+def decode_base64url(text: str) -> bytes | None:
     padded = text + "=" * (-len(text) % 4)
     try:
         return base64.b64decode(padded, altchars=b"-_", validate=True)

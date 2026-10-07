@@ -68,13 +68,14 @@ async def test_channel_message_kind_backfill_follows_the_publication_rule(
                 cover_url,
             )
         rows = [
-            (1, 1, 10, 5, "video"),
-            (2, 1, 11, None, "photo"),
-            (3, 2, 12, None, "text"),
-            (4, 3, 13, None, "text"),
-            (5, 1, None, None, None),
+            (1, 1, 10, 5),
+            (2, 1, 11, None),
+            (3, 2, 12, None),
+            (4, 3, 13, None),
+            (5, 1, None, None),
         ]
-        for post_id, track_id, message_id, preview_id, _ in rows:
+        expected_kinds = {1: "video", 2: "photo", 3: "text", 4: "text", 5: None}
+        for post_id, track_id, message_id, preview_id in rows:
             await connection.execute(
                 "INSERT INTO post (id, track_id, created_by_user_id, channel_chat_id, "
                 "channel_message_id, preview_chat_id, preview_message_id, updated_at) "
@@ -102,7 +103,7 @@ async def test_channel_message_kind_backfill_follows_the_publication_rule(
     finally:
         await connection.close()
 
-    for post_id, _, _, _, expected_kind in rows:
+    for post_id, expected_kind in expected_kinds.items():
         assert stored[post_id]["channel_message_kind"] == expected_kind, post_id
     assert [stored[post_id]["touched"] for post_id in (1, 2, 3, 4)] == [True] * 4
     assert stored[5]["touched"] is False

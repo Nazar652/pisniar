@@ -756,6 +756,12 @@ def _seed_user_input_clip(track: Track, clip: ClassifiedUrl | None) -> None:
     if clip is None:
         return
 
+    # a clip sent by the admin outweighs an earlier removal of the same platform
+    if CLIP_PLATFORM in (track.removed_platforms or []):
+        track.removed_platforms = [
+            platform for platform in track.removed_platforms if platform != CLIP_PLATFORM
+        ]
+
     stored = track.platform_links or {}
     link = {"url": clip.normalized_url, "source": USER_INPUT_SOURCE, "match": "manual"}
     if stored.get(CLIP_PLATFORM) == link:

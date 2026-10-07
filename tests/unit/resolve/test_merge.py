@@ -19,7 +19,9 @@ from pisniar.resolve.merge import (
 from pisniar.resolve.types import ArtistInfo, MatchClass, PlatformLink, ResolvedTrack
 
 
-def make_link(source: str, match: MatchClass, url: str = "https://example.com/x") -> PlatformLink:
+def make_link(
+    source: str, match: MatchClass, url: str = "https://www.deezer.com/track/1"
+) -> PlatformLink:
     return PlatformLink(url=url, source=source, match=match)
 
 
@@ -89,17 +91,21 @@ def test_platform_link_exact_isrc_beats_confirmed() -> None:
 def test_platform_link_manual_beats_exact_isrc_and_confirmed() -> None:
     track = ResolvedTrack()
     merge_platform_link(
-        track, "youtube", make_link("user_input", MatchClass.MANUAL, "https://example.com/user")
+        track, "youtube", make_link("user_input", MatchClass.MANUAL, "https://www.youtube.com/user")
     )
 
     merge_platform_link(
-        track, "youtube", make_link("deezer", MatchClass.EXACT_ISRC, "https://example.com/other")
+        track,
+        "youtube",
+        make_link("deezer", MatchClass.EXACT_ISRC, "https://www.youtube.com/other"),
     )
     merge_platform_link(
-        track, "youtube", make_link("itunes", MatchClass.CONFIRMED, "https://example.com/another")
+        track,
+        "youtube",
+        make_link("itunes", MatchClass.CONFIRMED, "https://www.youtube.com/another"),
     )
 
-    assert track.platform_links["youtube"].url == "https://example.com/user"
+    assert track.platform_links["youtube"].url == "https://www.youtube.com/user"
     assert track.platform_links["youtube"].source == "user_input"
 
 
@@ -108,45 +114,53 @@ def test_platform_link_manual_is_never_overwritten_even_if_applied_first() -> No
 
     merge_platform_link(track, "spotify", make_link("spotify", MatchClass.EXACT_ISRC))
     merge_platform_link(
-        track, "spotify", make_link("manual", MatchClass.MANUAL, "https://example.com/manual")
+        track, "spotify", make_link("manual", MatchClass.MANUAL, "https://open.spotify.com/manual")
     )
     merge_platform_link(
-        track, "spotify", make_link("spotify", MatchClass.EXACT_ISRC, "https://example.com/auto")
+        track,
+        "spotify",
+        make_link("spotify", MatchClass.EXACT_ISRC, "https://open.spotify.com/auto"),
     )
 
-    assert track.platform_links["spotify"].url == "https://example.com/manual"
+    assert track.platform_links["spotify"].url == "https://open.spotify.com/manual"
 
 
 def test_platform_link_aggregator_beats_confirmed_but_loses_to_direct_isrc() -> None:
     track = ResolvedTrack()
 
     merge_platform_link(
-        track, "tidal", make_link("songlink", MatchClass.AGGREGATOR, "https://example.com/songlink")
+        track,
+        "tidal",
+        make_link("songlink", MatchClass.AGGREGATOR, "https://listen.tidal.com/songlink"),
     )
     merge_platform_link(
-        track, "tidal", make_link("itunes", MatchClass.CONFIRMED, "https://example.com/confirmed")
+        track,
+        "tidal",
+        make_link("itunes", MatchClass.CONFIRMED, "https://listen.tidal.com/confirmed"),
     )
 
-    assert track.platform_links["tidal"].url == "https://example.com/songlink"
+    assert track.platform_links["tidal"].url == "https://listen.tidal.com/songlink"
 
     merge_platform_link(
-        track, "tidal", make_link("deezer", MatchClass.EXACT_ISRC, "https://example.com/direct")
+        track,
+        "tidal",
+        make_link("deezer", MatchClass.EXACT_ISRC, "https://listen.tidal.com/direct"),
     )
 
-    assert track.platform_links["tidal"].url == "https://example.com/direct"
+    assert track.platform_links["tidal"].url == "https://listen.tidal.com/direct"
 
 
 def test_platform_link_does_not_downgrade_on_equal_priority_resubmission() -> None:
     track = ResolvedTrack()
     merge_platform_link(
-        track, "deezer", make_link("deezer", MatchClass.EXACT_ISRC, "https://example.com/first")
+        track, "deezer", make_link("deezer", MatchClass.EXACT_ISRC, "https://www.deezer.com/first")
     )
 
     merge_platform_link(
-        track, "deezer", make_link("deezer", MatchClass.EXACT_ISRC, "https://example.com/second")
+        track, "deezer", make_link("deezer", MatchClass.EXACT_ISRC, "https://www.deezer.com/second")
     )
 
-    assert track.platform_links["deezer"].url == "https://example.com/first"
+    assert track.platform_links["deezer"].url == "https://www.deezer.com/first"
 
 
 def test_unsafe_scheme_is_rejected_on_the_way_in_with_a_warning() -> None:
@@ -167,34 +181,38 @@ def test_unsafe_scheme_is_rejected_on_the_way_in_with_a_warning() -> None:
 def test_unsafe_candidate_does_not_displace_an_already_merged_safe_link() -> None:
     track = ResolvedTrack()
     merge_platform_link(
-        track, "spotify", make_link("spotify", MatchClass.CONFIRMED, "https://example.com/safe")
+        track,
+        "spotify",
+        make_link("spotify", MatchClass.CONFIRMED, "https://open.spotify.com/safe"),
     )
 
     merge_platform_link(
         track, "spotify", make_link("manual", MatchClass.MANUAL, "data:text/html,x")
     )
 
-    assert track.platform_links["spotify"].url == "https://example.com/safe"
+    assert track.platform_links["spotify"].url == "https://open.spotify.com/safe"
 
 
 def test_stored_manual_link_survives_a_fresh_exact_isrc_resolve() -> None:
     track = ResolvedTrack()
     merge_platform_link(
-        track, "spotify", make_link("spotify", MatchClass.EXACT_ISRC, "https://example.com/fresh")
+        track,
+        "spotify",
+        make_link("spotify", MatchClass.EXACT_ISRC, "https://open.spotify.com/fresh"),
     )
 
     merge_stored_platform_links(
         track,
         {
             "spotify": {
-                "url": "https://example.com/stored-manual",
+                "url": "https://open.spotify.com/stored-manual",
                 "source": "user_input",
                 "match": "manual",
             }
         },
     )
 
-    assert track.platform_links["spotify"].url == "https://example.com/stored-manual"
+    assert track.platform_links["spotify"].url == "https://open.spotify.com/stored-manual"
 
 
 def test_stored_platform_missing_from_the_fresh_resolve_is_kept() -> None:
@@ -219,28 +237,35 @@ def test_stored_platform_missing_from_the_fresh_resolve_is_kept() -> None:
 def test_fresh_result_wins_a_tie_against_the_same_stored_class() -> None:
     track = ResolvedTrack()
     merge_platform_link(
-        track, "deezer", make_link("deezer", MatchClass.EXACT_ISRC, "https://example.com/fresh")
+        track, "deezer", make_link("deezer", MatchClass.EXACT_ISRC, "https://www.deezer.com/fresh")
     )
 
     merge_stored_platform_links(
         track,
-        {"deezer": {"url": "https://example.com/stale", "source": "deezer", "match": "exact_isrc"}},
+        {
+            "deezer": {
+                "url": "https://www.deezer.com/stale",
+                "source": "deezer",
+                "match": "exact_isrc",
+            }
+        },
     )
 
-    assert track.platform_links["deezer"].url == "https://example.com/fresh"
+    assert track.platform_links["deezer"].url == "https://www.deezer.com/fresh"
 
 
 def test_stored_link_with_an_unreadable_match_class_lands_in_the_bottom_tier() -> None:
     track = ResolvedTrack()
     merge_platform_link(
-        track, "tidal", make_link("deezer", MatchClass.EXACT_ISRC, "https://example.com/fresh")
+        track, "tidal", make_link("deezer", MatchClass.EXACT_ISRC, "https://listen.tidal.com/fresh")
     )
 
     merge_stored_platform_links(
-        track, {"tidal": {"url": "https://example.com/legacy", "source": "?", "match": "nonsense"}}
+        track,
+        {"tidal": {"url": "https://listen.tidal.com/legacy", "source": "?", "match": "nonsense"}},
     )
 
-    assert track.platform_links["tidal"].url == "https://example.com/fresh"
+    assert track.platform_links["tidal"].url == "https://listen.tidal.com/fresh"
 
 
 def test_stored_artist_hashtag_survives_a_resolve_that_returned_none() -> None:

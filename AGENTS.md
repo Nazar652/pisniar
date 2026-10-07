@@ -223,6 +223,28 @@ suggest or introduce either.
   re-resolve that comes back completely empty fails the post instead of
   deleting a track that was resolved once before — deletion is only for a
   track that never resolved.
+- **`_persist_track` merges in a fixed order, and `apply_manual_fields` is last:**
+  `merge_stored_platform_links`, `drop_removed_platforms`,
+  `keep_stored_title_and_artists_after_source_failure`, `merge_stored_artists`,
+  `merge_stored_scalars`, `apply_manual_fields`. A name in `track.manual_fields`
+  makes the stored value replace the fresh one unconditionally — `None` included —
+  so a manually emptied year or release type survives a re-resolve; the
+  `manual_fields_kept` log names the fields where the fresh value differed. A key in
+  `track.removed_platforms` is dropped from the result after every platform merge, and
+  a clip the admin sends removes `youtube` from that list again.
+- **Automatic links meet a host list** (`resolve/link_policy.py`), inside
+  `merge_platform_link`: https only, no port or credentials, and a host that belongs
+  to that platform (Bandcamp by suffix); an unknown platform key is refused. A refused
+  candidate is not stored; it is logged as `platform_link_rejected_by_allowlist` and
+  carried in `ResolvedTrack.link_rejections`, which the worker's alert under the
+  draft lists next to `source_failures`. Manual and already-stored links skip this
+  check — a manual link is validated where it is entered (`check_manual_link`: track
+  link of that platform, valid `videoId` for YouTube), and the album field has its
+  own parser (`parse_spotify_album_link`, stores the id).
+- **A caption is built from stored rows only** (`post.caption_input`): the worker
+  and the Mini App read `track`/`post` JSONB through the same
+  `build_caption_from_rows`, which also returns what did not fit
+  (`CaptionDegradation`). Keep it that way — a second conversion drifts.
 - `track.artists` = `[{"name", "hashtag", "spotify_id"}]`; `hashtag` is
   `null` until a human overrides it (`post.hashtags.default_hashtag()`
   computes the display default at caption-build time, it is not stored).

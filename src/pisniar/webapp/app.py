@@ -51,7 +51,7 @@ def create_webapp(settings: Settings, clock: Callable[[], float] = time.time) ->
     async def harden(
         request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
-        rejection = _reject_oversized_body(request)
+        rejection = reject_oversized_body(request)
         response = rejection if rejection is not None else await call_next(request)
         for name, value in SECURITY_HEADERS.items():
             response.headers[name] = value
@@ -69,7 +69,7 @@ def create_webapp(settings: Settings, clock: Callable[[], float] = time.time) ->
 
     @app.get("/assets/{asset_path:path}", include_in_schema=False)
     async def asset(asset_path: str) -> Response:
-        asset_file = _resolve_asset(static_dir / "assets", asset_path)
+        asset_file = resolve_asset_file(static_dir / "assets", asset_path)
         if asset_file is None:
             raise ApiProblem(404, "not_found", "Не знайдено.")
         return FileResponse(asset_file, headers={"Cache-Control": IMMUTABLE_CACHE})
@@ -78,7 +78,7 @@ def create_webapp(settings: Settings, clock: Callable[[], float] = time.time) ->
     return app
 
 
-def _reject_oversized_body(request: Request) -> Response | None:
+def reject_oversized_body(request: Request) -> Response | None:
     """A body is accepted only with an honest `Content-Length`: chunked uploads get no room."""
     if request.method not in BODY_METHODS:
         return None
@@ -90,7 +90,7 @@ def _reject_oversized_body(request: Request) -> Response | None:
     return None
 
 
-def _resolve_asset(assets_root: Path, asset_path: str) -> Path | None:
+def resolve_asset_file(assets_root: Path, asset_path: str) -> Path | None:
     """The file under `assets_root` or `None`: `..` and symlinks must not leave the directory."""
     try:
         root = assets_root.resolve()

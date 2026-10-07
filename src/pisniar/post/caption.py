@@ -5,6 +5,9 @@ from the tail (Spotify/YT Music last), then the release title. Nothing else.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import NamedTuple
+
 from pisniar.channel import CHANNEL_LINK_TEXT, CHANNEL_LINK_URL
 from pisniar.post.hashtags import default_hashtag
 from pisniar.post.render import CaptionDocument, visible_length
@@ -36,7 +39,6 @@ PLATFORM_DISPLAY_NAMES = {
     "amazonMusic": "Amazon Music",
     "amazonStore": "Amazon",
     "napster": "Napster",
-    "yandex": "Yandex Music",
     "audius": "Audius",
     "boomplay": "Boomplay",
     "anghami": "Anghami",
@@ -46,6 +48,22 @@ PLATFORM_DISPLAY_NAMES = {
     "spinrilla": "Spinrilla",
     "audiomack": "Audiomack",
 }
+
+
+@dataclass(frozen=True)
+class CaptionDegradation:
+    """What did not fit into the limit, in the order it was given up."""
+
+    dropped_genres: tuple[str, ...] = ()
+    dropped_platforms: tuple[str, ...] = ()
+    release_title_dropped: bool = False
+    over_limit: bool = False
+
+
+class CaptionResult(NamedTuple):
+    document: CaptionDocument
+    warnings: list[str]
+    degradation: CaptionDegradation
 
 
 def platform_display_name(platform: str) -> str:
@@ -177,7 +195,7 @@ def _build_document(
     return document
 
 
-def build_caption(
+def build_caption_with_report(
     *,
     artists: list[ArtistInfo],
     title: str,
@@ -189,8 +207,10 @@ def build_caption(
     genres: list[GenreInfo],
     platform_links: dict[str, PlatformLink],
     limit: int = MEDIA_CAPTION_LIMIT,
-) -> tuple[CaptionDocument, list[str]]:
+) -> CaptionResult:
     remaining_genres = list(genres)
+    dropped_genres: list[str] = []
+    dropped_platforms: list[str] = []
     remaining_platforms = dict(platform_links)
     include_release_title = True
 
@@ -214,7 +234,7 @@ def build_caption(
     document, warnings = attempt()
 
     while remaining_genres and visible_length(document) > limit:
-        remaining_genres.pop()
+        dropped_genres.append(remaining_genres.pop().name)
         document, warnings = attempt()
 
     while remaining_platforms and visible_length(document) > limit:
@@ -226,13 +246,51 @@ def build_caption(
         ]
         platform_to_drop = droppable[0] if droppable else ordered[-1]
         del remaining_platforms[platform_to_drop]
+        dropped_platforms.append(platform_to_drop)
         document, warnings = attempt()
 
+    release_title_was_dropped = False
     if include_release_title and visible_length(document) > limit:
         include_release_title = False
+        release_title_was_dropped = bool(release_title and release_type == "album")
         document, warnings = attempt()
 
-    if visible_length(document) > limit:
+    over_limit = visible_length(document) > limit
+    if over_limit:
         warnings.append("caption перевищує ліміт навіть після деградації")
 
-    return document, warnings
+    degradation = CaptionDegradation(
+        dropped_genres=tuple(dropped_genres),
+        dropped_platforms=tuple(dropped_platforms),
+        release_title_dropped=release_title_was_dropped,
+        over_limit=over_limit,
+    )
+    return CaptionResult(document, warnings, degradation)
+
+
+def build_caption(
+    *,
+    artists: list[ArtistInfo],
+    title: str,
+    year: int | None,
+    release_type: str | None,
+    release_title: str | None,
+    album_id_spotify: str | None,
+    languages: list[str],
+    genres: list[GenreInfo],
+    platform_links: dict[str, PlatformLink],
+    limit: int = MEDIA_CAPTION_LIMIT,
+) -> tuple[CaptionDocument, list[str]]:
+    result = build_caption_with_report(
+        artists=artists,
+        title=title,
+        year=year,
+        release_type=release_type,
+        release_title=release_title,
+        album_id_spotify=album_id_spotify,
+        languages=languages,
+        genres=genres,
+        platform_links=platform_links,
+        limit=limit,
+    )
+    return result.document, result.warnings

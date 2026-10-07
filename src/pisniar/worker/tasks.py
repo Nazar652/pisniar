@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from pisniar.channel import warn_if_alerts_share_the_channel
 from pisniar.config import Settings, get_settings, redaction_secrets
-from pisniar.db.models import DEFAULT_LANGUAGES, AudioAsset, Post, Render, Track
+from pisniar.db.models import MANUAL_FIELD_NAMES, AudioAsset, Post, Render, Track
 from pisniar.db.session import LOCK_TIMEOUT_MS, build_engine, build_session_factory
 from pisniar.db.states import PostStatus, set_post_status
 from pisniar.logging import (
@@ -35,7 +35,7 @@ from pisniar.logging import (
     get_logger,
     redact_secrets_in_text,
 )
-from pisniar.post.caption import build_caption
+from pisniar.post.caption_input import build_caption_from_rows, genres_from_stored
 from pisniar.post.render import render_html
 from pisniar.resolve import merge
 from pisniar.resolve.cache import SourceCache
@@ -249,6 +249,7 @@ async def _resolve_and_deliver(
     nothing_usable = False
     delivered = False
     source_failures: list[str] = []
+    link_rejections: list[str] = []
     http_client = build_http_client()
     try:
         context = _build_resolve_context(http_client, session_factory, settings)
@@ -259,6 +260,7 @@ async def _resolve_and_deliver(
             return
 
         source_failures = resolved.source_failures
+        link_rejections = resolved.link_rejections
 
         if not _resolve_found_anything(resolved):
             if track.resolved_at is not None or track.platform_links:
@@ -301,26 +303,25 @@ async def _resolve_and_deliver(
 
             # One list for both sinks: `post.genres` keeps a stored value the
             # fresh resolve lost, and the caption must say what that column does.
-            effective_genres = genres or _genres_from_stored(post.genres)
+            effective_genres = genres or genres_from_stored(post.genres)
+            post.genres = [_genre_to_dict(genre) for genre in effective_genres]
 
-            document, warnings = build_caption(
-                artists=resolved.artists,
+            # read back off the rows, the same way the Mini App rebuilds it
+            rebuilt = build_caption_from_rows(
                 title=caption_title,
-                year=resolved.year,
-                release_type=resolved.release_type,
-                release_title=resolved.release_title,
-                # Both read off the row, not off `resolved`: languages only ever
-                # live there.
+                artists=track.artists,
+                year=track.year,
+                release_type=track.release_type,
+                release_title=track.release_title,
                 album_id_spotify=track.album_id_spotify,
-                languages=_languages_from_stored(track.languages),
-                genres=effective_genres,
-                platform_links=resolved.platform_links,
+                languages=track.languages,
+                genres=post.genres,
+                platform_links=track.platform_links,
             )
-            for warning in [*resolved.warnings, *warnings]:
+            for warning in [*resolved.warnings, *rebuilt.warnings]:
                 logger.warning("resolve_post_warning", post_id=post.id, warning=warning)
 
-            post.caption = render_html(document)
-            post.genres = [_genre_to_dict(genre) for genre in effective_genres]
+            post.caption = render_html(rebuilt.document)
 
             # Delivery first: RESOLVED means "the draft is in the admin's chat",
             # and only RESOLVING, not RESOLVED, can still move to FAILED.
@@ -343,7 +344,7 @@ async def _resolve_and_deliver(
     if nothing_usable:
         await _clean_up_non_track(session, post, track, source_failures)
     elif delivered:
-        await _warn_about_source_failures(post, source_failures)
+        await _warn_about_source_failures(post, source_failures, link_rejections)
         await _warn_about_isrc_duplicate(session, post, track)
 
 
@@ -402,6 +403,7 @@ def _persist_track(track: Track, resolved: ResolvedTrack) -> None:
     """Merges into the stored row: a re-resolve cannot reproduce a `manual` link or
     an admin's hashtag, and a degraded one keeps the stored `title`/`artists`."""
     merge.merge_stored_platform_links(resolved, track.platform_links)
+    merge.drop_removed_platforms(resolved, track.removed_platforms)
 
     # Before `merge_stored_artists`, which then re-applies the hashtag
     # overrides onto the restored names — a no-op, since they came from there.
@@ -409,6 +411,12 @@ def _persist_track(track: Track, resolved: ResolvedTrack) -> None:
 
     merge.merge_stored_artists(resolved, track.artists)
     merge.merge_stored_scalars(resolved, _stored_scalars(track))
+    # last: it alone can restore a manually emptied field the steps above refilled
+    merge.apply_manual_fields(
+        resolved,
+        {name: getattr(track, name) for name in MANUAL_FIELD_NAMES},
+        track.manual_fields,
+    )
 
     track.isrc = resolved.isrc
     track.title = resolved.title
@@ -437,36 +445,6 @@ def _artist_to_dict(artist: ArtistInfo) -> dict[str, object]:
 
 def _genre_to_dict(genre: GenreInfo) -> dict[str, object]:
     return {"name": genre.name, "hashtag": genre.hashtag, "source": genre.source}
-
-
-def _genres_from_stored(stored: list[object]) -> list[GenreInfo]:
-    """Reads `post.genres` (JSONB) back as domain objects, so a caption
-    rebuilt after an empty genre fetch says what the column says."""
-    genres: list[GenreInfo] = []
-    for entry in stored:
-        if not isinstance(entry, dict):
-            continue
-        name = entry.get("name")
-        if not isinstance(name, str) or not name:
-            continue
-
-        hashtag = entry.get("hashtag")
-        source = entry.get("source")
-        genres.append(
-            GenreInfo(
-                name=name,
-                hashtag=hashtag if isinstance(hashtag, str) and hashtag else None,
-                source=source if isinstance(source, str) and source else "stored",
-            )
-        )
-    return genres
-
-
-def _languages_from_stored(stored: list[object]) -> list[str]:
-    """Falls back to the schema default, never to an empty line: the language
-    is always shown."""
-    languages = [entry for entry in stored if isinstance(entry, str) and entry]
-    return languages or list(DEFAULT_LANGUAGES)
 
 
 def _platform_link_to_dict(link: PlatformLink) -> dict[str, object]:
@@ -509,21 +487,25 @@ async def _warn_about_isrc_duplicate(session: AsyncSession, post: Post, track: T
     )
 
 
-async def _warn_about_source_failures(post: Post, source_failures: list[str]) -> None:
+async def _warn_about_source_failures(
+    post: Post, source_failures: list[str], link_rejections: list[str]
+) -> None:
     """Source isolation is acceptable only while the loss is audible, so a poorer
     post is reported to the admin, not only to the logs."""
-    if not source_failures:
+    if not source_failures and not link_rejections:
         return
 
-    await _alert_admin_and_draft_chat(
-        post,
-        _redacted(
-            f"Пост {post.id}: чернетку зібрано не з усіх джерел."
-            f"{_source_failure_note(source_failures)}\n"
-            f"/retry зі стану «resolved» недоступний — щоб перезібрати, "
-            f"надішліть посилання ще раз (кеш джерел живе годину)."
-        ),
-    )
+    lines = [f"Пост {post.id}: чернетку зібрано не повністю."]
+    if source_failures:
+        lines.append(_source_failure_note(source_failures).strip())
+        lines.append(
+            "/retry зі стану «resolved» недоступний — щоб перезібрати, "
+            "надішліть посилання ще раз (кеш джерел живе годину)."
+        )
+    if link_rejections:
+        lines.append("Посилання відхилено: " + "; ".join(link_rejections))
+
+    await _alert_admin_and_draft_chat(post, _redacted("\n".join(lines)))
 
 
 async def _alert_admin_and_draft_chat(post: Post, text_message: str) -> None:

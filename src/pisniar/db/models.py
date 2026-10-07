@@ -49,11 +49,11 @@ MANUAL_FIELD_NAMES = (
     "release_title",
     "album_id_spotify",
 )
-_MANUAL_FIELD_NAMES_JSON = json.dumps(list(MANUAL_FIELD_NAMES))
+MANUAL_FIELD_NAMES_JSON = json.dumps(list(MANUAL_FIELD_NAMES))
 
 # What kind of Telegram message `channel_message_id` points at, which decides how it is edited.
 CHANNEL_MESSAGE_KINDS = ("photo", "video", "text")
-_CHANNEL_MESSAGE_KINDS_SQL_LIST = ", ".join(f"'{value}'" for value in CHANNEL_MESSAGE_KINDS)
+CHANNEL_MESSAGE_KINDS_SQL_LIST = ", ".join(f"'{value}'" for value in CHANNEL_MESSAGE_KINDS)
 
 # A karaoke line, not a verse: anything longer is a parser that lost the line
 # breaks, and the CHECK is where that stops being silent.
@@ -86,7 +86,7 @@ class Track(Base):
         CheckConstraint("jsonb_typeof(languages) = 'array'", name="languages_is_array"),
         CheckConstraint("jsonb_typeof(manual_fields) = 'array'", name="manual_fields_is_array"),
         CheckConstraint(
-            f"manual_fields <@ '{_MANUAL_FIELD_NAMES_JSON}'::jsonb",
+            f"manual_fields <@ '{MANUAL_FIELD_NAMES_JSON}'::jsonb",
             name="manual_fields_known_names",
         ),
         CheckConstraint(
@@ -178,7 +178,7 @@ class Post(Base):
         ),
         CheckConstraint(
             f"channel_message_kind IS NULL OR channel_message_kind IN "
-            f"({_CHANNEL_MESSAGE_KINDS_SQL_LIST})",
+            f"({CHANNEL_MESSAGE_KINDS_SQL_LIST})",
             name="channel_message_kind_valid",
         ),
         CheckConstraint(

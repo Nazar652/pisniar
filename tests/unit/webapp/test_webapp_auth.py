@@ -144,7 +144,7 @@ def test_a_token_signed_with_another_bot_token_is_refused() -> None:
 
 def test_a_token_with_a_swapped_payload_is_refused() -> None:
     token = issue_session_token(ADMIN_ID, BOT_TOKEN, NOW, 3600)
-    _, signature = token.split(".")
+    signature = token.split(".")[1]
     forged_payload = json.dumps({"uid": 7, "iat": NOW, "exp": NOW + 10**9}).encode()
     forged = base64.urlsafe_b64encode(forged_payload).rstrip(b"=").decode() + "." + signature
     with pytest.raises(InitDataError, match="token_bad_signature"):

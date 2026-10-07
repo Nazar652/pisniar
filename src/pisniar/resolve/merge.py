@@ -4,9 +4,11 @@ priority table, and a field is only overwritten by a strictly higher-priority so
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping, Sequence
 
+from pisniar.db.models import MANUAL_FIELD_NAMES
 from pisniar.logging import get_logger
+from pisniar.resolve import link_policy
 from pisniar.resolve.cache import normalize_key_part
 from pisniar.resolve.types import ArtistInfo, MatchClass, PlatformLink, ResolvedTrack
 from pisniar.resolve.urls import is_safe_url
@@ -75,9 +77,12 @@ def merge_field(
     track.field_priorities[field_name] = new_priority
 
 
-def merge_platform_link(track: ResolvedTrack, platform: str, link: PlatformLink) -> None:
+def merge_platform_link(
+    track: ResolvedTrack, platform: str, link: PlatformLink, *, check_allowlist: bool = True
+) -> None:
     """The single funnel every candidate passes through, so the scheme check
-    lives here and not only in `post.render`."""
+    lives here and not only in `post.render`. A manual link is validated where it is
+    entered, and a stored one was accepted once, so only fresh automatic ones meet the host list."""
     if not is_safe_url(link.url):
         logger.warning(
             "platform_link_rejected_unsafe_scheme",
@@ -87,6 +92,19 @@ def merge_platform_link(track: ResolvedTrack, platform: str, link: PlatformLink)
         )
         track.warnings.append(f"{platform}: посилання відхилено, небезпечна схема ({link.source})")
         return
+
+    if check_allowlist and link.match is not MatchClass.MANUAL:
+        problem = link_policy.automatic_link_problem(platform, link.url)
+        if problem is not None:
+            logger.warning(
+                "platform_link_rejected_by_allowlist",
+                platform=platform,
+                source=link.source,
+                url=link.url,
+                problem=problem,
+            )
+            track.link_rejections.append(f"{platform}: {problem} ({link.source})")
+            return
 
     new_priority = platform_link_priority(link)
     if new_priority <= track.platform_link_priorities.get(platform, -1):
@@ -100,9 +118,40 @@ def merge_stored_platform_links(track: ResolvedTrack, stored: dict[str, object])
     """Applied after the fresh links, so a fresh result wins a tie and only a
     strictly stronger stored class (`manual`) overrides it."""
     for platform, raw_link in stored.items():
-        link = _platform_link_from_stored(raw_link)
+        link = platform_link_from_stored(raw_link)
         if link is not None:
-            merge_platform_link(track, platform, link)
+            merge_platform_link(track, platform, link, check_allowlist=False)
+
+
+def drop_removed_platforms(track: ResolvedTrack, removed_platforms: Iterable[object]) -> None:
+    """After every platform merge: a link the admin removed must not come back from any source."""
+    for platform in removed_platforms:
+        if isinstance(platform, str):
+            track.platform_links.pop(platform, None)
+            track.platform_link_priorities.pop(platform, None)
+
+
+def apply_manual_fields(
+    track: ResolvedTrack, stored: Mapping[str, object], manual_fields: Sequence[object]
+) -> None:
+    """Runs last: the stored value replaces the fresh one unconditionally, `None`
+    included, which no earlier merge step could restore."""
+    overridden: list[str] = []
+    for name in MANUAL_FIELD_NAMES:
+        if name not in manual_fields:
+            continue
+
+        stored_value = stored.get(name)
+        if name == "artists":
+            stored_value = (
+                artists_from_stored(stored_value) if isinstance(stored_value, list) else []
+            )
+        if getattr(track, name) != stored_value:
+            overridden.append(name)
+        setattr(track, name, stored_value)
+
+    if overridden:
+        logger.warning("manual_fields_kept", fields=overridden)
 
 
 def merge_stored_scalars(track: ResolvedTrack, stored: dict[str, object]) -> None:
@@ -134,7 +183,7 @@ def keep_stored_title_and_artists_after_source_failure(
         track.title = title
         kept.append("title")
 
-    artists = _artists_from_stored(stored_artists)
+    artists = artists_from_stored(stored_artists)
     if artists and _fresh_value_is_weak(track, "artists"):
         track.artists = artists
         kept.append("artists")
@@ -156,7 +205,7 @@ def merge_stored_artists(track: ResolvedTrack, stored: list[object]) -> None:
         if isinstance(entry, dict) and (name := entry.get("name")) and isinstance(name, str)
     }
     if not track.artists:
-        track.artists = _artists_from_stored(overrides.values())
+        track.artists = artists_from_stored(overrides.values())
         return
 
     matched_names = {
@@ -174,7 +223,7 @@ def merge_stored_artists(track: ResolvedTrack, stored: list[object]) -> None:
             "артистів збережено зі старого резолву: свіжі імена не збіглися, "
             "а в збережених є ручний хештег"
         )
-        track.artists = _artists_from_stored(overrides.values())
+        track.artists = artists_from_stored(overrides.values())
         return
 
     track.artists = [
@@ -189,7 +238,7 @@ def _fresh_value_is_weak(track: ResolvedTrack, field_name: str) -> bool:
     return track.field_priorities.get(field_name, 0) <= WEAK_TITLE_ARTIST_SOURCE_PRIORITY
 
 
-def _artists_from_stored(entries: Iterable[object]) -> list[ArtistInfo]:
+def artists_from_stored(entries: Iterable[object]) -> list[ArtistInfo]:
     """Takes raw JSONB entries, so the stored-title guard can read artists
     straight off the row."""
     return [
@@ -223,7 +272,7 @@ def _stored_str(value: object) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
-def _platform_link_from_stored(raw_link: object) -> PlatformLink | None:
+def platform_link_from_stored(raw_link: object) -> PlatformLink | None:
     if not isinstance(raw_link, dict):
         return None
     url = _stored_str(raw_link.get("url"))

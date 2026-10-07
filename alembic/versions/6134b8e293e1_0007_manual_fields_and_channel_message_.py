@@ -22,7 +22,7 @@ down_revision: str | Sequence[str] | None = "be8d6bff2a6c"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
-_MANUAL_FIELD_NAMES = (
+MANUAL_FIELD_NAMES_JSON = (
     '\'["title","artists","year","release_type","release_title","album_id_spotify"]\'::jsonb'
 )
 
@@ -54,7 +54,7 @@ def upgrade() -> None:
     op.create_check_constraint(
         op.f("ck_track_manual_fields_known_names"),
         "track",
-        f"manual_fields <@ {_MANUAL_FIELD_NAMES}",
+        f"manual_fields <@ {MANUAL_FIELD_NAMES_JSON}",
     )
     op.create_check_constraint(
         op.f("ck_track_removed_platforms_is_array"),

@@ -51,6 +51,10 @@ def protected_routes(app: FastAPI) -> list[tuple[str, str, APIRoute]]:
     return [entry for entry in route_table(app) if entry[:2] not in PUBLIC_ROUTES]
 
 
+def protected_method_paths(app: FastAPI) -> list[tuple[str, str]]:
+    return [(method, path) for method, path, route in protected_routes(app)]
+
+
 def concrete(path: str) -> str:
     return re.sub(r"\{[^}]+\}", "1", path)
 
@@ -94,7 +98,7 @@ def test_every_protected_route_answers_401_without_a_valid_token(
         expired,
         forged,
     ]
-    for method, path, _ in protected_routes(webapp):
+    for method, path in protected_method_paths(webapp):
         for headers in cases:
             response = client.request(method, concrete(path), headers=headers)
             assert response.status_code == 401, (method, path, headers)
@@ -104,7 +108,7 @@ def test_every_protected_route_answers_401_without_a_valid_token(
 def test_every_protected_route_answers_403_to_a_valid_non_admin(
     client: TestClient, webapp: FastAPI
 ) -> None:
-    for method, path, _ in protected_routes(webapp):
+    for method, path in protected_method_paths(webapp):
         response = client.request(method, concrete(path), headers=bearer(999))
         assert response.status_code == 403, (method, path)
         assert response.json()["code"] == "forbidden"
