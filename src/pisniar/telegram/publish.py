@@ -98,6 +98,7 @@ async def publish_to_channel(
         # The video caption limit is the same 1024 the photo caption already
         # fits, so nothing is rebuilt: the admin approved these exact bytes.
         sent_message = await send_rendered_video(bot, chat_id, post.caption, video)
+        message_kind = "video"
     elif cover_url:
         # Telegram fetches the cover by URL itself and can fail on it; that
         # is a delivery failure to report, not one to work around here.
@@ -107,6 +108,7 @@ async def publish_to_channel(
             caption=post.caption,
             parse_mode="HTML",
         )
+        message_kind = "photo"
     else:
         # No cover, so the caption is a plain message again — and a message
         # full of platform links needs the preview card suppressed.
@@ -116,9 +118,11 @@ async def publish_to_channel(
             parse_mode="HTML",
             link_preview_options=LinkPreviewOptions(is_disabled=True),
         )
+        message_kind = "text"
 
     post.channel_chat_id = chat_id
     post.channel_message_id = sent_message.message_id
+    post.channel_message_kind = message_kind
 
 
 def channel_post_url(chat: ChatFullInfo, message_id: int) -> str:

@@ -70,6 +70,7 @@ def publish_mock(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
             return
         post.channel_chat_id = chat_id
         post.channel_message_id = CHANNEL_MESSAGE_ID_OFFSET + post.id
+        post.channel_message_kind = "photo"
 
     mock = AsyncMock(side_effect=fake_publish)
     monkeypatch.setattr(worker_tasks, "publish_to_channel", mock)
@@ -102,6 +103,7 @@ async def make_publishing_post(
     if already_published:
         post.channel_chat_id = CHANNEL_ID
         post.channel_message_id = post.id
+        post.channel_message_kind = "photo"
 
     await db_session.commit()
     return post.id

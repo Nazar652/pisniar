@@ -120,6 +120,7 @@ async def make_post_with_draft(
         if already_published:
             post.channel_chat_id = CHANNEL_ID
             post.channel_message_id = post.id
+            post.channel_message_kind = "photo"
 
         if with_preview:
             post.preview_chat_id = DRAFT_CHAT_ID

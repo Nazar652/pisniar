@@ -29,6 +29,20 @@ def test_track_constraint_names_are_unchanged() -> None:
     }
     assert unique_constraint_names == {"uq_track_source_url_normalized"}
 
+    check_names = {
+        constraint.name
+        for constraint in TRACK_TABLE.constraints
+        if constraint.__class__.__name__ == "CheckConstraint"
+    }
+    assert check_names == {
+        "ck_track_artists_is_array",
+        "ck_track_platform_links_is_object",
+        "ck_track_languages_is_array",
+        "ck_track_manual_fields_is_array",
+        "ck_track_manual_fields_known_names",
+        "ck_track_removed_platforms_is_array",
+    }
+
 
 def test_post_constraint_and_index_names_are_unchanged() -> None:
     assert POST_TABLE.primary_key.name == "pk_post"
@@ -53,6 +67,8 @@ def test_post_constraint_and_index_names_are_unchanged() -> None:
     assert "ck_post_channel_ref_complete" in check_names
     assert "ck_post_draft_ref_complete" in check_names
     assert "ck_post_preview_ref_complete" in check_names
+    assert "ck_post_channel_message_kind_valid" in check_names
+    assert "ck_post_channel_message_kind_matches_ref" in check_names
 
     fk_names = {fk.name for fk in POST_TABLE.foreign_key_constraints}
     assert fk_names == {"fk_post_track_id_track"}

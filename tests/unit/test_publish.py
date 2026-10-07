@@ -123,6 +123,7 @@ async def test_a_rendered_post_goes_out_as_a_video_not_a_photo(tmp_path: Path) -
     bot.send_message.assert_not_awaited()
     assert post.channel_chat_id == CHANNEL_ID
     assert post.channel_message_id == 79
+    assert post.channel_message_kind == "video"
 
 
 async def test_the_video_caption_is_the_same_string_the_preview_carried(tmp_path: Path) -> None:
@@ -160,6 +161,7 @@ async def test_a_post_with_a_cover_goes_out_as_a_photo_with_the_caption() -> Non
     assert sent["photo"] == "https://cdn.example/cover.jpg"
     assert post.channel_chat_id == CHANNEL_ID
     assert post.channel_message_id == 77
+    assert post.channel_message_kind == "photo"
 
 
 async def test_the_caption_reaches_telegram_byte_for_byte_as_stored() -> None:
@@ -187,6 +189,7 @@ async def test_without_a_cover_it_falls_back_to_a_message_with_no_preview() -> N
     assert sent["parse_mode"] == "HTML"
     assert sent["link_preview_options"].is_disabled is True
     assert post.channel_message_id == 78
+    assert post.channel_message_kind == "text"
 
 
 async def test_an_empty_cover_url_is_treated_as_no_cover() -> None:
@@ -209,6 +212,7 @@ async def test_a_post_that_already_has_a_channel_message_is_never_sent_again() -
     bot.send_photo.assert_not_awaited()
     bot.send_message.assert_not_awaited()
     assert post.channel_message_id == 500
+    assert post.channel_message_kind is None
 
 
 async def test_publishing_without_a_caption_raises_instead_of_sending() -> None:
@@ -234,6 +238,7 @@ async def test_a_telegram_failure_propagates_and_leaves_the_reference_null() -> 
 
     assert post.channel_chat_id is None
     assert post.channel_message_id is None
+    assert post.channel_message_kind is None
 
 
 async def test_preflight_accepts_an_administrator_allowed_to_post() -> None:

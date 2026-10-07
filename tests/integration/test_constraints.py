@@ -12,7 +12,15 @@ from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pisniar.db.models import AudioAsset, Post, Render, SourceFetch, Track
+from pisniar.db.models import (
+    CHANNEL_MESSAGE_KINDS,
+    MANUAL_FIELD_NAMES,
+    AudioAsset,
+    Post,
+    Render,
+    SourceFetch,
+    Track,
+)
 from pisniar.db.states import PostStatus
 
 pytestmark = pytest.mark.integration
@@ -51,6 +59,107 @@ async def test_languages_check_rejects_a_value_that_is_not_an_array(
             ),
             {"url": f"test://{marker}"},
         )
+
+
+async def test_a_new_track_has_no_manual_fields_and_no_removed_platforms(
+    db_session: AsyncSession,
+) -> None:
+    track = await make_track(db_session)
+
+    await db_session.refresh(track)
+
+    assert track.manual_fields == []
+    assert track.removed_platforms == []
+
+
+async def test_manual_fields_accepts_every_listed_name(db_session: AsyncSession) -> None:
+    track = await make_track(db_session)
+    track.manual_fields = list(MANUAL_FIELD_NAMES)
+
+    await db_session.flush()  # must not raise
+
+
+@pytest.mark.parametrize(
+    ("column", "value", "constraint"),
+    [
+        ("manual_fields", '{"title": true}', "ck_track_manual_fields_is_array"),
+        ("manual_fields", '["title", "isrc"]', "ck_track_manual_fields_known_names"),
+        ("manual_fields", '["cover_url"]', "ck_track_manual_fields_known_names"),
+        ("removed_platforms", '"spotify"', "ck_track_removed_platforms_is_array"),
+    ],
+)
+async def test_manual_field_columns_reject_a_wrong_shape_or_an_unknown_name(
+    db_session: AsyncSession, column: str, value: str, constraint: str
+) -> None:
+    marker = uuid.uuid4().hex
+
+    with pytest.raises(IntegrityError, match=constraint):
+        await db_session.execute(
+            text(
+                f"INSERT INTO track (source_url, source_url_normalized, {column}) "
+                f"VALUES (:url, :url, CAST(:value AS jsonb))"
+            ),
+            {"url": f"test://{marker}", "value": value},
+        )
+
+
+async def test_channel_message_kind_accepts_each_listed_kind_with_a_message(
+    db_session: AsyncSession,
+) -> None:
+    track = await make_track(db_session)
+    for message_id, kind in enumerate(CHANNEL_MESSAGE_KINDS, start=1):
+        db_session.add(
+            Post(
+                track_id=track.id,
+                created_by_user_id=1,
+                channel_chat_id=-100,
+                channel_message_id=message_id,
+                channel_message_kind=kind,
+            )
+        )
+
+    await db_session.flush()  # must not raise
+
+
+async def test_channel_message_kind_rejects_an_unknown_kind(db_session: AsyncSession) -> None:
+    track = await make_track(db_session)
+    db_session.add(
+        Post(
+            track_id=track.id,
+            created_by_user_id=1,
+            channel_chat_id=-100,
+            channel_message_id=1,
+            channel_message_kind="audio",
+        )
+    )
+
+    with pytest.raises(IntegrityError, match="ck_post_channel_message_kind_valid"):
+        await db_session.flush()
+
+
+async def test_channel_message_kind_without_a_message_is_rejected(
+    db_session: AsyncSession,
+) -> None:
+    track = await make_track(db_session)
+    db_session.add(Post(track_id=track.id, created_by_user_id=1, channel_message_kind="photo"))
+
+    with pytest.raises(IntegrityError, match="ck_post_channel_message_kind_matches_ref"):
+        await db_session.flush()
+
+
+async def test_a_channel_message_without_a_kind_is_rejected(db_session: AsyncSession) -> None:
+    track = await make_track(db_session)
+    db_session.add(
+        Post(
+            track_id=track.id,
+            created_by_user_id=1,
+            channel_chat_id=-100,
+            channel_message_id=1,
+        )
+    )
+
+    with pytest.raises(IntegrityError, match="ck_post_channel_message_kind_matches_ref"):
+        await db_session.flush()
 
 
 async def test_a_post_keeps_the_submitter_and_the_publisher_apart(
@@ -143,12 +252,24 @@ async def test_partial_unique_index_rejects_duplicate_channel_message(
 ) -> None:
     track = await make_track(db_session)
     db_session.add(
-        Post(track_id=track.id, created_by_user_id=1, channel_chat_id=1, channel_message_id=42)
+        Post(
+            track_id=track.id,
+            created_by_user_id=1,
+            channel_chat_id=1,
+            channel_message_id=42,
+            channel_message_kind="photo",
+        )
     )
     await db_session.flush()
 
     db_session.add(
-        Post(track_id=track.id, created_by_user_id=1, channel_chat_id=1, channel_message_id=42)
+        Post(
+            track_id=track.id,
+            created_by_user_id=1,
+            channel_chat_id=1,
+            channel_message_id=42,
+            channel_message_kind="photo",
+        )
     )
     with pytest.raises(IntegrityError, match="uq_post_channel_message"):
         await db_session.flush()

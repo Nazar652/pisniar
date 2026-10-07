@@ -40,6 +40,21 @@ _VALID_POST_STATUSES_SQL_LIST = ", ".join(f"'{value}'" for value in VALID_POST_S
 DEFAULT_LANGUAGES = ["українська"]
 _DEFAULT_LANGUAGES_SQL = f"'{json.dumps(DEFAULT_LANGUAGES, ensure_ascii=False)}'::jsonb"
 
+# Track columns a human may set so that no later resolve overwrites them.
+MANUAL_FIELD_NAMES = (
+    "title",
+    "artists",
+    "year",
+    "release_type",
+    "release_title",
+    "album_id_spotify",
+)
+_MANUAL_FIELD_NAMES_JSON = json.dumps(list(MANUAL_FIELD_NAMES))
+
+# What kind of Telegram message `channel_message_id` points at, which decides how it is edited.
+CHANNEL_MESSAGE_KINDS = ("photo", "video", "text")
+_CHANNEL_MESSAGE_KINDS_SQL_LIST = ", ".join(f"'{value}'" for value in CHANNEL_MESSAGE_KINDS)
+
 # A karaoke line, not a verse: anything longer is a parser that lost the line
 # breaks, and the CHECK is where that stops being silent.
 MAX_LYRIC_TEXT_LENGTH = 500
@@ -69,6 +84,14 @@ class Track(Base):
         CheckConstraint("jsonb_typeof(artists) = 'array'", name="artists_is_array"),
         CheckConstraint("jsonb_typeof(platform_links) = 'object'", name="platform_links_is_object"),
         CheckConstraint("jsonb_typeof(languages) = 'array'", name="languages_is_array"),
+        CheckConstraint("jsonb_typeof(manual_fields) = 'array'", name="manual_fields_is_array"),
+        CheckConstraint(
+            f"manual_fields <@ '{_MANUAL_FIELD_NAMES_JSON}'::jsonb",
+            name="manual_fields_known_names",
+        ),
+        CheckConstraint(
+            "jsonb_typeof(removed_platforms) = 'array'", name="removed_platforms_is_array"
+        ),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
@@ -111,6 +134,15 @@ class Track(Base):
         JSONB, nullable=False, server_default=text("'{}'::jsonb")
     )
     resolved_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    # Names from `MANUAL_FIELD_NAMES` a human changed; a re-resolve keeps those values, an
+    # empty one included (the value is NULL in its own column, the name is listed here).
+    manual_fields: Mapped[list[object]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
+    # Platform keys a human removed; a re-resolve must not bring them back.
+    removed_platforms: Mapped[list[object]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
 
     # passive_deletes="all": without it, SQLAlchemy nulls track_id before
     # delete, so ON DELETE RESTRICT never fires.
@@ -143,6 +175,15 @@ class Post(Base):
         CheckConstraint(
             "num_nonnulls(channel_chat_id, channel_message_id) <> 1",
             name="channel_ref_complete",
+        ),
+        CheckConstraint(
+            f"channel_message_kind IS NULL OR channel_message_kind IN "
+            f"({_CHANNEL_MESSAGE_KINDS_SQL_LIST})",
+            name="channel_message_kind_valid",
+        ),
+        CheckConstraint(
+            "(channel_message_id IS NULL) = (channel_message_kind IS NULL)",
+            name="channel_message_kind_matches_ref",
         ),
         Index(
             "uq_post_channel_message",
@@ -207,6 +248,8 @@ class Post(Base):
 
     channel_chat_id: Mapped[int | None] = mapped_column(BigInteger)
     channel_message_id: Mapped[int | None] = mapped_column(BigInteger)
+    # Set in the same statement as `channel_message_id`; the edit call depends on it.
+    channel_message_kind: Mapped[str | None] = mapped_column(Text)
     # The admin chat the draft was delivered to; `draft_message_id IS NULL`
     # is delivery's own idempotency guard against Celery redelivery.
     draft_chat_id: Mapped[int | None] = mapped_column(BigInteger)

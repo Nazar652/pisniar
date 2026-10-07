@@ -533,6 +533,17 @@ suggest or introduce either.
   mix of two writers' lines. **Every writer of `lyric` must take the same
   lock.** An insert that lands short raises and
   rolls back rather than committing a partial set.
+- `track.manual_fields` lists the columns a human set, drawn from
+  `models.MANUAL_FIELD_NAMES` (`title`, `artists`, `year`, `release_type`,
+  `release_title`, `album_id_spotify`); a CHECK refuses any other name. A manually
+  emptied field is its name in the list plus `NULL` in its own column — there is no
+  separate marker. `track.removed_platforms` lists the `platform_links` keys a human
+  removed, so a re-resolve does not bring them back. Both are `JSONB NOT NULL
+  DEFAULT '[]'` with an array CHECK.
+- `post.channel_message_kind` (`photo`, `video` or `text`) says what
+  `channel_message_id` points at, which decides how that message can be edited.
+  `publish_to_channel` writes it in the same assignment as the message id, and a
+  CHECK keeps the two NULL together.
 
 ## The flow end to end
 
