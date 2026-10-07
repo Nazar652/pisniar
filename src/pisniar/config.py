@@ -66,6 +66,16 @@ class Settings(BaseSettings):
     render_task_soft_time_limit_seconds: int = Field(default=360, gt=0)
     render_task_time_limit_seconds: int = Field(default=420, gt=0)
 
+    # Unset disables the Mini App entry points; `https` only, since Telegram refuses plain http.
+    webapp_public_url: str | None = None
+    webapp_port: int = Field(default=8081, gt=0, lt=65536)
+    # Absolute, like `media_root`: a relative path would resolve against the container's cwd.
+    webapp_static_dir: Path = Path("/app/webapp-static")
+    # `initData` older than this, or dated further ahead than the future window, is refused.
+    webapp_auth_max_age_seconds: int = Field(default=600, gt=0)
+    webapp_auth_max_future_seconds: int = Field(default=60, ge=0)
+    webapp_session_ttl_seconds: int = Field(default=3600, gt=0)
+
     @field_validator("admin_ids", mode="before")
     @classmethod
     def split_admin_ids(cls, value: object) -> object:
@@ -88,6 +98,30 @@ class Settings(BaseSettings):
         if not value.as_posix().startswith("/"):
             raise ValueError("media_root must be an absolute path inside the container")
         return value
+
+    @field_validator("webapp_static_dir")
+    @classmethod
+    def require_absolute_webapp_static_dir(cls, value: Path) -> Path:
+        if not value.as_posix().startswith("/"):
+            raise ValueError("webapp_static_dir must be an absolute path inside the container")
+        return value
+
+    @field_validator("webapp_public_url", mode="before")
+    @classmethod
+    def normalise_webapp_public_url(cls, value: object) -> object:
+        """An empty `WEBAPP_PUBLIC_URL=` in `.env` means "off", not an invalid URL."""
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            return value
+        stripped = value.strip().rstrip("/")
+        if not stripped:
+            return None
+        parts = urlsplit(stripped)
+        has_extras = parts.path or parts.query or parts.fragment or parts.username
+        if parts.scheme != "https" or not parts.hostname or has_extras:
+            raise ValueError("webapp_public_url must be a bare https://host origin")
+        return stripped
 
     @model_validator(mode="after")
     def require_soft_limit_below_hard_limit(self) -> Settings:

@@ -49,6 +49,22 @@ services:
       LOG_FORMAT: console
       WATCHFILES_FORCE_POLLING: "1"
 
+  webapp:
+    build:
+      target: webapp-dev
+    volumes:
+      - ./src:/app/src
+      - ./tests:/app/tests
+      - ./pyproject.toml:/app/pyproject.toml
+      # Read on every request, so rebuilding the frontend on the host needs no restart.
+      - ./frontend/dist:/app/webapp-static:ro
+    environment:
+      ENVIRONMENT: dev
+      LOG_FORMAT: console
+      WATCHFILES_FORCE_POLLING: "1"
+    ports:
+      - "127.0.0.1:18081:8081"
+
   postgres:
     ports:
       - "127.0.0.1:55432:5432"

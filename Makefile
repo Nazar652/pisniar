@@ -8,7 +8,7 @@ COMPOSE := docker compose
 
 .PHONY: help sync lock-check fmt fmt-check lint typecheck test check \
 	build up down ps logs restart clean test-int test-fonts migrate revision downgrade \
-	alembic-check psql shell verify
+	alembic-check psql shell verify funnel-init funnel-up funnel-down dev-token
 
 help: ## Show this list of targets
 	@grep -h -E '^[a-zA-Z0-9_-]+:.*##' $(MAKEFILE_LIST) | sed 's/:.*##/\t/' | sort
@@ -91,6 +91,21 @@ psql: ## interactive psql in the postgres container
 
 shell: ## shell in the bot container
 	$(COMPOSE) exec bot sh
+
+## --- Mini App entry (Tailscale Funnel; see `.env.tailscale.example`) ---
+
+# External volume: `clean`/`verify` (`down -v`) cannot remove it, so the node and its URL survive.
+funnel-init: ## create the external volume that holds the Tailscale node state (once)
+	docker volume create pisniar-tailscale-state
+
+funnel-up: ## start the Funnel (needs `make funnel-init` and `.env.tailscale` the first time)
+	$(COMPOSE) --profile funnel up -d --wait tailscale
+
+funnel-down: ## stop and remove the Funnel container; the node state stays on its volume
+	$(COMPOSE) --profile funnel rm -sf tailscale
+
+dev-token: ## print a session token for an admin, for a browser outside Telegram: make dev-token u=<user id>
+	$(COMPOSE) exec webapp python -m pisniar.webapp.dev_token --user-id $(u)
 
 verify: check build up ps alembic-check test-int ## check, build, up, ps, alembic-check, test-int, then down -v and re-up from a clean slate
 	$(COMPOSE) down -v

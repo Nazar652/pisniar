@@ -2,8 +2,10 @@ name: pisniar
 
 # Service DNS names are fixed here, not in `.env`. Redis needs a password: the override publishes
 # it on a host port, and an open broker is a write path around `AdminAllowlistMiddleware`.
+x-database-url: &database-url postgresql+asyncpg://pisniar:pisniar@postgres:5432/pisniar
+
 x-app-environment: &app-environment
-  DATABASE_URL: postgresql+asyncpg://pisniar:pisniar@postgres:5432/pisniar
+  DATABASE_URL: *database-url
   REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0
 
 services:
@@ -107,6 +109,61 @@ services:
       retries: 10
       start_period: 10s
 
+  # No `ports:`: the only way in is the Funnel below. The healthcheck accepts any HTTP answer, so a
+  # frontend that is not built yet (503 on `/`) does not hold `up --wait` or the Funnel back.
+  webapp:
+    build:
+      context: .
+      target: webapp
+    env_file:
+      - .env
+    # Only the database: nothing here talks to Redis or dispatches a task.
+    environment:
+      DATABASE_URL: *database-url
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import http.client; c = http.client.HTTPConnection('localhost', 8081, timeout=3); c.request('GET', '/'); c.getresponse()",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  # Public entry: `make funnel-init` once, then `make funnel-up`. The auth key lives in
+  # `.env.tailscale`, which no other service reads, and only the first registration needs it.
+  tailscale:
+    image: tailscale/tailscale:v1.102.5@sha256:c507f3a2a6ab1cabd8d809b98edeb41edbd5c3fb6ad9632ffd098b4c7d0b4065
+    profiles: ["funnel"]
+    hostname: pisniar
+    env_file:
+      - .env.tailscale
+    environment:
+      TS_USERSPACE: "true"
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_SERVE_CONFIG: /config/serve.json
+    volumes:
+      - tailscale-state:/var/lib/tailscale
+      # A directory, not the file: Docker Desktop refuses a single-file bind mount.
+      - ./deploy/tailscale:/config:ro
+    depends_on:
+      webapp:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   postgres-data:
   media-data:
+  # External, so `down -v` cannot delete the node identity: a fresh state would register a
+  # second node under another URL and kill every button already sent.
+  tailscale-state:
+    external: true
+    name: pisniar-tailscale-state

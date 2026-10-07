@@ -70,6 +70,17 @@ EXPOSE 8080
 CMD ["watchfiles", "--filter", "python", "python -m pisniar.bot.main", "/app/src"]
 
 
+# ---- webapp (no ffmpeg, no node) -----------------------------------------
+
+FROM source-prod AS webapp
+EXPOSE 8081
+CMD ["python", "-m", "pisniar.webapp.main"]
+
+FROM source-dev AS webapp-dev
+EXPOSE 8081
+CMD ["watchfiles", "--filter", "python", "python -m pisniar.webapp.main", "/app/src"]
+
+
 # ---- worker ------------------------------------------------------------
 
 FROM source-prod AS worker
