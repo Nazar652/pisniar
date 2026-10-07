@@ -27,6 +27,8 @@ POST_ID = 7
 ALERT_CHAT_ID = worker_tasks.settings.alert_chat_id
 OTHER_CHAT_ID = ALERT_CHAT_ID + 1
 CHANNEL_ID = -1001234567890
+# a user id: only a positive chat id is a private chat, whatever the configured alert chat is
+PRIVATE_DRAFT_CHAT_ID = 987654321
 
 
 @pytest.fixture
@@ -622,3 +624,47 @@ async def test_a_timeout_while_sending_the_notice_is_swallowed(
     await worker_tasks.notify_about_missing_text(POST_ID, make_outcome(None, "x"), PREVIEW)
 
     telegram.bot.session.close.assert_awaited_once()
+
+
+async def test_the_confirmation_in_a_private_chat_carries_the_edit_button(
+    telegram: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        worker_tasks.settings, "webapp_public_url", "https://pisniar.example.ts.net"
+    )
+
+    await worker_tasks.confirm_publication(
+        telegram.bot, POST_ID, PRIVATE_DRAFT_CHAT_ID, 11, (None, None), "https://t.me/x/1"
+    )
+
+    keyboard = telegram.send_alert.await_args.kwargs["reply_markup"]
+    assert keyboard is not None
+    web_app = keyboard.inline_keyboard[0][0].web_app
+    assert web_app.url == f"https://pisniar.example.ts.net/?post_id={POST_ID}"
+
+
+async def test_the_confirmation_in_a_group_has_no_button_and_is_still_sent(
+    telegram: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        worker_tasks.settings, "webapp_public_url", "https://pisniar.example.ts.net"
+    )
+
+    await worker_tasks.confirm_publication(
+        telegram.bot, POST_ID, -1001234567890, 11, (None, None), "https://t.me/x/1"
+    )
+
+    telegram.send_alert.assert_awaited_once()
+    assert telegram.send_alert.await_args.kwargs["reply_markup"] is None
+
+
+async def test_the_confirmation_without_the_address_has_no_button(
+    telegram: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(worker_tasks.settings, "webapp_public_url", None)
+
+    await worker_tasks.confirm_publication(
+        telegram.bot, POST_ID, OTHER_CHAT_ID, 11, (None, None), "https://t.me/x/1"
+    )
+
+    assert telegram.send_alert.await_args.kwargs["reply_markup"] is None

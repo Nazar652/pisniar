@@ -52,6 +52,7 @@ from pisniar.resolve.types import (
 from pisniar.resolve.urls import UrlKind, classify_url
 from pisniar.telegram.client import build_bot
 from pisniar.telegram.draft import deliver_draft
+from pisniar.telegram.keyboards import published_keyboard
 from pisniar.telegram.notifier import send_alert
 from pisniar.telegram.preview import deliver_preview, remove_draft_keyboard
 from pisniar.telegram.publish import (
@@ -213,7 +214,7 @@ async def redeliver_if_resolved(session: AsyncSession, post: Post) -> None:
     post_id = post.id
     bot = build_bot(settings)
     try:
-        await deliver_draft(bot, post, post.created_by_user_id)
+        await deliver_draft(bot, post, post.created_by_user_id, settings.webapp_public_url)
         await session.commit()
     except Exception as error:
         logger.exception("resolve_post_redelivery_failed", post_id=post_id)
@@ -327,7 +328,7 @@ async def resolve_and_deliver(
             # and only RESOLVING, not RESOLVED, can still move to FAILED.
             bot = build_bot(settings)
             try:
-                await deliver_draft(bot, post, post.created_by_user_id)
+                await deliver_draft(bot, post, post.created_by_user_id, settings.webapp_public_url)
             finally:
                 await bot.session.close()
 
@@ -865,7 +866,12 @@ async def confirm_publication(
             )
 
     chat_id = draft_chat_id if draft_chat_id is not None else settings.alert_chat_id
-    await send_alert(bot, chat_id, f"Пост {post_id} опубліковано: {post_url}")
+    await send_alert(
+        bot,
+        chat_id,
+        f"Пост {post_id} опубліковано: {post_url}",
+        reply_markup=published_keyboard(post_id, chat_id, settings.webapp_public_url),
+    )
 
 
 async def fail_publish(
@@ -1698,7 +1704,9 @@ async def deliver_preview_for(post: Post, outcome: RenderOutcome) -> None:
 
     bot = build_bot(settings)
     try:
-        await deliver_preview(bot, post, preview_chat_id, rendered_video(outcome))
+        await deliver_preview(
+            bot, post, preview_chat_id, rendered_video(outcome), settings.webapp_public_url
+        )
         await remove_draft_keyboard(bot, post)
     finally:
         await bot.session.close()

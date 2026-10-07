@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock
 import pytest
 from aiogram.exceptions import TelegramAPIError
 from aiogram.methods import SendMessage
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from pisniar.telegram.notifier import send_alert
 
@@ -85,3 +86,33 @@ async def test_a_plain_alert_answers_nothing() -> None:
     await send_alert(bot, chat_id=123, text="hello")
 
     assert bot.send_message.await_args.kwargs["reply_parameters"] is None
+
+
+async def test_send_alert_passes_the_keyboard_through() -> None:
+    bot = AsyncMock()
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="x", callback_data="publish:1")]]
+    )
+
+    await send_alert(bot, chat_id=123, text="hello", reply_markup=keyboard)
+
+    assert bot.send_message.await_args.kwargs["reply_markup"] is keyboard
+
+
+async def test_send_alert_sends_no_keyboard_by_default() -> None:
+    bot = AsyncMock()
+
+    await send_alert(bot, chat_id=123, text="hello")
+
+    assert bot.send_message.await_args.kwargs["reply_markup"] is None
+
+
+async def test_a_rejected_keyboard_still_costs_nothing_but_the_alert() -> None:
+    """a 400 on the keyboard is swallowed like any delivery failure."""
+    bot = AsyncMock()
+    bot.send_message.side_effect = make_telegram_api_error()
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="x", callback_data="publish:1")]]
+    )
+
+    assert await send_alert(bot, chat_id=-5, text="hello", reply_markup=keyboard) is False

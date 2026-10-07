@@ -19,6 +19,7 @@ from pisniar.config import get_settings, redaction_secrets
 from pisniar.db.session import LOCK_TIMEOUT_MS, build_engine, build_session_factory
 from pisniar.logging import configure_logging, get_logger
 from pisniar.telegram.client import build_bot
+from pisniar.telegram.menu import configure_admin_menu_buttons
 from pisniar.worker.celery_app import build_celery_app
 
 logger = get_logger(__name__)
@@ -45,6 +46,8 @@ async def run() -> None:
     warn_if_alerts_share_the_channel(settings.channel_id, settings.alert_chat_id)
 
     bot = build_bot(settings)
+    await configure_admin_menu_buttons(bot, settings.admin_ids, settings.webapp_public_url)
+
     # the bot needs `lock_timeout` too: a handler blocked on a row lock
     # otherwise holds its QueuePool slot indefinitely.
     engine = build_engine(settings.database_url, lock_timeout_ms=LOCK_TIMEOUT_MS)

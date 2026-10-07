@@ -9,7 +9,7 @@ from enum import StrEnum
 from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import Command
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 from celery import Celery
 from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError, IntegrityError
@@ -29,7 +29,12 @@ from pisniar.resolve.urls import (
     is_safe_url,
     is_within_length_limit,
 )
-from pisniar.telegram.keyboards import CallbackAction, parse_callback
+from pisniar.telegram.keyboards import (
+    CallbackAction,
+    edit_button_rows,
+    parse_callback,
+    post_list_keyboard,
+)
 from pisniar.worker.celery_app import (
     DOWNLOAD_POST_AUDIO_TASK_NAME,
     PUBLISH_POST_TASK_NAME,
@@ -51,6 +56,12 @@ PUBLISH_DISPATCH_FAILED_ERROR = "не вдалося поставити зада
 DOWNLOAD_DISPATCH_FAILED_ERROR = "не вдалося поставити задачу завантаження аудіо в чергу"
 RENDER_DISPATCH_FAILED_ERROR = "не вдалося поставити задачу рендера відео в чергу"
 UNKNOWN_CALLBACK_ANSWER = "Невідома дія."
+ARCHIVED_POST_ANSWER = "Пост {post_id} архівовано — дій із ним немає."
+EDIT_FORMAT_ANSWER = "Формат команди: /edit [post_id]"
+EDITOR_NOT_CONFIGURED_ANSWER = "Редагування вимкнене: адресу Mini App не задано."
+EDITOR_PRIVATE_ONLY_ANSWER = "Редактор відкривається лише в приватному чаті з ботом."
+EDIT_LIST_ANSWER = "Відкрити список постів."
+EDIT_POST_ANSWER = "Редагувати пост {post_id}."
 
 # the text draft's publish button is still live during a render, and a
 # refusal naming `downloading` would read to the admin like a breakage.
@@ -199,6 +210,11 @@ async def handle_retry(
             )
             return
 
+        if post.status is PostStatus.ARCHIVED:
+            await message.answer(ARCHIVED_POST_ANSWER.format(post_id=post_id))
+            logger.warning("retry_refused", reason="archived", user_id=user_id, post_id=post_id)
+            return
+
         if post.status is PostStatus.FAILED:
             branch = retry_branch_for_failed_post(post)
 
@@ -264,6 +280,66 @@ async def handle_retry(
 
     await message.answer(RETRY_RECEIPT[branch].format(post_id=post_id))
     logger.info("retry_dispatched", branch=branch.value, user_id=user_id, post_id=post_id)
+
+
+@router.message(Command("edit"))
+async def handle_edit(message: Message, session_factory: async_sessionmaker[AsyncSession]) -> None:
+    """without an id the button opens the list of posts, with one it opens that post's editor.
+    The editor needs a private chat, where the `web_app` button is allowed."""
+    if message.text is None or message.from_user is None:
+        return
+
+    user_id = message.from_user.id
+    arguments = message.text.split(maxsplit=1)
+    raw_post_id = arguments[1].strip() if len(arguments) > 1 else None
+    if raw_post_id is not None and not raw_post_id.isdigit():
+        await message.answer(EDIT_FORMAT_ANSWER)
+        logger.warning("edit_refused", reason="bad_arguments", user_id=user_id)
+        return
+
+    webapp_public_url = settings.webapp_public_url
+    if webapp_public_url is None:
+        await message.answer(EDITOR_NOT_CONFIGURED_ANSWER)
+        logger.warning("edit_refused", reason="webapp_not_configured", user_id=user_id)
+        return
+
+    chat_id = message.chat.id
+    if chat_id <= 0:
+        await message.answer(EDITOR_PRIVATE_ONLY_ANSWER)
+        logger.warning("edit_refused", reason="not_a_private_chat", user_id=user_id)
+        return
+
+    if raw_post_id is None:
+        await message.answer(
+            EDIT_LIST_ANSWER, reply_markup=post_list_keyboard(chat_id, webapp_public_url)
+        )
+        logger.info("edit_list_offered", user_id=user_id)
+        return
+
+    post_id = int(raw_post_id)
+    bind_post_id(post_id)
+
+    async with session_scope(session_factory) as session:
+        post = await session.get(Post, post_id)
+        status = None if post is None else post.status
+
+    if status is None:
+        await message.answer(f"Пост {post_id} не знайдено.")
+        logger.warning("edit_refused", reason="post_not_found", user_id=user_id, post_id=post_id)
+        return
+
+    if status is PostStatus.ARCHIVED:
+        await message.answer(ARCHIVED_POST_ANSWER.format(post_id=post_id))
+        logger.warning("edit_refused", reason="archived", user_id=user_id, post_id=post_id)
+        return
+
+    await message.answer(
+        EDIT_POST_ANSWER.format(post_id=post_id),
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=edit_button_rows(chat_id, webapp_public_url, post_id)
+        ),
+    )
+    logger.info("edit_offered", user_id=user_id, post_id=post_id)
 
 
 def retry_branch_for_failed_post(post: Post) -> RetryBranch:

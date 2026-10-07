@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramAPIError
-from aiogram.types import LinkPreviewOptions, ReplyParameters
+from aiogram.types import InlineKeyboardMarkup, LinkPreviewOptions, ReplyParameters
 
 from pisniar.logging import get_logger
 
@@ -14,7 +14,12 @@ logger = get_logger(__name__)
 
 
 async def send_alert(
-    bot: Bot, chat_id: int, text: str, *, reply_to_message_id: int | None = None
+    bot: Bot,
+    chat_id: int,
+    text: str,
+    *,
+    reply_to_message_id: int | None = None,
+    reply_markup: InlineKeyboardMarkup | None = None,
 ) -> bool:
     try:
         # a deleted reply target must not cost the alert itself.
@@ -31,6 +36,7 @@ async def send_alert(
             text=text,
             link_preview_options=LinkPreviewOptions(is_disabled=True),
             reply_parameters=reply_parameters,
+            reply_markup=reply_markup,
         )
     except TelegramAPIError:
         logger.warning("alert_delivery_failed", chat_id=chat_id, exc_info=True)

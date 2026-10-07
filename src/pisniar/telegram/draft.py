@@ -12,7 +12,9 @@ from pisniar.db.models import Post
 from pisniar.telegram.keyboards import draft_keyboard
 
 
-async def deliver_draft(bot: Bot, post: Post, chat_id: int) -> None:
+async def deliver_draft(
+    bot: Bot, post: Post, chat_id: int, webapp_public_url: str | None = None
+) -> None:
     """idempotent: a `post` with `draft_message_id` already set is a no-op —
     this is what makes Celery's at-least-once redelivery safe."""
     if post.draft_message_id is not None:
@@ -27,7 +29,7 @@ async def deliver_draft(bot: Bot, post: Post, chat_id: int) -> None:
         text=post.caption,
         parse_mode="HTML",
         link_preview_options=LinkPreviewOptions(is_disabled=True),
-        reply_markup=draft_keyboard(post.id),
+        reply_markup=draft_keyboard(post.id, chat_id, webapp_public_url),
     )
     post.draft_chat_id = chat_id
     post.draft_message_id = sent_message.message_id

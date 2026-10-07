@@ -16,7 +16,13 @@ from pisniar.telegram.video import RenderedVideo, send_rendered_video
 logger = get_logger(__name__)
 
 
-async def deliver_preview(bot: Bot, post: Post, chat_id: int, video: RenderedVideo) -> None:
+async def deliver_preview(
+    bot: Bot,
+    post: Post,
+    chat_id: int,
+    video: RenderedVideo,
+    webapp_public_url: str | None = None,
+) -> None:
     """idempotent on `preview_message_id`, like `deliver_draft`. A failure
     propagates: the preview is the product."""
     if post.preview_message_id is not None:
@@ -25,7 +31,11 @@ async def deliver_preview(bot: Bot, post: Post, chat_id: int, video: RenderedVid
         raise ValueError(f"post {post.id} has no caption to preview")
 
     sent_message = await send_rendered_video(
-        bot, chat_id, post.caption, video, reply_markup=preview_keyboard(post.id)
+        bot,
+        chat_id,
+        post.caption,
+        video,
+        reply_markup=preview_keyboard(post.id, chat_id, webapp_public_url),
     )
     post.preview_chat_id = chat_id
     post.preview_message_id = sent_message.message_id

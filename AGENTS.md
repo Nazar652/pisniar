@@ -166,8 +166,22 @@ suggest or introduce either.
   sentence of its own, never a state name the admin has to decode.
 - The bot's shared `Bot` client stays `parse_mode=None` globally — the same
   client sends alerts, and alert text regularly contains `<` (tracebacks,
-  URLs). `parse_mode="HTML"` is passed explicitly, at `deliver_draft()` and
-  `publish_to_channel()`, and nowhere else.
+  URLs). `parse_mode="HTML"` is passed explicitly, at `deliver_draft()`,
+  `publish_to_channel()` and `caption_edit.edit_message_caption_by_kind()`, and nowhere else.
+- **The «Редагувати» `web_app` button exists only in a private chat with
+  `WEBAPP_PUBLIC_URL` set** (`keyboards.edit_button_rows`: `chat_id > 0` and a URL). Telegram
+  answers `400` to a `web_app` button in a group, and that would cost the whole draft, preview or
+  publication confirmation, so the rule lives where every keyboard is built. `/edit [post_id]`
+  offers the editor of one post, or the list without an id; `telegram.menu` sets the «Пости»
+  menu button for each admin's own chat at start (a reset to the default without a URL), and a
+  failure for one admin is logged and never stops polling.
+- **Editing a sent message is classified by two measured phrases and nothing else**
+  (`caption_edit`): `message is not modified` is a success, `message to edit not found` means the
+  message is gone, and every other answer propagates. An edit without `reply_markup` removes the
+  keyboard, so the caller always passes the one the state calls for (`keyboard_for_state`). The
+  existence probe is `editMessageReplyMarkup(reply_markup=None)`: on a live message without a
+  keyboard (a channel post) it answers «not modified», on a deleted one «not found»; it is only
+  ever aimed at messages that carry no keyboard.
 
 ## Resolver conventions (`pisniar/resolve/`)
 

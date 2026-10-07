@@ -6,11 +6,14 @@ wiring.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Iterator
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from aiogram import Dispatcher
 
+from pisniar.bot import main as bot_main
 from pisniar.bot.main import build_dispatcher
 from pisniar.bot.middlewares import AdminAllowlistMiddleware
 
@@ -51,3 +54,43 @@ def test_admin_allowlist_carries_the_configured_admin_ids(dispatcher: Dispatcher
         if isinstance(entry, AdminAllowlistMiddleware)
     ]
     assert middleware.admin_ids == frozenset({ADMIN_ID})
+
+
+async def test_the_menu_buttons_are_set_before_polling_starts_and_never_block_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """a failing menu call is swallowed inside `configure_admin_menu_buttons`; here only
+    the order is pinned, because polling must not start on an unconfigured bot."""
+    order: list[str] = []
+
+    async def record_menu(bot: object, admin_ids: object, webapp_public_url: object) -> None:
+        order.append("menu")
+
+    async def record_polling(*arguments: object, **keyword_arguments: object) -> None:
+        order.append("polling")
+
+    async def serve_briefly() -> None:
+        await asyncio.sleep(0.05)
+
+    fake_dispatcher = MagicMock()
+    fake_dispatcher.start_polling = record_polling
+    fake_server = MagicMock()
+    fake_server.serve = serve_briefly
+    fake_engine = MagicMock()
+    fake_engine.dispose = AsyncMock()
+
+    monkeypatch.setattr(bot_main, "configure_logging", MagicMock())
+    monkeypatch.setattr(bot_main, "warn_if_alerts_share_the_channel", MagicMock())
+    monkeypatch.setattr(bot_main, "build_bot", MagicMock())
+    monkeypatch.setattr(bot_main, "configure_admin_menu_buttons", record_menu)
+    monkeypatch.setattr(bot_main, "build_engine", MagicMock(return_value=fake_engine))
+    monkeypatch.setattr(bot_main, "build_session_factory", MagicMock())
+    monkeypatch.setattr(bot_main, "build_celery_app", MagicMock())
+    monkeypatch.setattr(bot_main, "build_dispatcher", MagicMock(return_value=fake_dispatcher))
+    monkeypatch.setattr(bot_main, "create_app", MagicMock())
+    monkeypatch.setattr(bot_main.uvicorn, "Server", MagicMock(return_value=fake_server))
+    monkeypatch.setattr(bot_main.uvicorn, "Config", MagicMock())
+
+    await bot_main.run()
+
+    assert order == ["menu", "polling"]
