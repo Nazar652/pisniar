@@ -17,14 +17,14 @@ async def send_alert(
     bot: Bot, chat_id: int, text: str, *, reply_to_message_id: int | None = None
 ) -> bool:
     try:
-        # A deleted reply target must not cost the alert itself.
+        # a deleted reply target must not cost the alert itself.
         reply_parameters = (
             ReplyParameters(message_id=reply_to_message_id, allow_sending_without_reply=True)
             if reply_to_message_id is not None
             else None
         )
 
-        # An alert regularly carries a URL; a preview card would push the
+        # an alert regularly carries a URL; a preview card would push the
         # next alert off screen and make the channel unscannable.
         await bot.send_message(
             chat_id=chat_id,

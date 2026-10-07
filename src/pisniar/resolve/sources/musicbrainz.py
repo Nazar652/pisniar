@@ -21,7 +21,7 @@ logger = get_logger(__name__)
 THROTTLE = Throttler(min_interval_seconds=1.0)
 SOURCE_NAME = "musicbrainz"
 
-_URL_REL_HOST_TO_PLATFORM = {
+URL_REL_HOST_TO_PLATFORM = {
     "open.spotify.com": "spotify",
     "www.deezer.com": "deezer",
     "deezer.com": "deezer",
@@ -64,10 +64,10 @@ async def fetch_by_isrc(
         return {"found": True, "data": recordings[0]}
 
     payload = await cache.get_or_fetch("musicbrainz", cache_key, do_fetch)
-    return _result_from_payload(payload)
+    return result_from_payload(payload)
 
 
-def _result_from_payload(payload: dict[str, object]) -> MusicBrainzRecordingResult:
+def result_from_payload(payload: dict[str, object]) -> MusicBrainzRecordingResult:
     if not payload.get("found"):
         return MusicBrainzRecordingResult(found=False)
 
@@ -79,10 +79,10 @@ def _result_from_payload(payload: dict[str, object]) -> MusicBrainzRecordingResu
         url = as_str(as_dict(relation.get("url")).get("resource"))
         if url is None:
             continue
-        host = _host_or_none(url)
+        host = host_or_none(url)
         if host is None:
             continue
-        platform = _URL_REL_HOST_TO_PLATFORM.get(host)
+        platform = URL_REL_HOST_TO_PLATFORM.get(host)
         if platform is not None:
             platform_links[platform] = url
 
@@ -93,13 +93,13 @@ def _result_from_payload(payload: dict[str, object]) -> MusicBrainzRecordingResu
     )
 
 
-def _host_or_none(url: str) -> str | None:
+def host_or_none(url: str) -> str | None:
     """MusicBrainz is publicly editable, and one bad url-rel must not fail the post.
     `ValueError` covers idna's `InvalidCodepoint`, which httpx does not wrap."""
     try:
         return httpx.URL(url).host
     except (httpx.InvalidURL, ValueError):
-        # Sanitized: a control character in the url-rel is exactly what
+        # sanitized: a control character in the url-rel is exactly what
         # gets it here, and the raw value would go into the log line.
         logger.warning("musicbrainz_url_rel_unparsable", url=sanitize_metadata_text(url))
         return None

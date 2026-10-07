@@ -105,7 +105,7 @@ async def test_an_existing_automatic_text_is_never_written_over(
 async def test_a_manual_text_is_never_written_over(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """The guard is "any line", not "any `lrclib` line": one narrowed to `lrclib`
+    """the guard is "any line", not "any `lrclib` line": one narrowed to `lrclib`
     would insert 0-2 beside the manual line at index 5 without a single conflict."""
     track_id = await make_track(session_factory)
     await add_line(session_factory, track_id, source="manual", text="правка адміна", line_index=5)

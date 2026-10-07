@@ -10,15 +10,20 @@ import logging
 import pytest
 import structlog.testing
 
+import pisniar.logging as pisniar_logging
 from pisniar.logging import (
     REDACTED_PLACEHOLDER,
-    clear_runtime_secrets,
     configure_logging,
     get_logger,
     make_redact_secrets_processor,
     redact_secrets_in_text,
     register_runtime_secret,
 )
+
+
+@pytest.fixture
+def isolated_runtime_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(pisniar_logging, "registered_runtime_secrets", {})
 
 
 def test_redacts_secret_value_wherever_it_appears() -> None:
@@ -75,7 +80,7 @@ def test_redaction_recurses_into_nested_dict_list_and_tuple() -> None:
 
 
 def test_redaction_stringifies_and_scrubs_unrecognized_values() -> None:
-    """An `Exception` (the `error=exc` pattern) has no branch of its own: it goes
+    """an `Exception` (the `error=exc` pattern) has no branch of its own: it goes
     through `str()`, or `JSONRenderer` would serialize it unredacted via `repr()`."""
     processor = make_redact_secrets_processor(["super-secret-token"])
 
@@ -101,7 +106,7 @@ def test_redaction_leaves_non_string_scalars_untouched() -> None:
 
 
 def test_get_logger_returns_a_working_bound_logger() -> None:
-    """Through structlog's public `capture_logs()`, not a private attribute like
+    """through structlog's public `capture_logs()`, not a private attribute like
     `bound._context`, so it keeps working across structlog versions."""
     logger = get_logger("test")
 
@@ -115,7 +120,7 @@ def test_configure_logging_redacts_secrets_from_stdlib_logging_too(
     capsys: pytest.CaptureFixture[str],
     preserve_root_logging_state: None,
 ) -> None:
-    """The point of `foreign_pre_chain`: stdlib `logging` calls (aiogram, uvicorn,
+    """the point of `foreign_pre_chain`: stdlib `logging` calls (aiogram, uvicorn,
     SQLAlchemy, Celery) get the same redaction as structlog ones."""
     configure_logging(log_format="json", log_level="INFO", secrets=["super-secret-token"])
     logging.getLogger("some.third.party.library").warning(
@@ -129,44 +134,44 @@ def test_configure_logging_redacts_secrets_from_stdlib_logging_too(
     assert parsed["level"] == "warning"
 
 
-def test_a_secret_registered_after_startup_is_redacted_too() -> None:
-    """The Spotify access token only exists once the resolver runs, long after
+def test_a_secret_registered_after_startup_is_redacted_too(
+    isolated_runtime_secrets: None,
+) -> None:
+    """the Spotify access token only exists once the resolver runs, long after
     `configure_logging()` was handed the static secret list."""
     processor = make_redact_secrets_processor(["configured-secret"])
     register_runtime_secret("spotify_access_token", "runtime-token-xyz")
-    try:
-        event = processor(None, "info", {"event": "boom", "error": "Bearer runtime-token-xyz"})
-    finally:
-        clear_runtime_secrets()
+
+    event = processor(None, "info", {"event": "boom", "error": "Bearer runtime-token-xyz"})
 
     assert "runtime-token-xyz" not in event["error"]
     assert REDACTED_PLACEHOLDER in event["error"]
 
 
-def test_runtime_secret_registration_replaces_the_previous_value() -> None:
-    """Keyed by name so hourly token rotation cannot grow the set forever."""
+def test_runtime_secret_registration_replaces_the_previous_value(
+    isolated_runtime_secrets: None,
+) -> None:
+    """keyed by name so hourly token rotation cannot grow the set forever."""
     processor = make_redact_secrets_processor([])
     register_runtime_secret("spotify_access_token", "old-token")
     register_runtime_secret("spotify_access_token", "new-token")
-    try:
-        event = processor(None, "info", {"event": "boom", "error": "old-token new-token"})
-    finally:
-        clear_runtime_secrets()
+
+    event = processor(None, "info", {"event": "boom", "error": "old-token new-token"})
 
     assert event["error"] == f"old-token {REDACTED_PLACEHOLDER}"
 
 
-def test_redact_secrets_in_text_scrubs_configured_and_runtime_secrets() -> None:
+def test_redact_secrets_in_text_scrubs_configured_and_runtime_secrets(
+    isolated_runtime_secrets: None,
+) -> None:
     """`send_alert` and `post.last_error` are sinks no log processor ever sees, so
     the redaction has to exist as a plain function too."""
     register_runtime_secret("spotify_token", "runtime-token-value")
-    try:
-        redacted = redact_secrets_in_text(
-            "asyncpg: password=db-password failed, Authorization: runtime-token-value",
-            ["db-password"],
-        )
-    finally:
-        clear_runtime_secrets()
+
+    redacted = redact_secrets_in_text(
+        "asyncpg: password=db-password failed, Authorization: runtime-token-value",
+        ["db-password"],
+    )
 
     assert "db-password" not in redacted
     assert "runtime-token-value" not in redacted

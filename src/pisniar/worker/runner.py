@@ -9,5 +9,5 @@ import asyncio
 from collections.abc import Coroutine
 
 
-def run_async[T](coro: Coroutine[object, object, T]) -> T:
-    return asyncio.run(coro)
+def run_async[T](coroutine: Coroutine[object, object, T]) -> T:
+    return asyncio.run(coroutine)

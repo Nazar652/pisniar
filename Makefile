@@ -13,7 +13,7 @@ COMPOSE := docker compose
 help: ## Show this list of targets
 	@grep -h -E '^[a-zA-Z0-9_-]+:.*##' $(MAKEFILE_LIST) | sed 's/:.*##/\t/' | sort
 
-## --- local (host, no Docker; DATABASE_URL/REDIS_URL not needed here) ---
+# local targets: host only, no Docker, no DATABASE_URL or REDIS_URL needed
 
 sync: ## uv sync --frozen
 	uv sync --frozen
@@ -40,7 +40,7 @@ test: ## unit tests only, no DB
 # `make -k check` (a make-invocation flag, not something `verify` sets for you) to see all of them.
 check: sync lock-check fmt-check lint typecheck test ## sync + lock-check + fmt-check + lint + typecheck + test; use `make -k check` to see every failure in one go
 
-## --- docker (compose.yaml + compose.override.yml pick up .env automatically) ---
+# docker targets: compose.yaml and compose.override.yml pick up .env automatically
 
 build: ## docker compose build
 	$(COMPOSE) build
@@ -66,7 +66,7 @@ clean: ## docker compose down -v (also drops the postgres volume)
 test-int: ## full test suite (unit + integration) inside the bot container
 	$(COMPOSE) run --rm bot pytest -q -m "not fonts"
 
-# Separate from `test-int`: the fonts live only in the worker image, and a missing font family
+# separate from `test-int`: the fonts live only in the worker image, and a missing font family
 # falls back silently, so this is what stops a typo in `ass.FONT_FAMILY` reaching a video.
 test-fonts: ## the ASS font family against `fc-list`, inside the worker container
 	$(COMPOSE) run --rm worker pytest -q -m fonts
@@ -92,9 +92,8 @@ psql: ## interactive psql in the postgres container
 shell: ## shell in the bot container
 	$(COMPOSE) exec bot sh
 
-## --- Mini App entry (Tailscale Funnel; see `.env.tailscale.example`) ---
-
-# External volume: `clean`/`verify` (`down -v`) cannot remove it, so the node and its URL survive.
+# the Tailscale state volume is external, so `clean` and `verify` (`down -v`) cannot remove
+# it and the node keeps its URL; see `.env.tailscale.example`
 funnel-init: ## create the external volume that holds the Tailscale node state (once)
 	docker volume create pisniar-tailscale-state
 

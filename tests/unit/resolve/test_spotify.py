@@ -34,13 +34,12 @@ SEARCH_ISRC_BODY = {
     }
 }
 SEARCH_EMPTY_BODY = {"tracks": {"items": []}}
-TRACK_BODY = SEARCH_ISRC_BODY["tracks"]["items"][0]
 
 
 @pytest.fixture(autouse=True)
 def reset_token_cache() -> None:
-    spotify._cached_access_token = None
-    spotify._cached_token_expires_at = 0.0
+    spotify.cached_access_token = None
+    spotify.cached_token_expires_at = 0.0
 
 
 async def test_search_by_isrc_returns_found_result(fake_cache: SourceCache) -> None:
@@ -75,26 +74,10 @@ async def test_search_by_isrc_returns_not_found_on_empty_items(fake_cache: Sourc
     assert result.found is False
 
 
-async def test_get_track_extracts_year_album_and_isrc(fake_cache: SourceCache) -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        if "accounts.spotify.com" in str(request.url):
-            return httpx.Response(200, json=TOKEN_BODY)
-        return httpx.Response(200, json=TRACK_BODY)
-
-    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-        result = await spotify.get_track(
-            client, fake_cache, "70LcF31zb1H0PyJoS1Sx1r", "client-id", "client-secret"
-        )
-
-    assert result.year == 1993
-    assert result.release_title == "Pablo Honey"
-    assert result.isrc == "GBAYE9200070"
-
-
 async def test_search_by_name_caps_results_at_five(fake_cache: SourceCache) -> None:
     many_items = [
         {
-            "id": f"id{i}",
+            "id": f"id{index}",
             "name": "Song",
             "duration_ms": 200000,
             "external_ids": {},
@@ -102,7 +85,7 @@ async def test_search_by_name_caps_results_at_five(fake_cache: SourceCache) -> N
             "artists": [{"id": "a", "name": "Artist"}],
             "album": {"id": "alb", "name": "Album", "album_type": "single", "release_date": "2020"},
         }
-        for i in range(20)
+        for index in range(20)
     ]
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -159,23 +142,3 @@ async def test_request_retries_after_429_then_succeeds(fake_cache: SourceCache) 
 
     assert search_attempts == 2
     assert result.found is True
-
-
-async def test_get_track_refuses_a_non_base62_id_without_issuing_a_request(
-    fake_cache: SourceCache,
-) -> None:
-    """The id goes straight into `/v1/tracks/<id>`."""
-    requests_made = 0
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        nonlocal requests_made
-        requests_made += 1
-        return httpx.Response(200, json=TOKEN_BODY)
-
-    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-        result = await spotify.get_track(
-            client, fake_cache, "../v1/me/player", "client-id", "client-secret"
-        )
-
-    assert result.found is False
-    assert requests_made == 0

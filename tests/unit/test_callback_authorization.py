@@ -22,7 +22,7 @@ STRANGER_ID = 999999999
 
 @pytest.fixture(autouse=True)
 def rejection_logger(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
-    """A cached structlog proxy silently defeats `capture_logs()` in every later
+    """a cached structlog proxy silently defeats `capture_logs()` in every later
     test, so this file logs through a stand-in."""
     fake_logger = MagicMock()
     monkeypatch.setattr(middlewares, "logger", fake_logger)
@@ -41,7 +41,7 @@ def reached() -> list[str]:
 
 @pytest.fixture
 def dispatcher(reached: list[str]) -> Iterator[Dispatcher]:
-    """Mirrors `build_dispatcher()` with a spy router: the production router is a
+    """mirrors `build_dispatcher()` with a spy router: the production router is a
     singleton aiogram lets attach only once."""
     dispatcher = Dispatcher(disable_fsm=True)
     dispatcher.update.outer_middleware(AdminAllowlistMiddleware(frozenset({ADMIN_ID})))
@@ -88,7 +88,7 @@ async def test_a_non_admin_button_tap_never_reaches_a_handler(
     rejection_logger: MagicMock,
     callback_data: str,
 ) -> None:
-    """Both buttons: «Зробити відео» spends minutes of CPU and hundreds of
+    """both buttons: «Зробити відео» spends minutes of CPU and hundreds of
     megabytes, so it is verified rather than assumed to inherit the check."""
     await dispatcher.feed_update(
         bot, make_callback_update(STRANGER_ID, callback_data=callback_data)
@@ -102,7 +102,7 @@ async def test_a_non_admin_button_tap_never_reaches_a_handler(
 async def test_an_admin_button_tap_does_reach_its_handler(
     dispatcher: Dispatcher, bot: Bot, reached: list[str], callback_data: str
 ) -> None:
-    """The other half of the claim: the allowlist must not be blocking every
+    """the other half of the claim: the allowlist must not be blocking every
     callback, which would make the test above pass for the wrong reason."""
     await dispatcher.feed_update(bot, make_callback_update(ADMIN_ID, callback_data=callback_data))
 

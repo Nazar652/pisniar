@@ -14,12 +14,12 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 PUBLISH_CALLBACK_PREFIX = "publish"
 PUBLISH_BUTTON_TEXT = "Опублікувати в канал"
 
-# The media chain is started by a second button, never automatically —
+# the media chain is started by a second button, never automatically —
 # disk and minutes of CPU are spent only on a draft the admin approved.
 RENDER_CALLBACK_PREFIX = "render"
 RENDER_BUTTON_TEXT = "Зробити відео"
 
-# Telegram caps `callback_data` at 64 bytes; a BIGINT post id never needs
+# telegram caps `callback_data` at 64 bytes; a BIGINT post id never needs
 # more digits than this, and anything longer is not one of ours.
 MAX_CALLBACK_POST_ID_DIGITS = 19
 
@@ -36,21 +36,21 @@ class ParsedCallback:
 
 
 def draft_keyboard(post_id: int) -> InlineKeyboardMarkup:
-    """Both triggers under a text draft: publish the cover as a photo, or
+    """both triggers under a text draft: publish the cover as a photo, or
     spend the disk and the minutes on a video first."""
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [_button(PUBLISH_BUTTON_TEXT, CallbackAction.PUBLISH, post_id)],
-            [_button(RENDER_BUTTON_TEXT, CallbackAction.RENDER, post_id)],
+            [callback_button(PUBLISH_BUTTON_TEXT, CallbackAction.PUBLISH, post_id)],
+            [callback_button(RENDER_BUTTON_TEXT, CallbackAction.RENDER, post_id)],
         ]
     )
 
 
 def preview_keyboard(post_id: int) -> InlineKeyboardMarkup:
-    """The video preview carries publication alone — there is nothing left to
+    """the video preview carries publication alone — there is nothing left to
     render, and the text draft's keyboard is removed when this one arrives."""
     return InlineKeyboardMarkup(
-        inline_keyboard=[[_button(PUBLISH_BUTTON_TEXT, CallbackAction.PUBLISH, post_id)]]
+        inline_keyboard=[[callback_button(PUBLISH_BUTTON_TEXT, CallbackAction.PUBLISH, post_id)]]
     )
 
 
@@ -79,5 +79,5 @@ def parse_callback(callback_data: str | None) -> ParsedCallback | None:
     return ParsedCallback(action=action, post_id=int(raw_post_id))
 
 
-def _button(text: str, action: CallbackAction, post_id: int) -> InlineKeyboardButton:
+def callback_button(text: str, action: CallbackAction, post_id: int) -> InlineKeyboardButton:
     return InlineKeyboardButton(text=text, callback_data=f"{action.value}:{post_id}")

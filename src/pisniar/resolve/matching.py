@@ -6,12 +6,15 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from typing import TypeGuard
 
-# Across 9 reference tracks the widest gap between two platforms holding the
+from pisniar.resolve.types import TrackCandidate
+
+# across 9 reference tracks the widest gap between two platforms holding the
 # same recording is 965 ms, so 3000 ms has headroom.
 DURATION_TOLERANCE_MS = 3000
 
-_SUFFIX_PATTERNS = (
+SUFFIX_PATTERN_SOURCES = (
     r"\(official video\)",
     r"\(official audio\)",
     r"\(official music video\)",
@@ -22,30 +25,30 @@ _SUFFIX_PATTERNS = (
     r"\(official\)",
     r"- topic$",
 )
-_SUFFIX_RE = re.compile("|".join(_SUFFIX_PATTERNS), re.IGNORECASE)
-_FEAT_RE = re.compile(r"\b(feat\.?|ft\.?|featuring)\b.*$", re.IGNORECASE)
-_PUNCTUATION_RE = re.compile(r"[^\w\s]", re.UNICODE)
-_WHITESPACE_RE = re.compile(r"\s+")
-_ARTIST_SEPARATOR_RE = re.compile(r",|&|/| x | vs\.? | with ", re.IGNORECASE)
-_ISRC_RE = re.compile(r"^[A-Z]{2}[A-Z0-9]{3}\d{7}$")
-_SPOTIFY_ID_RE = re.compile(r"^[0-9A-Za-z]{22}$")
-_YOUTUBE_VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
+SUFFIX_PATTERN = re.compile("|".join(SUFFIX_PATTERN_SOURCES), re.IGNORECASE)
+FEATURING_PATTERN = re.compile(r"\b(feat\.?|ft\.?|featuring)\b.*$", re.IGNORECASE)
+PUNCTUATION_PATTERN = re.compile(r"[^\w\s]", re.UNICODE)
+WHITESPACE_PATTERN = re.compile(r"\s+")
+ARTIST_SEPARATOR_PATTERN = re.compile(r",|&|/| x | vs\.? | with ", re.IGNORECASE)
+ISRC_PATTERN = re.compile(r"^[A-Z]{2}[A-Z0-9]{3}\d{7}$")
+SPOTIFY_ID_PATTERN = re.compile(r"^[0-9A-Za-z]{22}$")
+YOUTUBE_VIDEO_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{11}$")
 
 
 def is_valid_isrc(value: str | None) -> bool:
-    """Checked before an ISRC goes into a URL path (`/track/isrc:...`), where a
+    """checked before an ISRC goes into a URL path (`/track/isrc:...`), where a
     stray `/` or `?` from a source would change which endpoint we call."""
-    return value is not None and _ISRC_RE.match(value) is not None
+    return value is not None and ISRC_PATTERN.match(value) is not None
 
 
 def is_valid_spotify_id(value: str | None) -> bool:
-    """Source-supplied and pasted into a URL path, same as an ISRC."""
-    return value is not None and _SPOTIFY_ID_RE.match(value) is not None
+    """source-supplied and pasted into a URL path, same as an ISRC."""
+    return value is not None and SPOTIFY_ID_PATTERN.match(value) is not None
 
 
-def is_valid_youtube_video_id(value: str | None) -> bool:
-    """Source-supplied and pasted into a URL, and into `yt-dlp`."""
-    return value is not None and _YOUTUBE_VIDEO_ID_RE.match(value) is not None
+def is_valid_youtube_video_id(value: str | None) -> TypeGuard[str]:
+    """source-supplied and pasted into a URL, and into `yt-dlp`."""
+    return value is not None and YOUTUBE_VIDEO_ID_PATTERN.match(value) is not None
 
 
 def strip_diacritics(value: str) -> str:
@@ -55,16 +58,16 @@ def strip_diacritics(value: str) -> str:
 
 def normalize_text(value: str) -> str:
     normalized = strip_diacritics(unicodedata.normalize("NFC", value)).casefold()
-    normalized = _SUFFIX_RE.sub("", normalized)
-    normalized = _FEAT_RE.sub("", normalized)
-    normalized = _PUNCTUATION_RE.sub("", normalized)
-    return _WHITESPACE_RE.sub(" ", normalized).strip()
+    normalized = SUFFIX_PATTERN.sub("", normalized)
+    normalized = FEATURING_PATTERN.sub("", normalized)
+    normalized = PUNCTUATION_PATTERN.sub("", normalized)
+    return WHITESPACE_PATTERN.sub(" ", normalized).strip()
 
 
 def normalize_artist_set(value: str) -> frozenset[str]:
-    """Order- and separator-independent: `"A & B"` and `"A, B"` normalize to
+    """order- and separator-independent: `"A & B"` and `"A, B"` normalize to
     the same set, so a platform crediting artists differently still matches."""
-    parts = _ARTIST_SEPARATOR_RE.split(value)
+    parts = ARTIST_SEPARATOR_PATTERN.split(value)
     return frozenset(normalize_text(part) for part in parts if normalize_text(part))
 
 
@@ -83,7 +86,7 @@ def is_match(
     candidate_title: str,
     candidate_duration_ms: int | None,
 ) -> bool:
-    """Never fuzzy or substring; the duration counts only when both sides know it."""
+    """never fuzzy or substring; the duration counts only when both sides know it."""
     if normalize_text(reference_title) != normalize_text(candidate_title):
         return False
     if normalize_artist_set(reference_artist) != normalize_artist_set(candidate_artist):
@@ -95,4 +98,29 @@ def is_match(
         reference_duration is not None
         and candidate_duration is not None
         and abs(reference_duration - candidate_duration) > DURATION_TOLERANCE_MS
+    )
+
+
+def find_matching_candidate(
+    candidates: list[TrackCandidate], *, artist: str, title: str, duration_ms: int | None
+) -> TrackCandidate | None:
+    """the first candidate that passes `is_match()`; the order is the source's relevance order."""
+    for candidate in candidates:
+        if is_match(
+            reference_artist=artist,
+            reference_title=title,
+            reference_duration_ms=duration_ms,
+            candidate_artist=candidate.artist_name,
+            candidate_title=candidate.title,
+            candidate_duration_ms=candidate.duration_ms,
+        ):
+            return candidate
+    return None
+
+
+def rejected_candidates_warning(
+    source_label: str, candidate_count: int, artist: str, title: str
+) -> str:
+    return (
+        f"{source_label}: {candidate_count} кандидат(и) відхилено звіркою для «{artist} — {title}»"
     )

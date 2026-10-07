@@ -109,7 +109,7 @@ def make_video(tmp_path: Path) -> RenderedVideo:
 
 
 async def test_a_rendered_post_goes_out_as_a_video_not_a_photo(tmp_path: Path) -> None:
-    """The caller decides the branch from the status, and once it has, the cover
+    """the caller decides the branch from the status, and once it has, the cover
     URL must not pull the post back to `send_photo`."""
     bot = make_bot()
     post = make_post()
@@ -127,7 +127,7 @@ async def test_a_rendered_post_goes_out_as_a_video_not_a_photo(tmp_path: Path) -
 
 
 async def test_the_video_caption_is_the_same_string_the_preview_carried(tmp_path: Path) -> None:
-    """The video caption limit is the photo caption limit, so nothing is rebuilt
+    """the video caption limit is the photo caption limit, so nothing is rebuilt
     between the preview and the channel."""
     bot = make_bot()
 
@@ -202,7 +202,7 @@ async def test_an_empty_cover_url_is_treated_as_no_cover() -> None:
 
 
 async def test_a_post_that_already_has_a_channel_message_is_never_sent_again() -> None:
-    """A second copy in the channel is the most expensive failure there is, and
+    """a second copy in the channel is the most expensive failure there is, and
     this guard is what a redelivered task hits first."""
     bot = make_bot()
     post = make_post(channel_message_id=500)
@@ -225,7 +225,7 @@ async def test_publishing_without_a_caption_raises_instead_of_sending() -> None:
 
 
 async def test_a_telegram_failure_propagates_and_leaves_the_reference_null() -> None:
-    """The opposite of `send_alert`: the post is the product, so a delivery
+    """the opposite of `send_alert`: the post is the product, so a delivery
     failure must reach the task and turn the post `failed`."""
     bot = make_bot()
     bot.send_photo.side_effect = TelegramBadRequest(
@@ -278,7 +278,7 @@ async def test_preflight_refuses_a_bot_that_is_only_a_member() -> None:
 
 
 async def test_preflight_hides_the_raw_telegram_error_behind_a_ukrainian_one() -> None:
-    """The admin gets a sentence they can act on, and the 400 with its traceback
+    """the admin gets a sentence they can act on, and the 400 with its traceback
     stays in the logs."""
     bot = make_bot()
     bot.get_chat.side_effect = TelegramBadRequest(
@@ -294,7 +294,7 @@ async def test_preflight_hides_the_raw_telegram_error_behind_a_ukrainian_one() -
 
 
 def test_a_channel_that_is_not_the_captions_channel_warns() -> None:
-    """Every caption links to `CHANNEL_LINK_URL` while the target comes from
+    """every caption links to `CHANNEL_LINK_URL` while the target comes from
     config, and nothing derives one from the other."""
     with structlog.testing.capture_logs() as captured_logs:
         diverged = warn_if_channel_identity_diverges(make_chat(username="test_channel"))
@@ -318,7 +318,7 @@ def test_the_post_link_uses_the_public_username_when_there_is_one() -> None:
 
 
 def test_the_post_link_falls_back_to_the_private_form() -> None:
-    """Built from the chat the post actually went to, so a test channel with
+    """built from the chat the post actually went to, so a test channel with
     no username still produces a link the admin can open."""
     assert channel_post_url(make_chat(username=None), 12) == "https://t.me/c/1234567890/12"
 
@@ -347,7 +347,7 @@ def test_a_preflight_error_is_passed_through_unchanged() -> None:
 
 
 def test_the_publish_target_is_never_a_literal_in_the_publish_code() -> None:
-    """A literal chat id or a second `pisniarnia` here is exactly how the
+    """a literal chat id or a second `pisniarnia` here is exactly how the
     caption's channel and the publish target drift apart."""
     source = inspect.getsource(publish_module)
 

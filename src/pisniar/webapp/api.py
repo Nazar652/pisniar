@@ -53,7 +53,7 @@ async def read_me(admin: Annotated[AdminUser, Depends(require_admin)]) -> MeResp
 
 
 def register_api_routes(app: FastAPI) -> None:
-    """Direct registration, not `include_router`: the route table stays a flat list of
+    """direct registration, not `include_router`: the route table stays a flat list of
     `APIRoute` that a test can enumerate."""
     app.add_api_route(
         "/api/session",

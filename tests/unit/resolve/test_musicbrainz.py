@@ -59,7 +59,7 @@ async def test_fetch_by_isrc_returns_not_found_on_404(fake_cache: SourceCache) -
 
 
 def test_result_from_payload_maps_known_hosts_to_platforms() -> None:
-    result = musicbrainz._result_from_payload({"found": True, "data": RECORDING})
+    result = musicbrainz.result_from_payload({"found": True, "data": RECORDING})
 
     assert result.found is True
     assert result.recording_id == "recording-123"
@@ -70,7 +70,7 @@ def test_result_from_payload_maps_known_hosts_to_platforms() -> None:
 
 
 def test_result_from_payload_ignores_unrecognized_hosts() -> None:
-    result = musicbrainz._result_from_payload({"found": True, "data": RECORDING})
+    result = musicbrainz.result_from_payload({"found": True, "data": RECORDING})
 
     assert "example.com" not in str(result.platform_links)
 
@@ -89,7 +89,7 @@ def test_a_broken_url_rel_is_skipped_instead_of_failing_the_whole_recording() ->
         ],
     }
 
-    result = musicbrainz._result_from_payload({"found": True, "data": recording})
+    result = musicbrainz.result_from_payload({"found": True, "data": recording})
 
     assert result.platform_links == {
         "spotify": "https://open.spotify.com/track/ok",
@@ -103,7 +103,7 @@ def test_an_unparsable_url_rel_is_logged_without_its_control_characters(
     logger_mock = MagicMock()
     monkeypatch.setattr(musicbrainz, "logger", logger_mock)
 
-    assert musicbrainz._host_or_none("https://exa\tmple‮.com/x") is None
+    assert musicbrainz.host_or_none("https://exa\tmple‮.com/x") is None
 
     logged_url = logger_mock.warning.call_args.kwargs["url"]
     assert "\t" not in logged_url

@@ -1,4 +1,4 @@
-# Dev-only: bind mounts for hot reload, loopback-only host ports, console logs.
+# dev-only: bind mounts for hot reload, loopback-only host ports, console logs.
 # WATCHFILES_FORCE_POLLING=1: inotify does not propagate through a Windows bind mount.
 
 services:
@@ -20,7 +20,7 @@ services:
       - ./src:/app/src
       - ./alembic:/app/alembic
       - ./alembic.ini:/app/alembic.ini
-      # Dev-only: `source-prod` never `COPY tests` in, so `make test-int`
+      # dev-only: `source-prod` never `COPY tests` in, so `make test-int`
       # only works against this bind mount.
       - ./tests:/app/tests
       # pytest reads its markers and options from here; the baked copy refreshes only
@@ -40,7 +40,7 @@ services:
       - ./src:/app/src
       - ./alembic:/app/alembic
       - ./alembic.ini:/app/alembic.ini
-      # Dev-only, same reason as the bot's: `make test-fonts` asserts the ASS
+      # dev-only, same reason as the bot's: `make test-fonts` asserts the ASS
       # font family against `fc-list`, which exists only in this image.
       - ./tests:/app/tests
       - ./pyproject.toml:/app/pyproject.toml
@@ -56,7 +56,7 @@ services:
       - ./src:/app/src
       - ./tests:/app/tests
       - ./pyproject.toml:/app/pyproject.toml
-      # Read on every request, so rebuilding the frontend on the host needs no restart.
+      # read on every request, so rebuilding the frontend on the host needs no restart.
       - ./frontend/dist:/app/webapp-static:ro
     environment:
       ENVIRONMENT: dev

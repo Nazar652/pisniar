@@ -18,7 +18,7 @@ ISRC_FOUND_BODY: dict[str, object] = {
     "album": {"id": 14880711, "title": "Pablo Honey"},
 }
 ISRC_NOT_FOUND_BODY = {"error": {"type": "DataException", "message": "no data", "code": 800}}
-# Verified live on 2026-09-19: `code: 800` is what a missing ISRC and a
+# verified live on 2026-09-19: `code: 800` is what a missing ISRC and a
 # missing album both answer. A quota failure is a different class entirely.
 QUOTA_ERROR_BODY = {"error": {"type": "Exception", "message": "Quota limit exceeded", "code": 4}}
 SEARCH_FOUND_BODY: dict[str, object] = {
@@ -46,58 +46,58 @@ def make_client(handler: httpx.MockTransport) -> httpx.AsyncClient:
 
 
 async def test_fetch_by_isrc_treats_200_with_error_body_as_not_found() -> None:
-    """The pitfall: a not-found ISRC still answers HTTP 200."""
+    """the pitfall: a not-found ISRC still answers HTTP 200."""
     transport = httpx.MockTransport(lambda request: httpx.Response(200, json=ISRC_NOT_FOUND_BODY))
 
     async with make_client(transport) as client:
-        payload = await deezer._request(client, "https://api.deezer.com/track/isrc:X", {})
+        payload = await deezer.send_request(client, "https://api.deezer.com/track/isrc:X", {})
 
-    assert deezer._is_not_found_body(payload) is True
+    assert deezer.is_not_found_body(payload) is True
 
 
 def test_quota_error_body_raises_instead_of_being_cached_as_not_found() -> None:
-    """A quota failure cached as `{"found": false}` would blank every track of
+    """a quota failure cached as `{"found": false}` would blank every track of
     that release for a whole TTL."""
     with pytest.raises(deezer.DeezerApiError) as raised:
-        deezer._is_not_found_body(QUOTA_ERROR_BODY)
+        deezer.is_not_found_body(QUOTA_ERROR_BODY)
 
     assert "code=4" in str(raised.value)
 
 
 def test_a_body_without_an_error_key_is_not_a_miss() -> None:
-    assert deezer._is_not_found_body(ISRC_FOUND_BODY) is False
+    assert deezer.is_not_found_body(ISRC_FOUND_BODY) is False
 
 
 async def test_search_raises_on_an_error_body_instead_of_caching_empty_results() -> None:
-    """Search answers a genuine miss with an empty `data` list, so an error body
+    """search answers a genuine miss with an empty `data` list, so an error body
     here can only be an outage."""
     transport = httpx.MockTransport(lambda request: httpx.Response(200, json=QUOTA_ERROR_BODY))
 
     async with make_client(transport) as client:
-        data = await deezer._request(client, "https://api.deezer.com/search", {})
+        data = await deezer.send_request(client, "https://api.deezer.com/search", {})
 
     with pytest.raises(deezer.DeezerApiError):
-        deezer._is_not_found_body(data)
+        deezer.is_not_found_body(data)
 
 
 def test_search_item_with_a_null_link_is_dropped_rather_than_becoming_none_string() -> None:
     """`str(item.get("link", ""))` would turn JSON `null` into the string
     `"None"`, which passes the emptiness filter and fails only later."""
-    candidate = deezer._candidate_from_search_item({"title": "X", "link": None})
+    candidate = deezer.candidate_from_search_item({"title": "X", "link": None})
 
     assert candidate.url == ""
 
 
 def test_search_item_that_is_not_a_dict_does_not_raise() -> None:
-    """One malformed entry must not send the whole post to `failed`."""
-    candidate = deezer._candidate_from_search_item("not a dict")
+    """one malformed entry must not send the whole post to `failed`."""
+    candidate = deezer.candidate_from_search_item("not a dict")
 
     assert candidate.url == ""
     assert candidate.title == ""
 
 
 def test_fetch_by_isrc_extracts_fields_and_converts_seconds_to_ms() -> None:
-    result = deezer._track_result_from_payload({"found": True, "data": ISRC_FOUND_BODY})
+    result = deezer.track_result_from_payload({"found": True, "data": ISRC_FOUND_BODY})
 
     assert result.found is True
     assert result.isrc == "GBAYE9200070"
@@ -107,7 +107,7 @@ def test_fetch_by_isrc_extracts_fields_and_converts_seconds_to_ms() -> None:
 
 
 def test_track_result_from_not_found_payload() -> None:
-    result = deezer._track_result_from_payload({"found": False})
+    result = deezer.track_result_from_payload({"found": False})
 
     assert result.found is False
     assert result.album_id is None
@@ -115,12 +115,12 @@ def test_track_result_from_not_found_payload() -> None:
 
 def test_search_candidates_are_capped_at_five() -> None:
     many_results: list[dict[str, object]] = [
-        {"id": i, "title": "Song", "duration": 200, "link": "u", "artist": {"name": "A"}}
-        for i in range(20)
+        {"id": index, "title": "Song", "duration": 200, "link": "u", "artist": {"name": "A"}}
+        for index in range(20)
     ]
 
     candidates = [
-        deezer._candidate_from_search_item(item) for item in many_results[: deezer.SEARCH_LIMIT]
+        deezer.candidate_from_search_item(item) for item in many_results[: deezer.SEARCH_LIMIT]
     ]
 
     assert deezer.SEARCH_LIMIT == 5
@@ -130,7 +130,7 @@ def test_search_candidates_are_capped_at_five() -> None:
 def test_search_candidate_maps_fields_correctly() -> None:
     search_results = SEARCH_FOUND_BODY["data"]
     assert isinstance(search_results, list)
-    candidate = deezer._candidate_from_search_item(search_results[0])
+    candidate = deezer.candidate_from_search_item(search_results[0])
 
     assert candidate.platform == "deezer"
     assert candidate.source == "deezer"
@@ -140,7 +140,7 @@ def test_search_candidate_maps_fields_correctly() -> None:
 
 
 def test_album_result_extracts_genre_ids_and_english_names() -> None:
-    result = deezer._album_result_from_payload({"found": True, "data": ALBUM_FOUND_BODY})
+    result = deezer.album_result_from_payload({"found": True, "data": ALBUM_FOUND_BODY})
 
     assert result.found is True
     assert result.genre_ids == [85, 464]
@@ -150,7 +150,7 @@ def test_album_result_extracts_genre_ids_and_english_names() -> None:
 
 
 def test_album_result_from_not_found_payload() -> None:
-    result = deezer._album_result_from_payload({"found": False})
+    result = deezer.album_result_from_payload({"found": False})
 
     assert result.found is False
     assert result.genre_ids == []
@@ -166,7 +166,7 @@ def test_album_result_from_not_found_payload() -> None:
 def test_only_both_marks_together_count_as_the_documented_miss(
     error_body: dict[str, object],
 ) -> None:
-    """The live miss carries `DataException` and `800` together; either mark alone
+    """the live miss carries `DataException` and `800` together; either mark alone
     is unverified, and caching it as a miss would blank the row for a whole TTL."""
     with pytest.raises(deezer.DeezerApiError):
-        deezer._is_not_found_body(error_body)
+        deezer.is_not_found_body(error_body)

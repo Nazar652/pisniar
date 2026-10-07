@@ -22,7 +22,7 @@ from pisniar.resolve.matching import is_match
 
 logger = get_logger(__name__)
 
-# Its own instance, like every other adapter's: a slow LRCLIB call must not
+# its own instance, like every other adapter's: a slow LRCLIB call must not
 # delay a Deezer one.
 THROTTLE = Throttler(min_interval_seconds=1.0)
 SOURCE_NAME = "lrclib"
@@ -37,12 +37,12 @@ REQUEST_HEADERS = {"User-Agent": "pisniar-v2/0.1 (personal Telegram music bot)"}
 # so the joined form finds more lyrics than the first artist alone.
 ARTIST_JOIN_SEPARATOR = ", "
 
-# The only shape that proves "not found"; anything else is undocumented and
+# the only shape that proves "not found"; anything else is undocumented and
 # therefore loud, a proxy's HTML 404 included.
 NOT_FOUND_STATUS_CODE = 404
 NOT_FOUND_ERROR_NAMES = frozenset({"TrackNotFound"})
 
-# A 503 here is server load that clears on retry. Only "did not answer" is
+# a 503 here is server load that clears on retry. Only "did not answer" is
 # retried, and exhausting the retries never turns it into "not found".
 RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
 MAX_ATTEMPTS = 3
@@ -66,7 +66,7 @@ class LyricsOutcome(StrEnum):
 
 
 class LrclibApiError(RuntimeError):
-    """A response whose shape proves nothing. Raised rather than cached: an outage
+    """a response whose shape proves nothing. Raised rather than cached: an outage
     cached as "no lyrics" would hide the lyrics for a whole TTL."""
 
     outcome = LyricsOutcome.SOURCE_UNAVAILABLE
@@ -107,7 +107,7 @@ async def fetch_lyrics(
     title: str,
     duration_ms: int | None,
 ) -> LyricsResult:
-    """The duration is never sent to LRCLIB; `is_match` checks the answer against it.
+    """the duration is never sent to LRCLIB; `is_match` checks the answer against it.
     `LrclibApiError` and `lrc.LrcParseError` both raise before anything is cached."""
     artist_query = join_artist_names(artist_names)
     normalized_title = " ".join(title.split())
@@ -121,21 +121,21 @@ async def fetch_lyrics(
         return LyricsResult(outcome=LyricsOutcome.ABSENT)
 
     cache_key = build_request_key("lrclib:lyrics:", artist_query, normalized_title)
-    # For the log only: "LRCLIB answered" and "the cache answered" read differently.
+    # for the log only: "LRCLIB answered" and "the cache answered" read differently.
     asked_lrclib = False
 
     async def do_fetch() -> dict[str, object]:
         nonlocal asked_lrclib
         asked_lrclib = True
 
-        record = await _get_record(client, artist_query, normalized_title)
+        record = await get_record(client, artist_query, normalized_title)
         if record is not None:
-            # Classified here as well as on the read path: an empty positive
+            # classified here as well as on the read path: an empty positive
             # must raise *before* `SourceCache` can write it.
-            _classify_record(record)
+            classify_record(record)
             return {"found": True, "record": record}
 
-        fallback = await _search_for_record(
+        fallback = await search_for_record(
             client, artist_query=artist_query, title=normalized_title, duration_ms=duration_ms
         )
         if fallback is None:
@@ -143,7 +143,7 @@ async def fetch_lyrics(
         return {"found": True, "record": fallback}
 
     payload = await cache.get_or_fetch(SOURCE_NAME, cache_key, do_fetch)
-    result = _result_from_payload(
+    result = result_from_payload(
         payload, artist_query=artist_query, title=normalized_title, duration_ms=duration_ms
     )
 
@@ -157,15 +157,17 @@ async def fetch_lyrics(
     return result
 
 
-async def _request(client: httpx.AsyncClient, url: str, params: dict[str, str]) -> httpx.Response:
-    """The only place a transport failure becomes `LrclibApiError`; narrow on
+async def send_request(
+    client: httpx.AsyncClient, url: str, query_parameters: dict[str, str]
+) -> httpx.Response:
+    """the only place a transport failure becomes `LrclibApiError`; narrow on
     purpose, so `SoftTimeLimitExceeded` and `SQLAlchemyError` travel through."""
     last_reason = "no attempt was made"
 
     for attempt in range(MAX_ATTEMPTS):
         await THROTTLE.wait()
         try:
-            response = await client.get(url, params=params, headers=REQUEST_HEADERS)
+            response = await client.get(url, params=query_parameters, headers=REQUEST_HEADERS)
         except httpx.HTTPError as error:
             last_reason = f"{type(error).__name__}: {error}"
         else:
@@ -180,36 +182,38 @@ async def _request(client: httpx.AsyncClient, url: str, params: dict[str, str]) 
     raise LrclibApiError(f"lrclib не відповів за {MAX_ATTEMPTS} спроб: {last_reason}")
 
 
-async def _get_record(
+async def get_record(
     client: httpx.AsyncClient, artist_query: str, title: str
 ) -> dict[str, object] | None:
     """`None` means the documented miss and nothing else — every other shape
     has already raised by the time this returns."""
-    response = await _request(client, GET_URL, {"artist_name": artist_query, "track_name": title})
+    response = await send_request(
+        client, GET_URL, {"artist_name": artist_query, "track_name": title}
+    )
 
-    if _is_documented_miss(response):
+    if is_documented_miss(response):
         return None
 
-    return _require_ok_json_object(response)
+    return require_ok_json_object(response)
 
 
-async def _search_for_record(
+async def search_for_record(
     client: httpx.AsyncClient, *, artist_query: str, title: str, duration_ms: int | None
 ) -> dict[str, object] | None:
-    """A 404 only proves nothing is stored under our exact artist string. Searched
+    """a 404 only proves nothing is stored under our exact artist string. Searched
     by title alone, since an artist filter would repeat that mismatch."""
-    response = await _request(client, SEARCH_URL, {"track_name": title})
-    body = _require_ok_json(response)
+    response = await send_request(client, SEARCH_URL, {"track_name": title})
+    body = require_ok_json(response)
 
     candidates = [as_dict(candidate) for candidate in as_list(body)[:MAX_SEARCH_CANDIDATES]]
     for candidate in candidates:
-        if not _belongs_to_track(
+        if not belongs_to_track(
             candidate, artist_query=artist_query, title=title, duration_ms=duration_ms
         ):
             continue
-        # An empty search row answers about some other track: skipped, not
+        # an empty search row answers about some other track: skipped, not
         # raised on. Only `/api/get` answers *our* question.
-        if _has_content(candidate):
+        if has_content(candidate):
             logger.info("lrclib_search_fallback_matched", candidate_count=len(candidates))
             return candidate
 
@@ -217,13 +221,13 @@ async def _search_for_record(
     return None
 
 
-def _is_documented_miss(response: httpx.Response) -> bool:
+def is_documented_miss(response: httpx.Response) -> bool:
     """404 is not the verdict, the body is. `and`, not `or`, like Deezer's
     whitelist: either mark alone is an unverified combination."""
     if response.status_code != NOT_FOUND_STATUS_CODE:
         return False
 
-    body = as_dict(_json_body(response))
+    body = as_dict(json_body(response))
     error_name = as_str(body.get("name"))
     # `statusCode`, not `code`: the body is
     # `{"message": ..., "name": "TrackNotFound", "statusCode": 404}`.
@@ -237,18 +241,18 @@ def _is_documented_miss(response: httpx.Response) -> bool:
     )
 
 
-def _require_ok_json(response: httpx.Response) -> object:
+def require_ok_json(response: httpx.Response) -> object:
     if response.status_code != httpx.codes.OK:
         raise LrclibApiError(f"lrclib відповів HTTP {response.status_code}")
-    return _json_body(response)
+    return json_body(response)
 
 
-def _require_ok_json_object(response: httpx.Response) -> dict[str, object]:
-    return as_dict(_require_ok_json(response))
+def require_ok_json_object(response: httpx.Response) -> dict[str, object]:
+    return as_dict(require_ok_json(response))
 
 
-def _json_body(response: httpx.Response) -> object:
-    """A non-JSON body is a proxy or an error page, not the application. It never
+def json_body(response: httpx.Response) -> object:
+    """a non-JSON body is a proxy or an error page, not the application. It never
     goes into the message: it may carry the lyrics and it may be huge."""
     try:
         return response.json()
@@ -259,8 +263,8 @@ def _json_body(response: httpx.Response) -> object:
         ) from error
 
 
-def _classify_record(record: dict[str, object]) -> LyricsResult:
-    """Synced first, so a record with both real lyrics and an `instrumental`
+def classify_record(record: dict[str, object]) -> LyricsResult:
+    """synced first, so a record with both real lyrics and an `instrumental`
     flag is still rendered."""
     synced_lyrics = (as_str(record.get("syncedLyrics")) or "").strip()
     plain_lyrics = (as_str(record.get("plainLyrics")) or "").strip()
@@ -287,7 +291,7 @@ def _classify_record(record: dict[str, object]) -> LyricsResult:
     )
 
 
-def _has_content(record: dict[str, object]) -> bool:
+def has_content(record: dict[str, object]) -> bool:
     return bool(
         (as_str(record.get("syncedLyrics")) or "").strip()
         or (as_str(record.get("plainLyrics")) or "").strip()
@@ -295,10 +299,10 @@ def _has_content(record: dict[str, object]) -> bool:
     )
 
 
-def _belongs_to_track(
+def belongs_to_track(
     record: dict[str, object], *, artist_query: str, title: str, duration_ms: int | None
 ) -> bool:
-    """An empty field gets its own log line: `is_match` rejects it anyway, but a
+    """an empty field gets its own log line: `is_match` rejects it anyway, but a
     truncated answer must stay tellable from a genuinely foreign one."""
     candidate_artist = as_str(record.get("artistName")) or ""
     candidate_title = as_str(record.get("trackName")) or ""
@@ -317,11 +321,11 @@ def _belongs_to_track(
         reference_duration_ms=duration_ms,
         candidate_artist=candidate_artist,
         candidate_title=candidate_title,
-        candidate_duration_ms=_duration_ms_of(record),
+        candidate_duration_ms=duration_ms_of(record),
     )
 
 
-def _duration_ms_of(record: dict[str, object]) -> int | None:
+def duration_ms_of(record: dict[str, object]) -> int | None:
     """LRCLIB answers seconds, and as a float — `as_int` would drop `233.0`
     on the floor and read it as an absent duration."""
     duration = record.get("duration")
@@ -330,22 +334,22 @@ def _duration_ms_of(record: dict[str, object]) -> int | None:
     return round(duration * 1000)
 
 
-def _result_from_payload(
+def result_from_payload(
     payload: dict[str, object], *, artist_query: str, title: str, duration_ms: int | None
 ) -> LyricsResult:
-    """Guards the read path too: a cached row is re-verified, not trusted."""
+    """guards the read path too: a cached row is re-verified, not trusted."""
     if not payload.get("found"):
         return LyricsResult(outcome=LyricsOutcome.ABSENT)
 
     record = as_dict(payload.get("record"))
-    if not _belongs_to_track(
+    if not belongs_to_track(
         record, artist_query=artist_query, title=title, duration_ms=duration_ms
     ):
         logger.warning(
             "lrclib_rejected_by_matching",
             title=title,
-            candidate_duration_ms=_duration_ms_of(record),
+            candidate_duration_ms=duration_ms_of(record),
         )
         return LyricsResult(outcome=LyricsOutcome.REJECTED_BY_MATCHING)
 
-    return _classify_record(record)
+    return classify_record(record)

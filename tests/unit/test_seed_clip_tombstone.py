@@ -20,7 +20,7 @@ def make_track(removed_platforms: list[object] | None) -> Track:
 def test_a_clip_lifts_the_removal_of_the_youtube_platform() -> None:
     track = make_track(["youtube", "tidal"])
 
-    handlers._seed_user_input_clip(track, CLIP)
+    handlers.seed_user_input_clip(track, CLIP)
 
     assert track.removed_platforms == ["tidal"]
     assert track.platform_links["youtube"] == {
@@ -33,7 +33,7 @@ def test_a_clip_lifts_the_removal_of_the_youtube_platform() -> None:
 def test_a_clip_leaves_other_removals_alone() -> None:
     track = make_track(["tidal"])
 
-    handlers._seed_user_input_clip(track, CLIP)
+    handlers.seed_user_input_clip(track, CLIP)
 
     assert track.removed_platforms == ["tidal"]
 
@@ -41,7 +41,7 @@ def test_a_clip_leaves_other_removals_alone() -> None:
 def test_a_track_without_a_removal_list_yet_is_seeded() -> None:
     track = make_track(None)
 
-    handlers._seed_user_input_clip(track, CLIP)
+    handlers.seed_user_input_clip(track, CLIP)
 
     assert track.platform_links["youtube"] == {
         "url": CLIP.normalized_url,
@@ -53,6 +53,6 @@ def test_a_track_without_a_removal_list_yet_is_seeded() -> None:
 def test_no_clip_changes_nothing() -> None:
     track = make_track(["youtube"])
 
-    handlers._seed_user_input_clip(track, None)
+    handlers.seed_user_input_clip(track, None)
 
     assert track.removed_platforms == ["youtube"]

@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from pisniar.logging import get_logger
+from pisniar.resolve.json_utils import as_int, as_nonempty_str
 
 logger = get_logger(__name__)
 
@@ -19,13 +20,13 @@ FFPROBE_BINARY = "ffprobe"
 
 PROBE_TIMEOUT_SECONDS = 30
 
-# Enough of stderr to diagnose with, bounded so a chatty failure cannot turn
+# enough of stderr to diagnose with, bounded so a chatty failure cannot turn
 # `post.last_error` (and the admin alert built from it) into a wall of text.
 STDERR_TAIL_CHARACTERS = 2000
 
 
 class MediaToolError(RuntimeError):
-    """Base for every ffmpeg/ffprobe failure. Deliberately not routed through
+    """base for every ffmpeg/ffprobe failure. Deliberately not routed through
     `isolated_source_call`: a failure here means there is no product."""
 
 
@@ -83,7 +84,7 @@ class MediaProbe:
 def run_media_tool(
     binary: str, arguments: list[str], *, timeout_seconds: float
 ) -> subprocess.CompletedProcess[str]:
-    """Every value in `arguments` is built from validated ids, never concatenated."""
+    """every value in `arguments` is built from validated ids, never concatenated."""
     command = [binary, *arguments]
     logger.info("media_tool_started", binary=binary, argument_count=len(arguments))
 
@@ -124,7 +125,7 @@ def stderr_tail(stderr: str | None) -> str:
 
 
 def probe_media(path: Path, *, timeout_seconds: float = PROBE_TIMEOUT_SECONDS) -> MediaProbe:
-    """Size first, on purpose: a zero-byte output is what ffmpeg exiting 0 leaves."""
+    """size first, on purpose: a zero-byte output is what ffmpeg exiting 0 leaves."""
     if not path.is_file():
         raise MediaProbeError(f"файл не існує: {path}")
 
@@ -146,9 +147,9 @@ def probe_media(path: Path, *, timeout_seconds: float = PROBE_TIMEOUT_SECONDS) -
         timeout_seconds=timeout_seconds,
     )
 
-    payload = _parse_probe_payload(completed.stdout, path)
-    streams = _parse_streams(payload.get("streams"))
-    duration_ms = _parse_duration_ms(payload, streams_payload=payload.get("streams"), path=path)
+    payload = parse_probe_payload(completed.stdout, path)
+    streams = parse_streams(payload.get("streams"))
+    duration_ms = parse_duration_ms(payload, streams_payload=payload.get("streams"), path=path)
 
     return MediaProbe(path=path, size_bytes=size_bytes, duration_ms=duration_ms, streams=streams)
 
@@ -183,7 +184,7 @@ def verify_media(
     return probe
 
 
-def _parse_probe_payload(stdout: str, path: Path) -> dict[str, object]:
+def parse_probe_payload(stdout: str, path: Path) -> dict[str, object]:
     try:
         payload = json.loads(stdout or "{}")
     except json.JSONDecodeError as error:
@@ -194,7 +195,7 @@ def _parse_probe_payload(stdout: str, path: Path) -> dict[str, object]:
     return payload
 
 
-def _parse_streams(streams_payload: object) -> tuple[StreamInfo, ...]:
+def parse_streams(streams_payload: object) -> tuple[StreamInfo, ...]:
     if not isinstance(streams_payload, list):
         return ()
 
@@ -208,36 +209,36 @@ def _parse_streams(streams_payload: object) -> tuple[StreamInfo, ...]:
         streams.append(
             StreamInfo(
                 codec_type=codec_type,
-                codec_name=_optional_string(entry.get("codec_name")),
-                width=_optional_int(entry.get("width")),
-                height=_optional_int(entry.get("height")),
-                pix_fmt=_optional_string(entry.get("pix_fmt")),
-                color_range=_optional_string(entry.get("color_range")),
+                codec_name=as_nonempty_str(entry.get("codec_name")),
+                width=as_int(entry.get("width")),
+                height=as_int(entry.get("height")),
+                pix_fmt=as_nonempty_str(entry.get("pix_fmt")),
+                color_range=as_nonempty_str(entry.get("color_range")),
             )
         )
     return tuple(streams)
 
 
-def _parse_duration_ms(payload: dict[str, object], *, streams_payload: object, path: Path) -> int:
+def parse_duration_ms(payload: dict[str, object], *, streams_payload: object, path: Path) -> int:
     format_payload = payload.get("format")
     if isinstance(format_payload, dict):
-        duration_ms = _seconds_to_ms(format_payload.get("duration"))
+        duration_ms = seconds_to_ms(format_payload.get("duration"))
         if duration_ms is not None:
             return duration_ms
 
-    # A raw audio container (what yt-dlp hands back) often carries the
+    # a raw audio container (what yt-dlp hands back) often carries the
     # duration only on its stream, not in the container header.
     if isinstance(streams_payload, list):
         for entry in streams_payload:
             if isinstance(entry, dict):
-                duration_ms = _seconds_to_ms(entry.get("duration"))
+                duration_ms = seconds_to_ms(entry.get("duration"))
                 if duration_ms is not None:
                     return duration_ms
 
     raise MediaProbeError(f"ffprobe не повідомив тривалості для {path}")
 
 
-def _seconds_to_ms(value: object) -> int | None:
+def seconds_to_ms(value: object) -> int | None:
     if isinstance(value, bool) or not isinstance(value, str | int | float):
         return None
     try:
@@ -247,11 +248,3 @@ def _seconds_to_ms(value: object) -> int | None:
     if seconds <= 0:
         return None
     return round(seconds * 1000)
-
-
-def _optional_string(value: object) -> str | None:
-    return value if isinstance(value, str) and value else None
-
-
-def _optional_int(value: object) -> int | None:
-    return value if isinstance(value, int) and not isinstance(value, bool) else None

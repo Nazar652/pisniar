@@ -13,14 +13,14 @@ from pisniar.telegram.keyboards import draft_keyboard
 
 
 async def deliver_draft(bot: Bot, post: Post, chat_id: int) -> None:
-    """Idempotent: a `post` with `draft_message_id` already set is a no-op —
+    """idempotent: a `post` with `draft_message_id` already set is a no-op —
     this is what makes Celery's at-least-once redelivery safe."""
     if post.draft_message_id is not None:
         return
     if post.caption is None:
         raise ValueError(f"post {post.id} has no caption to deliver")
 
-    # A caption is full of platform links; without this Telegram appends a
+    # a caption is full of platform links; without this Telegram appends a
     # preview card and the draft no longer looks like the future post.
     sent_message = await bot.send_message(
         chat_id=chat_id,

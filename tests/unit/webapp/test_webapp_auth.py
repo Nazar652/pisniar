@@ -36,7 +36,7 @@ def test_genuine_init_data_returns_the_user_id() -> None:
 
 
 def test_the_signature_field_is_part_of_the_hashed_string() -> None:
-    # Telegram hashes every field but `hash`, `signature` included.
+    # telegram hashes every field but `hash`, `signature` included.
     without = make_init_data(extra={"signature": "other-value"})
     assert validate_init_data(without, BOT_TOKEN, NOW, WINDOW) == ADMIN_ID
 

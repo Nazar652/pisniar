@@ -76,7 +76,7 @@ def test_bounds_inside_the_file_are_accepted() -> None:
 
 
 def test_bounds_past_the_end_of_the_file_are_rejected() -> None:
-    """The bounds must fit the audio that is actually on disk, not the duration
+    """the bounds must fit the audio that is actually on disk, not the duration
     some source once reported."""
     bounds = fragment_rule.FragmentBounds(start_ms=0, end_ms=45_000)
 

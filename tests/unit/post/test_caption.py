@@ -12,7 +12,7 @@ from pisniar.resolve.types import ArtistInfo, GenreInfo, MatchClass, PlatformLin
 SPOTIFY_LINK = PlatformLink(
     url="https://open.spotify.com/track/x", source="spotify", match=MatchClass.EXACT_ISRC
 )
-YTM_LINK = PlatformLink(
+YOUTUBE_MUSIC_LINK = PlatformLink(
     url="https://music.youtube.com/watch?v=x", source="ytmusic", match=MatchClass.CONFIRMED
 )
 DEEZER_LINK = PlatformLink(
@@ -39,7 +39,7 @@ def test_simple_single_matches_template_shape() -> None:
         album_id_spotify=None,
         languages=["українська"],
         genres=[GenreInfo(name="рок", hashtag=None, source="deezer")],
-        platform_links={"spotify": SPOTIFY_LINK, "youtubeMusic": YTM_LINK},
+        platform_links={"spotify": SPOTIFY_LINK, "youtubeMusic": YOUTUBE_MUSIC_LINK},
     )
 
     text = plain_text(document)
@@ -125,7 +125,7 @@ def test_digit_only_genre_name_is_skipped_with_warning() -> None:
 
 
 def test_a_rich_post_fits_the_media_limit_without_degrading() -> None:
-    """A realistic post is 150-650 units against 1024, so nothing is dropped and
+    """a realistic post is 150-650 units against 1024, so nothing is dropped and
     degradation stays the rare branch."""
     document, warnings = build_caption(
         artists=[ArtistInfo(name="hackedface")],
@@ -141,7 +141,7 @@ def test_a_rich_post_fits_the_media_limit_without_degrading() -> None:
         ],
         platform_links={
             "spotify": SPOTIFY_LINK,
-            "youtubeMusic": YTM_LINK,
+            "youtubeMusic": YOUTUBE_MUSIC_LINK,
             "deezer": DEEZER_LINK,
             "tidal": TIDAL_LINK,
         },
@@ -155,7 +155,7 @@ def test_a_rich_post_fits_the_media_limit_without_degrading() -> None:
 
 
 def test_the_default_limit_is_the_media_limit_not_4096() -> None:
-    """The draft the admin approves must already be built for a photo caption, or
+    """the draft the admin approves must already be built for a photo caption, or
     the channel would show a different text."""
     assert MEDIA_CAPTION_LIMIT == 1024
 
@@ -167,7 +167,7 @@ def test_the_default_limit_is_the_media_limit_not_4096() -> None:
         release_title=None,
         album_id_spotify=None,
         languages=["українська"],
-        genres=_many_genres(200),
+        genres=many_genres(200),
         platform_links={"spotify": SPOTIFY_LINK},
     )
 
@@ -222,7 +222,11 @@ def test_a_manual_youtube_link_leads_the_row_and_is_marked_as_a_clip() -> None:
         album_id_spotify=None,
         languages=["українська"],
         genres=[],
-        platform_links={"spotify": SPOTIFY_LINK, "youtube": CLIP_LINK, "youtubeMusic": YTM_LINK},
+        platform_links={
+            "spotify": SPOTIFY_LINK,
+            "youtube": CLIP_LINK,
+            "youtubeMusic": YOUTUBE_MUSIC_LINK,
+        },
     )
 
     assert "YouTube (кліп) · Spotify · YouTube Music" in plain_text(document)
@@ -243,7 +247,7 @@ def test_an_automatic_youtube_link_is_neither_first_nor_called_a_clip() -> None:
         platform_links={
             "spotify": SPOTIFY_LINK,
             "youtube": TOPIC_UPLOAD_LINK,
-            "youtubeMusic": YTM_LINK,
+            "youtubeMusic": YOUTUBE_MUSIC_LINK,
         },
     )
 
@@ -252,21 +256,26 @@ def test_an_automatic_youtube_link_is_neither_first_nor_called_a_clip() -> None:
     assert "Spotify · YouTube Music · YouTube" in text
 
 
-def _many_genres(count: int) -> list[GenreInfo]:
-    return [GenreInfo(name=f"жанр{i}", hashtag=f"Жанр{i}", source="deezer") for i in range(count)]
+def many_genres(count: int) -> list[GenreInfo]:
+    return [
+        GenreInfo(name=f"жанр{index}", hashtag=f"Жанр{index}", source="deezer")
+        for index in range(count)
+    ]
 
 
-def _many_platforms(count: int) -> dict[str, PlatformLink]:
-    base = {"spotify": SPOTIFY_LINK, "youtubeMusic": YTM_LINK}
-    for i in range(count):
-        base[f"platform{i}"] = PlatformLink(
-            url=f"https://example.com/platform{i}", source="songlink", match=MatchClass.EXACT_ISRC
+def many_platforms(count: int) -> dict[str, PlatformLink]:
+    base = {"spotify": SPOTIFY_LINK, "youtubeMusic": YOUTUBE_MUSIC_LINK}
+    for index in range(count):
+        base[f"platform{index}"] = PlatformLink(
+            url=f"https://example.com/platform{index}",
+            source="songlink",
+            match=MatchClass.EXACT_ISRC,
         )
     return base
 
 
 def test_caption_degrades_to_fit_1024_limit() -> None:
-    """At the real 1024 limit degradation must fire routinely, not just in a
+    """at the real 1024 limit degradation must fire routinely, not just in a
     contrived edge case."""
     document, _ = build_caption(
         artists=[ArtistInfo(name="Burned Time Machine"), ArtistInfo(name="0%Mercury")],
@@ -276,8 +285,8 @@ def test_caption_degrades_to_fit_1024_limit() -> None:
         release_title="A Reasonably Long Release Title For This Test Too",
         album_id_spotify="alb1",
         languages=["українська"],
-        genres=_many_genres(15),
-        platform_links=_many_platforms(15),
+        genres=many_genres(15),
+        platform_links=many_platforms(15),
         limit=1024,
     )
 
@@ -293,7 +302,7 @@ def test_degradation_drops_genres_before_platforms() -> None:
         release_title=None,
         album_id_spotify=None,
         languages=["українська"],
-        genres=_many_genres(30),
+        genres=many_genres(30),
         platform_links={"spotify": SPOTIFY_LINK, "deezer": DEEZER_LINK},
         limit=200,
     )
@@ -315,7 +324,7 @@ def test_degradation_protects_spotify_and_youtube_music_until_last() -> None:
         album_id_spotify=None,
         languages=["українська"],
         genres=[],
-        platform_links=_many_platforms(30),
+        platform_links=many_platforms(30),
         limit=72,
     )
 
@@ -334,14 +343,14 @@ def test_degradation_never_touches_first_line_or_channel_link() -> None:
         release_title="Also A Very Long Release Title That Keeps Going",
         album_id_spotify="alb1",
         languages=["українська"],
-        genres=_many_genres(20),
-        platform_links=_many_platforms(20),
+        genres=many_genres(20),
+        platform_links=many_platforms(20),
         limit=50,
     )
 
     text = plain_text(document)
     assert text.startswith("Very Long Artist Name Indeed — An Extremely Long Track Title")
-    # The language is never degraded: it is always shown.
+    # the language is never degraded: it is always shown.
     assert "#українська" in text
     assert text.endswith("Піснярня 🇺🇦")
     channel_links = [

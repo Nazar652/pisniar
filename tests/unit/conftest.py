@@ -11,7 +11,7 @@ from typing import Any
 
 import pytest
 
-_LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
+LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
 
 
 class NetworkAccessDisabledInUnitTestsError(RuntimeError):
@@ -24,7 +24,7 @@ def block_network_access(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 
     def guarded_connect(self: socket.socket, address: tuple[Any, ...] | str) -> object:
         host = address[0] if isinstance(address, tuple) else address
-        if host in _LOOPBACK_HOSTS:
+        if host in LOOPBACK_HOSTS:
             return original_connect(self, address)
         raise NetworkAccessDisabledInUnitTestsError(
             f"unit test attempted a real network connection to {address!r}; mock it instead"

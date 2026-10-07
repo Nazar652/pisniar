@@ -16,7 +16,7 @@ from pisniar.logging import get_logger, register_runtime_secret
 from pisniar.resolve.cache import SourceCache, build_request_key
 from pisniar.resolve.http import Throttler, parse_retry_after_seconds
 from pisniar.resolve.json_utils import as_dict, as_int, as_list, as_str
-from pisniar.resolve.matching import is_valid_isrc, is_valid_spotify_id
+from pisniar.resolve.matching import is_valid_isrc
 from pisniar.resolve.types import TrackCandidate
 
 logger = get_logger(__name__)
@@ -24,13 +24,13 @@ logger = get_logger(__name__)
 THROTTLE = Throttler(min_interval_seconds=1.0)
 SEARCH_LIMIT = 5
 SOURCE_NAME = "spotify"
-MAX_RETRIES = 3
+MAX_ATTEMPTS = 3
 DEFAULT_RETRY_DELAY_SECONDS = 2.0
 TOKEN_EXPIRY_MARGIN_SECONDS = 60
 RUNTIME_SECRET_NAME = "spotify_access_token"
 
-_cached_access_token: str | None = None
-_cached_token_expires_at: float = 0.0
+cached_access_token: str | None = None
+cached_token_expires_at: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -49,12 +49,12 @@ class SpotifyTrackResult:
     album_id: str | None = None
 
 
-async def _get_access_token(client: httpx.AsyncClient, client_id: str, client_secret: str) -> str:
-    global _cached_access_token, _cached_token_expires_at
+async def get_access_token(client: httpx.AsyncClient, client_id: str, client_secret: str) -> str:
+    global cached_access_token, cached_token_expires_at
 
     now = time.monotonic()
-    if _cached_access_token is not None and now < _cached_token_expires_at:
-        return _cached_access_token
+    if cached_access_token is not None and now < cached_token_expires_at:
+        return cached_access_token
 
     basic_auth = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
     response = await client.post(
@@ -65,25 +65,25 @@ async def _get_access_token(client: httpx.AsyncClient, client_id: str, client_se
     response.raise_for_status()
     data = response.json()
 
-    _cached_access_token = data["access_token"]
-    _cached_token_expires_at = now + data["expires_in"] - TOKEN_EXPIRY_MARGIN_SECONDS
+    cached_access_token = data["access_token"]
+    cached_token_expires_at = now + data["expires_in"] - TOKEN_EXPIRY_MARGIN_SECONDS
 
-    register_runtime_secret(RUNTIME_SECRET_NAME, _cached_access_token)
-    return _cached_access_token
+    register_runtime_secret(RUNTIME_SECRET_NAME, cached_access_token)
+    return cached_access_token
 
 
-async def _request(
+async def send_request(
     client: httpx.AsyncClient,
     url: str,
-    params: dict[str, str | int],
+    query_parameters: dict[str, str | int],
     client_id: str,
     client_secret: str,
 ) -> httpx.Response:
-    for attempt in range(MAX_RETRIES):
-        token = await _get_access_token(client, client_id, client_secret)
+    for attempt in range(MAX_ATTEMPTS):
+        token = await get_access_token(client, client_id, client_secret)
         await THROTTLE.wait()
         response = await client.get(
-            url, params=params, headers={"Authorization": f"Bearer {token}"}
+            url, params=query_parameters, headers={"Authorization": f"Bearer {token}"}
         )
 
         if response.status_code == 429:
@@ -95,7 +95,7 @@ async def _request(
         response.raise_for_status()
         return response
 
-    raise httpx.HTTPError(f"Spotify kept rate-limiting after {MAX_RETRIES} attempts")
+    raise httpx.HTTPError(f"Spotify kept rate-limiting after {MAX_ATTEMPTS} attempts")
 
 
 async def search_by_isrc(
@@ -107,7 +107,7 @@ async def search_by_isrc(
     cache_key = build_request_key("spotify:search:isrc:", isrc, casefold=False)
 
     async def do_fetch() -> dict[str, object]:
-        response = await _request(
+        response = await send_request(
             client,
             "https://api.spotify.com/v1/search",
             {"q": f"isrc:{isrc}", "type": "track", "limit": 1},
@@ -120,7 +120,7 @@ async def search_by_isrc(
         return {"found": True, "data": items[0]}
 
     payload = await cache.get_or_fetch("spotify", cache_key, do_fetch)
-    return _track_result_from_payload(payload)
+    return track_result_from_payload(payload)
 
 
 async def search_by_name(
@@ -134,7 +134,7 @@ async def search_by_name(
     cache_key = build_request_key("spotify:search:name:", artist, title)
 
     async def do_fetch() -> dict[str, object]:
-        response = await _request(
+        response = await send_request(
             client,
             "https://api.spotify.com/v1/search",
             {"q": f'artist:"{artist}" track:"{title}"', "type": "track", "limit": SEARCH_LIMIT},
@@ -148,38 +148,11 @@ async def search_by_name(
     results = payload.get("results")
     if not isinstance(results, list):
         return []
-    candidates = [_candidate_from_item(item) for item in results[:SEARCH_LIMIT]]
+    candidates = [candidate_from_item(item) for item in results[:SEARCH_LIMIT]]
     return [candidate for candidate in candidates if candidate.url]
 
 
-async def get_track(
-    client: httpx.AsyncClient,
-    cache: SourceCache,
-    spotify_track_id: str,
-    client_id: str,
-    client_secret: str,
-) -> SpotifyTrackResult:
-    if not is_valid_spotify_id(spotify_track_id):
-        # No caller yet; a source-supplied id never reaches the URL path unchecked.
-        return SpotifyTrackResult(found=False)
-
-    cache_key = build_request_key("spotify:track:", spotify_track_id, casefold=False)
-
-    async def do_fetch() -> dict[str, object]:
-        response = await _request(
-            client,
-            f"https://api.spotify.com/v1/tracks/{spotify_track_id}",
-            {},
-            client_id,
-            client_secret,
-        )
-        return {"found": True, "data": response.json()}
-
-    payload = await cache.get_or_fetch("spotify", cache_key, do_fetch)
-    return _track_result_from_payload(payload)
-
-
-def _track_result_from_payload(payload: dict[str, object]) -> SpotifyTrackResult:
+def track_result_from_payload(payload: dict[str, object]) -> SpotifyTrackResult:
     if not payload.get("found"):
         return SpotifyTrackResult(found=False)
 
@@ -205,7 +178,7 @@ def _track_result_from_payload(payload: dict[str, object]) -> SpotifyTrackResult
     )
 
 
-def _candidate_from_item(item: dict[str, object]) -> TrackCandidate:
+def candidate_from_item(item: dict[str, object]) -> TrackCandidate:
     artists = [as_dict(artist) for artist in as_list(item.get("artists"))]
     artist_name = ", ".join(as_str(artist.get("name")) or "" for artist in artists)
     external_ids = as_dict(item.get("external_ids"))

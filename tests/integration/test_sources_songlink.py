@@ -23,7 +23,7 @@ async def test_fetch_caches_result_and_skips_network_on_second_call(
     source_cache: SourceCache,
 ) -> None:
     request_count = 0
-    # Unique per run: `source_cache` commits for real now, so a fixed key
+    # unique per run: `source_cache` commits for real now, so a fixed key
     # would still be a fresh hit from the previous run an hour ago.
     track_url = f"https://open.spotify.com/track/{uuid.uuid4().hex}"
 

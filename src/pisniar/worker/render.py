@@ -19,7 +19,7 @@ logger = get_logger(__name__)
 
 VIDEO_WIDTH = 720
 VIDEO_HEIGHT = 1280
-# The cover sits high, not centred: the band below holds the lyrics, so a long
+# the cover sits high, not centred: the band below holds the lyrics, so a long
 # line overflows into black, not onto a face. `ass.TEXT_BAND_TOP_PX` builds on it.
 COVER_TOP_OFFSET_PX = 100
 VIDEO_FPS = 30
@@ -38,26 +38,26 @@ COVER_DOWNLOAD_TIMEOUT_SECONDS = 30.0
 COVER_MAX_BYTES = 8 * 1024 * 1024
 COVER_FILE_NAME = "cover.img"
 
-# Telegram caps a custom `thumbnail` at 320 px per edge. Cut from the rendered
+# telegram caps a custom `thumbnail` at 320 px per edge. Cut from the rendered
 # file, so it shows the padded frame subscribers see, not the raw square cover.
 THUMBNAIL_MAX_EDGE = 320
 THUMBNAIL_TIMEOUT_SECONDS = 30.0
 
-# Bumped whenever the filtergraph or the encoder settings change: it is an
+# bumped whenever the filtergraph or the encoder settings change: it is an
 # input to `params_hash`, so an old artifact stops being reused.
 RENDERER_VERSION = "4B.1"
 
 
 class RenderError(RuntimeError):
-    """Base for every render failure — loud, never isolated."""
+    """base for every render failure — loud, never isolated."""
 
 
 class MissingCoverError(RenderError):
-    """No cover to put in the frame, and the cover is the frame."""
+    """no cover to put in the frame, and the cover is the frame."""
 
 
 class RenderTooLargeError(RenderError):
-    """Over the Telegram ceiling even after the one lower-bitrate attempt."""
+    """over the Telegram ceiling even after the one lower-bitrate attempt."""
 
 
 @dataclass(frozen=True)
@@ -69,7 +69,7 @@ class EncoderQuality:
 
 
 DEFAULT_QUALITY = EncoderQuality(crf="23", maxrate="2000k", bufsize="4000k", preset="veryfast")
-# The single retry before the post fails; an oversized file is never sent.
+# the single retry before the post fails; an oversized file is never sent.
 REDUCED_QUALITY = EncoderQuality(crf="30", maxrate="1200k", bufsize="2400k", preset="veryfast")
 
 
@@ -79,7 +79,7 @@ class RenderParameters:
     cover_path: Path
     fragment_start_ms: int
     fragment_end_ms: int
-    # Passed in from outside, never decided here: subtitles stay an optional
+    # passed in from outside, never decided here: subtitles stay an optional
     # layer over the same filtergraph.
     subtitles_path: Path | None = None
 
@@ -98,7 +98,7 @@ def compute_params_hash(
     text_version: str | None = None,
     quality: EncoderQuality = DEFAULT_QUALITY,
 ) -> str:
-    """Must cover every input the frames depend on, or a stale render is reused."""
+    """must cover every input the frames depend on, or a stale render is reused."""
     payload = {
         "renderer_version": RENDERER_VERSION,
         "video_id": video_id,
@@ -126,7 +126,7 @@ TEXT_VERSION_LENGTH = 16
 
 
 def text_version_of(subtitles_text: str | None) -> str | None:
-    """A digest of the `.ass` file itself, so a change to the lines, their timing,
+    """a digest of the `.ass` file itself, so a change to the lines, their timing,
     the fragment offset, the wrapping or the styles all change the hash."""
     if subtitles_text is None:
         return None
@@ -144,7 +144,7 @@ def build_filter_complex(subtitles_path: Path | None = None) -> str:
         "setsar=1",
     ]
     if subtitles_path is not None:
-        steps.append(f"subtitles={_escape_filter_path(subtitles_path)}")
+        steps.append(f"subtitles={escape_filter_path(subtitles_path)}")
     return "[0:v]" + ",".join(steps) + "[v]"
 
 
@@ -166,7 +166,7 @@ def build_ffmpeg_arguments(
         "-i",
         str(parameters.cover_path),
         "-ss",
-        _seconds(parameters.fragment_start_ms),
+        format_seconds(parameters.fragment_start_ms),
         "-i",
         str(parameters.audio_path),
         "-filter_complex",
@@ -176,7 +176,7 @@ def build_ffmpeg_arguments(
         "-map",
         "1:a",
         "-t",
-        _seconds(parameters.length_ms),
+        format_seconds(parameters.length_ms),
         "-c:v",
         VIDEO_CODEC,
         "-preset",
@@ -262,7 +262,7 @@ def render_fragment_within_size_limit(
     timeout_seconds: float,
     size_limit_bytes: int = TELEGRAM_VIDEO_SIZE_LIMIT_BYTES,
 ) -> tuple[MediaProbe, EncoderQuality]:
-    """One lower-bitrate retry, then the post fails: an oversized render is never sent."""
+    """one lower-bitrate retry, then the post fails: an oversized render is never sent."""
     probe = render_fragment(parameters, output_path, timeout_seconds=timeout_seconds)
     if probe.size_bytes <= size_limit_bytes:
         return probe, DEFAULT_QUALITY
@@ -303,7 +303,7 @@ def build_thumbnail_arguments(video_path: Path, output_path: Path) -> list[str]:
 def render_thumbnail(
     video_path: Path, output_path: Path, *, timeout_seconds: float = THUMBNAIL_TIMEOUT_SECONDS
 ) -> Path | None:
-    """Cosmetic, so it returns `None` instead of raising: Telegram builds its own
+    """cosmetic, so it returns `None` instead of raising: Telegram builds its own
     preview, and that is no reason to fail a post with a verified video."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -332,7 +332,7 @@ def render_thumbnail(
 async def download_cover(
     http_client: httpx.AsyncClient, cover_url: str | None, destination_directory: Path
 ) -> Path:
-    """Product-critical, so not wrapped in `isolated_source_call`: without the
+    """product-critical, so not wrapped in `isolated_source_call`: without the
     cover there is no frame, and the post has no video to show."""
     if not cover_url:
         raise MissingCoverError("у треку немає обкладинки — без неї відео не зібрати")
@@ -356,11 +356,11 @@ async def download_cover(
     return destination
 
 
-def _seconds(milliseconds: int) -> str:
+def format_seconds(milliseconds: int) -> str:
     return f"{milliseconds / 1000:.3f}"
 
 
-def _escape_filter_path(path: Path) -> str:
+def escape_filter_path(path: Path) -> str:
     """`:` and `\\` end a filter option unless escaped. POSIX form: the worker
     container is Linux whatever host the tests run on."""
     return path.as_posix().replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")

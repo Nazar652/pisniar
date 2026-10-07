@@ -89,7 +89,7 @@ suggest or introduce either.
 - The worker locks `post` `FOR UPDATE` for the whole task — that read-then-
   write pair is the delivery idempotency guard — but the `track` lock
   (`FOR NO KEY UPDATE`) lives in a **separate short transaction of its own**
-  (`_persist_track_in_own_transaction`): lock, write, commit, nothing else.
+  (`persist_track_in_own_transaction`): lock, write, commit, nothing else.
   `INSERT INTO post` takes `FOR KEY SHARE` on its parent track, so a
   `FOR UPDATE` on the track freezes the bot for the whole resolve; holding
   even the weaker lock across the network part makes a second post of the
@@ -101,8 +101,8 @@ suggest or introduce either.
   one is wrapped.
 - Every terminal branch of `resolve_post` alerts the admin **whether or not
   the database write succeeded** — Telegram does not depend on Postgres, and
-  Postgres can restart while Telegram stays up. `_fail_post`
-  and `_clean_up_non_track` both report what they could not write
+  Postgres can restart while Telegram stays up. `fail_post`
+  and `clean_up_non_track` both report what they could not write
   instead of raising past their own alert.
 - A Telegram alert delivery failure (`pisniar.telegram.notifier.send_alert`)
   never raises into business logic and never causes a Celery task retry.
@@ -186,7 +186,7 @@ suggest or introduce either.
   call in `service.resolve_track()` stays outside `isolated_source_call` —
   it produces the resolve's entry entity, and without it there is nothing
   for the other sources to key on, so failing loudly is the honest outcome.
-  The *bridged* call (`_bridge_youtube_to_spotify`, after the ISRC fan-out)
+  The *bridged* call (`bridge_youtube_to_spotify`, after the ISRC fan-out)
   is isolated: by then the track is already filled, and raising there would
   throw all of it away.
 - A `user_input` link (the clip the admin submitted) is written into the
@@ -223,7 +223,7 @@ suggest or introduce either.
   re-resolve that comes back completely empty fails the post instead of
   deleting a track that was resolved once before — deletion is only for a
   track that never resolved.
-- **`_persist_track` merges in a fixed order, and `apply_manual_fields` is last:**
+- **`persist_track` merges in a fixed order, and `apply_manual_fields` is last:**
   `merge_stored_platform_links`, `drop_removed_platforms`,
   `keep_stored_title_and_artists_after_source_failure`, `merge_stored_artists`,
   `merge_stored_scalars`, `apply_manual_fields`. A name in `track.manual_fields`
@@ -394,7 +394,7 @@ suggest or introduce either.
   back to `send_photo` would put a different post in the channel than the one
   the admin approved.
 - **A post with a preview is never downloaded or rendered again**, so the
-  render publication takes is always the one the admin saw. `_video_for_publication`
+  render publication takes is always the one the admin saw. `video_for_publication`
   picks the post's newest `render` row, and that is safe only because no row
   can appear after `preview_message_id` is written: both media tasks exit
   without work on a previewed post, and «Зробити відео» refuses it with a
@@ -506,6 +506,10 @@ suggest or introduce either.
   old code meets the new schema.
 - Autogenerate never emits a `CHECK` constraint on an existing table, so such
   a constraint is written into the revision by hand.
+- A `NOT NULL` column added to a table that already holds rows takes three
+  steps in one revision, written out per table: add it nullable, backfill it with
+  an `UPDATE` that also sets `updated_at = now()`, then `ALTER COLUMN ... SET NOT NULL`;
+  a `server_default` is not used to get past the constraint.
 - `track.duration_ms` is what the downloaded audio is
   checked against, so it has to outlive the resolve that found it: it is in
   `merge.STORED_SCALAR_FIELDS`, and without that entry the first `/retry` with

@@ -18,7 +18,7 @@ from pisniar.db.models import SourceFetch
 
 DEFAULT_TTL_SECONDS = 3600
 
-# Well under the ~2704-byte btree limit that UNIQUE (source, request_key)
+# well under the ~2704-byte btree limit that UNIQUE (source, request_key)
 # would hit as a ProgramLimitExceededError, which is not an IntegrityError.
 MAX_REQUEST_KEY_BYTES = 1000
 KEY_DIGEST_LENGTH = 32
@@ -27,7 +27,7 @@ KEY_SEPARATOR = "|"
 
 
 def normalize_key_part(value: str, *, casefold: bool = True) -> str:
-    """Identifiers pass `casefold=False`: a Spotify id is base62, so folding its
+    """identifiers pass `casefold=False`: a Spotify id is base62, so folding its
     case would merge two different tracks into one row."""
     collapsed = " ".join(value.split())
     if casefold:
@@ -36,7 +36,7 @@ def normalize_key_part(value: str, *, casefold: bool = True) -> str:
 
 
 def build_request_key(prefix: str, *parts: str, casefold: bool = True) -> str:
-    """An over-long key keeps a readable head plus a digest of the full value:
+    """an over-long key keeps a readable head plus a digest of the full value:
     deterministic, so the cache still hits, and within the btree limit."""
     key = prefix + KEY_SEPARATOR.join(normalize_key_part(part, casefold=casefold) for part in parts)
     if len(key.encode("utf-8")) <= MAX_REQUEST_KEY_BYTES:
@@ -59,7 +59,7 @@ def is_negative_payload(payload: dict[str, object]) -> bool:
 
 @dataclass(frozen=True)
 class SourceCache:
-    """Owns its sessions: a cache write must be visible to other tasks at once
+    """owns its sessions: a cache write must be visible to other tasks at once
     and survive a business-side rollback it knows nothing about."""
 
     session_factory: async_sessionmaker[AsyncSession]
@@ -71,17 +71,17 @@ class SourceCache:
         request_key: str,
         fetch: Callable[[], Awaitable[dict[str, object]]],
     ) -> dict[str, object]:
-        """A stale row is a miss, so `{"found": false}` for a release song.link
+        """a stale row is a miss, so `{"found": false}` for a release song.link
         has not indexed yet does not stick forever."""
-        cached = await self._select_fresh(source, request_key)
+        cached = await self.select_fresh(source, request_key)
         if cached is not None:
             return cached
 
         payload = await fetch()
-        await self._upsert(source, request_key, payload)
+        await self.upsert(source, request_key, payload)
         return payload
 
-    async def _select_fresh(self, source: str, request_key: str) -> dict[str, object] | None:
+    async def select_fresh(self, source: str, request_key: str) -> dict[str, object] | None:
         cutoff = datetime.now(UTC) - timedelta(seconds=self.ttl_seconds)
         statement = select(SourceFetch).where(
             SourceFetch.source == source,
@@ -92,7 +92,7 @@ class SourceCache:
             row = await session.scalar(statement)
             return row.payload if row is not None else None
 
-    async def _upsert(self, source: str, request_key: str, payload: dict[str, object]) -> None:
+    async def upsert(self, source: str, request_key: str, payload: dict[str, object]) -> None:
         # `fetched_at` from the clock, not `now()`: the latter is the
         # transaction's start time, tens of seconds stale after a resolve.
         fetched_at = datetime.now(UTC)
@@ -108,7 +108,7 @@ class SourceCache:
             .on_conflict_do_update(
                 index_elements=[SourceFetch.source, SourceFetch.request_key],
                 set_={"payload": payload, "fetched_at": fetched_at, "updated_at": fetched_at},
-                where=self._negative_overwrite_allowed(fetched_at)
+                where=self.negative_overwrite_allowed(fetched_at)
                 if is_negative_payload(payload)
                 else None,
             )
@@ -117,8 +117,8 @@ class SourceCache:
             await session.execute(statement)
             await session.commit()
 
-    def _negative_overwrite_allowed(self, fetched_at: datetime) -> ColumnElement[bool]:
-        """A cached miss replaces a stale row or another miss, never a fresh hit.
+    def negative_overwrite_allowed(self, fetched_at: datetime) -> ColumnElement[bool]:
+        """a cached miss replaces a stale row or another miss, never a fresh hit.
         Three-valued: a positive payload has neither key, so both comparisons are NULL."""
         cutoff = fetched_at - timedelta(seconds=self.ttl_seconds)
         return or_(

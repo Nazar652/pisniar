@@ -39,7 +39,7 @@ def test_languages_from_stored_reads_the_jsonb_column_back() -> None:
 
 
 def test_languages_from_stored_falls_back_to_the_schema_default() -> None:
-    """The language is shown on every post, so an empty or unreadable column must
+    """the language is shown on every post, so an empty or unreadable column must
     not silently drop the row from the caption."""
     assert languages_from_stored([]) == DEFAULT_LANGUAGES
     assert languages_from_stored([{"name": "українська"}, ""]) == DEFAULT_LANGUAGES

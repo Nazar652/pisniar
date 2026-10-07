@@ -1,7 +1,7 @@
-"""libass falls back silently: `fc-match` answers a missing family with the same file as
-an installed one, so a wrong name shows up only as Cyrillic rectangles in a video. Also
-pins `noto_sans_widths` to that file. Runs only in the worker image (`make test-fonts`),
-where the fonts live; `fontTools` is a dev dependency the runtime never imports.
+"""The ASS font guard. libass falls back silently: `fc-match` answers a missing family with
+the same file as an installed one, so a wrong name shows up only as Cyrillic rectangles in
+a video. Also pins `noto_sans_widths` to that file. Runs only in the worker image, where the
+fonts live (`make test-fonts`); `fontTools` is a dev dependency the runtime never imports.
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ def test_the_family_named_in_the_style_row_is_installed_and_covers_ukrainian() -
 
 
 def test_the_family_the_plan_originally_named_is_not_installed_at_all() -> None:
-    """Naming `Montserrat` would produce a correct-looking `.ass` and a video
+    """naming `Montserrat` would produce a correct-looking `.ass` and a video
     rendered in some other font."""
     assert "Montserrat" not in families_covering_ukrainian()
 
@@ -62,7 +62,7 @@ def character_map_of(font: TTFont) -> dict[int, str]:
 
 
 def test_the_file_the_table_was_baked_from_is_the_file_fontconfig_resolves() -> None:
-    """A width table pinned against the wrong file pins nothing."""
+    """a width table pinned against the wrong file pins nothing."""
     executable = shutil.which("fc-match")
     assert executable is not None, "fc-match is missing — run this inside the worker container"
 
@@ -104,7 +104,7 @@ def test_every_baked_advance_width_matches_the_installed_font(installed_font: TT
 def test_the_fallback_is_not_narrower_than_anything_it_stands_in_for(
     installed_font: TTFont,
 ) -> None:
-    """An under-estimate is the one error that puts text off the frame, so
+    """an under-estimate is the one error that puts text off the frame, so
     the fallback has to be at least a full em of this font."""
     assert table_metric(installed_font, "head", "unitsPerEm") <= (
         text_metrics.FALLBACK_ADVANCE_UNITS

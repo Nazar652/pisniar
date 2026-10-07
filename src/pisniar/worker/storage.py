@@ -18,19 +18,19 @@ logger = get_logger(__name__)
 
 AUDIO_DIRECTORY_NAME = "audio"
 RENDER_DIRECTORY_NAME = "render"
-TMP_DIRECTORY_NAME = "tmp"
+TEMPORARY_DIRECTORY_NAME = "tmp"
 SUBTITLES_FILE_NAME = "lyrics.ass"
 
 # `.partial` is part of the idempotency guard: no lock is held during a download
 # or render, so "the final name exists" is the only thing left to trust.
 PARTIAL_SUFFIX = ".partial"
 
-_EXTENSION_RE = re.compile(r"^[A-Za-z0-9]{1,8}$")
-_PARAMS_HASH_RE = re.compile(r"^[0-9a-f]{16,64}$")
+EXTENSION_PATTERN = re.compile(r"^[A-Za-z0-9]{1,8}$")
+PARAMS_HASH_PATTERN = re.compile(r"^[0-9a-f]{16,64}$")
 
 
 class MediaPathError(ValueError):
-    """A path component that would escape `/data` or carry a track's name."""
+    """a path component that would escape `/data` or carry a track's name."""
 
 
 class InsufficientDiskSpaceError(RuntimeError):
@@ -44,12 +44,15 @@ class InsufficientDiskSpaceError(RuntimeError):
 
 
 def audio_directory(media_root: Path, track_id: int) -> Path:
-    """Per track, not per post: two posts of one recording must not download it twice."""
-    return media_root / AUDIO_DIRECTORY_NAME / _numeric_id(track_id, "track_id")
+    """per track, not per post: two posts of one recording must not download it twice."""
+    return media_root / AUDIO_DIRECTORY_NAME / numeric_id(track_id, "track_id")
 
 
 def audio_file_path(media_root: Path, track_id: int, video_id: str, extension: str) -> Path:
-    return audio_directory(media_root, track_id) / f"{_video_id(video_id)}.{_extension(extension)}"
+    return (
+        audio_directory(media_root, track_id)
+        / f"{validated_video_id(video_id)}.{validated_extension(extension)}"
+    )
 
 
 def find_existing_audio(media_root: Path, track_id: int, video_id: str) -> Path | None:
@@ -59,7 +62,7 @@ def find_existing_audio(media_root: Path, track_id: int, video_id: str) -> Path 
     if not directory.is_dir():
         return None
 
-    for candidate in sorted(directory.glob(f"{_video_id(video_id)}.*")):
+    for candidate in sorted(directory.glob(f"{validated_video_id(video_id)}.*")):
         existing = existing_artifact(candidate)
         if existing is not None:
             return existing
@@ -67,39 +70,39 @@ def find_existing_audio(media_root: Path, track_id: int, video_id: str) -> Path 
 
 
 def render_directory(media_root: Path, post_id: int) -> Path:
-    return media_root / RENDER_DIRECTORY_NAME / _numeric_id(post_id, "post_id")
+    return media_root / RENDER_DIRECTORY_NAME / numeric_id(post_id, "post_id")
 
 
 def render_file_path(media_root: Path, post_id: int, params_hash: str) -> Path:
-    """Per post: the caption and fragment bounds belong to the publication."""
-    return render_directory(media_root, post_id) / f"{_params_hash(params_hash)}.mp4"
+    """per post: the caption and fragment bounds belong to the publication."""
+    return render_directory(media_root, post_id) / f"{validated_params_hash(params_hash)}.mp4"
 
 
 def thumbnail_file_path(media_root: Path, post_id: int, params_hash: str) -> Path:
-    """Beside its video and derived from the same hash, so it needs no column
+    """beside its video and derived from the same hash, so it needs no column
     of its own and is removed by the same directory cleanup."""
-    return render_directory(media_root, post_id) / f"{_params_hash(params_hash)}.jpg"
+    return render_directory(media_root, post_id) / f"{validated_params_hash(params_hash)}.jpg"
 
 
-def task_tmp_directory(media_root: Path, post_id: int) -> Path:
-    """Removed in a `finally`, always."""
-    return media_root / TMP_DIRECTORY_NAME / _numeric_id(post_id, "post_id")
+def task_temporary_directory(media_root: Path, post_id: int) -> Path:
+    """removed in a `finally`, always."""
+    return media_root / TEMPORARY_DIRECTORY_NAME / numeric_id(post_id, "post_id")
 
 
 def subtitles_file_path(media_root: Path, post_id: int) -> Path:
-    """A numeric id and a constant name keep `,` `;` `[` `]` out of the `subtitles=`
-    argument; `_escape_filter_path` covers the other three."""
-    return task_tmp_directory(media_root, post_id) / SUBTITLES_FILE_NAME
+    """a numeric id and a constant name keep `,` `;` `[` `]` out of the `subtitles=`
+    argument; `escape_filter_path` covers the other three."""
+    return task_temporary_directory(media_root, post_id) / SUBTITLES_FILE_NAME
 
 
-def staging_path(tmp_directory: Path, final_path: Path) -> Path:
-    """The half-written file lives in tmp under a `.partial` name, so nothing
+def staging_path(temporary_directory: Path, final_path: Path) -> Path:
+    """the half-written file lives in tmp under a `.partial` name, so nothing
     with the final name can exist before `publish_atomically()` runs."""
-    return tmp_directory / (final_path.name + PARTIAL_SUFFIX)
+    return temporary_directory / (final_path.name + PARTIAL_SUFFIX)
 
 
 def ensure_free_space(media_root: Path, required_bytes: int) -> int:
-    """Running out mid-render leaves a file that looks finished; this is the
+    """running out mid-render leaves a file that looks finished; this is the
     loud refusal that happens instead, with numbers, before any network call."""
     usage = shutil.disk_usage(media_root)
     if usage.free < required_bytes:
@@ -127,7 +130,7 @@ def publish_atomically(temporary_path: Path, final_path: Path) -> Path:
 
 
 def existing_artifact(path: Path) -> Path | None:
-    """The filesystem half of the idempotency guard: a non-empty file at the
+    """the filesystem half of the idempotency guard: a non-empty file at the
     final name is a finished one, because only `os.replace()` creates it."""
     if path.is_file() and path.stat().st_size > 0:
         return path
@@ -135,7 +138,7 @@ def existing_artifact(path: Path) -> Path | None:
 
 
 def remove_post_artifacts(media_root: Path, post_id: int) -> None:
-    """Only after the deleting commit: a rollback would otherwise leave a row
+    """only after the deleting commit: a rollback would otherwise leave a row
     pointing at a missing file, which is worse than a file with no row."""
     directory = render_directory(media_root, post_id)
     if not directory.exists():
@@ -146,7 +149,7 @@ def remove_post_artifacts(media_root: Path, post_id: int) -> None:
 
 
 def remove_track_artifacts(media_root: Path, track_id: int) -> None:
-    """The audio half of the same rule. Audio is otherwise kept: this is the
+    """the audio half of the same rule. Audio is otherwise kept: this is the
     deletion path, not a sweeper."""
     directory = audio_directory(media_root, track_id)
     if not directory.exists():
@@ -157,7 +160,7 @@ def remove_track_artifacts(media_root: Path, track_id: int) -> None:
 
 
 def remove_tree_quietly(path: Path) -> None:
-    """Cleanup must never replace the real error with its own."""
+    """cleanup must never replace the real error with its own."""
     try:
         shutil.rmtree(path, ignore_errors=False)
     except FileNotFoundError:
@@ -166,34 +169,25 @@ def remove_tree_quietly(path: Path) -> None:
         logger.warning("media_tmp_cleanup_failed", path=str(path), exc_info=True)
 
 
-def remove_file_quietly(path: Path) -> None:
-    try:
-        path.unlink()
-    except FileNotFoundError:
-        return
-    except OSError:
-        logger.warning("media_file_removal_failed", path=str(path), exc_info=True)
-
-
-def _numeric_id(value: int, field_name: str) -> str:
+def numeric_id(value: int, field_name: str) -> str:
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
         raise MediaPathError(f"{field_name} має бути додатним цілим, отримано {value!r}")
     return str(value)
 
 
-def _video_id(value: str) -> str:
+def validated_video_id(value: str) -> str:
     if not is_valid_youtube_video_id(value):
         raise MediaPathError(f"video_id не пройшов валідацію: {value!r}")
     return value
 
 
-def _extension(value: str) -> str:
-    if not _EXTENSION_RE.match(value):
+def validated_extension(value: str) -> str:
+    if not EXTENSION_PATTERN.match(value):
         raise MediaPathError(f"розширення не пройшло валідацію: {value!r}")
     return value
 
 
-def _params_hash(value: str) -> str:
-    if not _PARAMS_HASH_RE.match(value):
+def validated_params_hash(value: str) -> str:
+    if not PARAMS_HASH_PATTERN.match(value):
         raise MediaPathError(f"params_hash не пройшов валідацію: {value!r}")
     return value

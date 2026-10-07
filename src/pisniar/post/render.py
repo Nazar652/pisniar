@@ -39,7 +39,7 @@ class CaptionDocument:
     segments: list[Segment] = field(default_factory=list)
 
     def append_text(self, value: str) -> None:
-        """Sanitizes on the way in, not at render time, so `visible_length()`
+        """sanitizes on the way in, not at render time, so `visible_length()`
         counts what Telegram will actually show."""
         sanitized = sanitize_metadata_text(value)
         if sanitized:
@@ -55,7 +55,7 @@ class CaptionDocument:
 
 
 class UnsafeHrefError(ValueError):
-    """Unreachable given `urls.classify_url()`'s own check; the last line of
+    """unreachable given `urls.classify_url()`'s own check; the last line of
     defense at render time."""
 
 

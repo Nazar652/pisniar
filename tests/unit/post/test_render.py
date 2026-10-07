@@ -48,7 +48,7 @@ def test_visible_length_does_not_count_html_escape_sequences() -> None:
     document = CaptionDocument()
     document.append_text("<Tom & Jerry>")
 
-    # Visible text is 13 chars even though the HTML-escaped form is longer.
+    # visible text is 13 chars even though the HTML-escaped form is longer.
     assert visible_length(document) == 13
     assert len(render_html(document)) > 13
 
@@ -99,7 +99,7 @@ def test_render_html_rejects_unsafe_href_scheme() -> None:
 
 
 def test_rendered_html_never_contains_a_bidi_override_from_metadata() -> None:
-    """End to end: a title carrying `U+202E` must not reach Telegram."""
+    """end to end: a title carrying `U+202E` must not reach Telegram."""
     document = CaptionDocument()
     document.append_text("Artist \u202e— Title")
 
@@ -119,7 +119,7 @@ def test_rendered_html_never_contains_a_raw_newline_from_metadata() -> None:
 
 
 def test_line_break_segments_still_produce_real_newlines() -> None:
-    """Only metadata is folded — the document's own structure is not."""
+    """only metadata is folded — the document's own structure is not."""
     document = CaptionDocument()
     document.append_text("first")
     document.append_line_break()

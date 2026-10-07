@@ -28,7 +28,7 @@ class PostStatus(StrEnum):
     ARCHIVED = "archived"
 
 
-# Self-edges (Celery at-least-once redelivery) + ARCHIVED edges (manual
+# self-edges (Celery at-least-once redelivery) + ARCHIVED edges (manual
 # escape hatch) on the four in-progress states.
 ALLOWED_TRANSITIONS: dict[PostStatus, frozenset[PostStatus]] = {
     PostStatus.DRAFT: frozenset({PostStatus.RESOLVING, PostStatus.ARCHIVED}),

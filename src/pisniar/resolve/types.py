@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-# The `source` the bot seeds a submitted YouTube clip with, before any
+# the `source` the bot seeds a submitted YouTube clip with, before any
 # network call — checked by name in three places, so it lives here.
 USER_INPUT_SOURCE = "user_input"
 
@@ -43,7 +43,7 @@ class GenreInfo:
 
 @dataclass(frozen=True)
 class TrackCandidate:
-    """A name-search hit that still needs `matching.is_match()` before it
+    """a name-search hit that still needs `matching.is_match()` before it
     can become a `PlatformLink`."""
 
     platform: str
@@ -57,7 +57,7 @@ class TrackCandidate:
 
 @dataclass
 class ResolvedTrack:
-    """Mutable accumulator `merge.py` folds source results into, field by field."""
+    """mutable accumulator `merge.py` folds source results into, field by field."""
 
     isrc: str | None = None
     title: str | None = None
@@ -71,13 +71,13 @@ class ResolvedTrack:
     deezer_album_id: int | None = None
     platform_links: dict[str, PlatformLink] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
-    # Sources that raised instead of answering. Kept apart from
+    # sources that raised instead of answering. Kept apart from
     # `warnings` because the admin is alerted about these, not just logged.
     source_failures: list[str] = field(default_factory=list)
     # automatic links the host list refused; the admin is told about these too
     link_rejections: list[str] = field(default_factory=list)
 
-    # Internal bookkeeping for `merge.py`'s priority rules — the highest
+    # internal bookkeeping for `merge.py`'s priority rules — the highest
     # priority rank that has won each field/platform so far.
     field_priorities: dict[str, int] = field(default_factory=dict)
     platform_link_priorities: dict[str, int] = field(default_factory=dict)

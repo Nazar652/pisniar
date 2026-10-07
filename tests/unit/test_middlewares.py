@@ -1,7 +1,7 @@
 """`AdminAllowlistMiddleware`: the single barrier between this bot and all of
-Telegram. A regression here — e.g. swapping the outer-middleware
-registration for a per-observer one, so only `message` updates get checked —
-must fail a test on its own, not slip through `make check` silently."""
+Telegram. Swapping the outer-middleware registration for a per-observer one,
+so that only `message` updates get checked, must fail a test on its own, not
+slip through `make check` silently."""
 
 from __future__ import annotations
 

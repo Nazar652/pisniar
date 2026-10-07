@@ -32,7 +32,7 @@ def test_the_video_id_comes_from_youtube_music() -> None:
 
 
 def test_a_clip_link_never_stands_in_for_the_platform_link() -> None:
-    """The clip may carry an intro, an outro or another mastering, so
+    """the clip may carry an intro, an outro or another mastering, so
     `["youtube"]` is not a fallback: it is a different recording."""
     platform_links = links(
         youtube=f"https://www.youtube.com/watch?v={CLIP_VIDEO_ID}",
@@ -93,7 +93,7 @@ def test_the_watch_url_refuses_an_id_that_did_not_pass_validation() -> None:
 
 
 def test_the_arguments_are_a_list_with_the_url_last_and_no_self_update() -> None:
-    """A runtime self-update is prohibited, so `--no-update` is passed rather
+    """a runtime self-update is prohibited, so `--no-update` is passed rather
     than merely not asked for."""
     arguments = audio_download.build_ytdlp_arguments(
         "https://www.youtube.com/watch?v=n4bPzdIs_nc", "/data/tmp/7/audio.%(ext)s"
@@ -118,7 +118,7 @@ def test_the_arguments_are_a_list_with_the_url_last_and_no_self_update() -> None
     ],
 )
 def test_a_broken_extractor_gets_its_own_loud_class(stderr: str) -> None:
-    """When the deprecated path goes, every track fails at once. If that reads
+    """when the deprecated path goes, every track fails at once. If that reads
     as "this song is missing", diagnosis goes the wrong way for days."""
     error = audio_download.classify_ytdlp_failure(1, stderr)
 
@@ -142,7 +142,7 @@ def test_a_missing_recording_gets_the_per_track_class(stderr: str) -> None:
 
 
 def test_extractor_breakage_wins_when_both_markers_are_present() -> None:
-    """The expensive misdiagnosis is a mass failure read as one track's
+    """the expensive misdiagnosis is a mass failure read as one track's
     problem, so ambiguity resolves towards the loud class."""
     error = audio_download.classify_ytdlp_failure(
         1, "ERROR: Video unavailable\nERROR: Unable to extract player response"
@@ -253,7 +253,7 @@ def stub_probe(monkeypatch: pytest.MonkeyPatch, duration_ms: int) -> None:
 def test_a_duration_far_from_the_resolve_fails_rather_than_being_accepted(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """This is what catches yt-dlp handing back a stub or a different recording,
+    """this is what catches yt-dlp handing back a stub or a different recording,
     the one thing that would otherwise be completely silent."""
     stub_probe(monkeypatch, duration_ms=10_000)
 
@@ -275,7 +275,7 @@ def test_a_duration_inside_the_matching_tolerance_is_accepted(
 def test_an_unknown_stored_duration_skips_the_comparison_explicitly(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stored_duration: int | None
 ) -> None:
-    """Rows resolved before `duration_ms` existed hold NULL; that branch is
+    """rows resolved before `duration_ms` existed hold NULL; that branch is
     handled, not crashed through."""
     stub_probe(monkeypatch, duration_ms=212_900)
 

@@ -21,7 +21,7 @@ SEARCH_RESULTS: list[dict[str, object]] = [
 async def test_search_by_name_returns_candidates(
     monkeypatch: pytest.MonkeyPatch, fake_cache: SourceCache
 ) -> None:
-    monkeypatch.setattr(ytmusic, "_search_sync", lambda query: SEARCH_RESULTS)
+    monkeypatch.setattr(ytmusic, "search_sync", lambda query: SEARCH_RESULTS)
 
     candidates = await ytmusic.search_by_name(fake_cache, "Burned Time Machine", "Покаяння")
 
@@ -38,10 +38,15 @@ async def test_search_by_name_caps_at_five(
     monkeypatch: pytest.MonkeyPatch, fake_cache: SourceCache
 ) -> None:
     many_results = [
-        {"videoId": f"id{i}", "title": "Song", "duration_seconds": 200, "artists": [{"name": "A"}]}
-        for i in range(20)
+        {
+            "videoId": f"id{index}",
+            "title": "Song",
+            "duration_seconds": 200,
+            "artists": [{"name": "A"}],
+        }
+        for index in range(20)
     ]
-    monkeypatch.setattr(ytmusic, "_search_sync", lambda query: many_results)
+    monkeypatch.setattr(ytmusic, "search_sync", lambda query: many_results)
 
     candidates = await ytmusic.search_by_name(fake_cache, "A", "Song")
 
@@ -52,7 +57,7 @@ async def test_search_by_name_caps_at_five(
 async def test_search_by_name_returns_empty_list_when_nothing_found(
     monkeypatch: pytest.MonkeyPatch, fake_cache: SourceCache
 ) -> None:
-    monkeypatch.setattr(ytmusic, "_search_sync", lambda query: [])
+    monkeypatch.setattr(ytmusic, "search_sync", lambda query: [])
 
     candidates = await ytmusic.search_by_name(fake_cache, "Nobody", "Nothing")
 

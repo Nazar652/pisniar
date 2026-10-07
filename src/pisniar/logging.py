@@ -16,32 +16,28 @@ import structlog.typing
 
 REDACTED_PLACEHOLDER = "***REDACTED***"
 
-# Secrets that only exist after startup, so `configure_logging()` could not
+# secrets that only exist after startup, so `configure_logging()` could not
 # have been given them — keyed by name, so a rotation replaces, not grows.
-_runtime_secrets: dict[str, str] = {}
+registered_runtime_secrets: dict[str, str] = {}
 
 
 def register_runtime_secret(name: str, value: str) -> None:
-    """Add a secret obtained at runtime (the Spotify access token) to the
+    """add a secret obtained at runtime (the Spotify access token) to the
     redaction set — an httpx error carries the `Authorization` header."""
     if value:
-        _runtime_secrets[name] = value
+        registered_runtime_secrets[name] = value
 
 
-def clear_runtime_secrets() -> None:
-    _runtime_secrets.clear()
-
-
-# Narrower than `structlog.types.Processor`: always takes/returns an event
+# narrower than `structlog.types.Processor`: always takes/returns an event
 # dict, never a rendered `str`/`bytes`/`tuple` — see `test_logging.py`.
 EventDictProcessor = Callable[[Any, str, MutableMapping[str, Any]], MutableMapping[str, Any]]
 
 
 def redact_secrets_in_text(value: str, secrets: Iterable[str] = ()) -> str:
-    """Also used outside the log pipeline: `send_alert` and `post.last_error`
+    """also used outside the log pipeline: `send_alert` and `post.last_error`
     pass through no processor."""
     redacted = value
-    for secret in [*[secret for secret in secrets if secret], *_runtime_secrets.values()]:
+    for secret in [*[secret for secret in secrets if secret], *registered_runtime_secrets.values()]:
         if secret in redacted:
             redacted = redacted.replace(secret, REDACTED_PLACEHOLDER)
     return redacted
@@ -51,9 +47,9 @@ def make_redact_secrets_processor(secrets: Iterable[str]) -> EventDictProcessor:
     configured_secrets = [secret for secret in secrets if secret]
 
     def all_secrets() -> list[str]:
-        # Snapshot first: this runs from service threads too (`ytmusicapi`
+        # snapshot first: this runs from service threads too (`ytmusicapi`
         # logs from `to_thread`) while registration mutates the dict.
-        runtime_secrets = list(_runtime_secrets.values())
+        runtime_secrets = list(registered_runtime_secrets.values())
         return [*configured_secrets, *runtime_secrets]
 
     def redact_string(value: str) -> str:
@@ -133,7 +129,7 @@ def configure_logging(
 
 
 def get_logger(*args: Any, **kwargs: Any) -> structlog.typing.FilteringBoundLogger:
-    """Typed wrapper: upstream `get_logger()` returns `Any`, but
+    """typed wrapper: upstream `get_logger()` returns `Any`, but
     `configure_logging()` always installs `make_filtering_bound_logger()`.
     """
     return cast(structlog.typing.FilteringBoundLogger, structlog.get_logger(*args, **kwargs))

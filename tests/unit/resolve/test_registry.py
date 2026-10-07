@@ -32,7 +32,7 @@ def make_context() -> registry.ResolveContext:
 async def test_deezer_isrc_link_is_written_without_calling_matching(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The identifier alone is the proof."""
+    """the identifier alone is the proof."""
     matching_was_called = False
 
     def spy_is_match(**kwargs: object) -> bool:
@@ -70,7 +70,7 @@ async def test_deezer_isrc_link_is_written_without_calling_matching(
 async def test_rejected_itunes_candidate_never_reaches_platform_links(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The recorded warning keeps the rejection from being silent."""
+    """the recorded warning keeps the rejection from being silent."""
     wrong_candidate = TrackCandidate(
         platform="appleMusic",
         url="https://music.apple.com/wrong",
@@ -121,7 +121,7 @@ async def test_deezer_search_fallback_is_skipped_when_isrc_already_found(
 async def test_deezer_search_fallback_runs_when_isrc_lookup_found_nothing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Proves the skip above is conditional, not dead code."""
+    """proves the skip above is conditional, not dead code."""
     search_by_name_mock = AsyncMock(return_value=[])
     monkeypatch.setattr(registry.deezer, "search_by_name", search_by_name_mock)
     monkeypatch.setattr(registry.itunes, "search_by_name", AsyncMock(return_value=[]))
@@ -197,7 +197,7 @@ async def test_derived_youtube_link_does_not_overwrite_user_supplied_clip(
 async def test_resolve_by_isrc_fetches_album_for_year_and_release_type(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A Deezer ISRC hit costs exactly two requests: the lookup and the album."""
+    """a Deezer ISRC hit costs exactly two requests: the lookup and the album."""
     monkeypatch.setattr(
         registry.deezer,
         "fetch_by_isrc",
@@ -262,15 +262,15 @@ async def test_resolve_by_isrc_skips_album_fetch_without_an_album_id(
 def test_release_year_treats_a_non_numeric_or_zero_date_as_unknown(
     release_date: str | None, expected_year: int | None
 ) -> None:
-    """Deezer answers `"0000-00-00"`, and `int("0000")` is a `0` that `merge_field`
+    """deezer answers `"0000-00-00"`, and `int("0000")` is a `0` that `merge_field`
     would write straight over a correct stored year."""
-    assert registry._release_year(release_date) == expected_year
+    assert registry.release_year(release_date) == expected_year
 
 
-async def test_a_failing_source_no_longer_takes_the_other_sources_with_it(
+async def test_a_failing_source_does_not_take_the_other_sources_with_it(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """One Deezer quota error must not fail a post Spotify can fill; the failure
+    """one Deezer quota error must not fail a post Spotify can fill; the failure
     is recorded for the admin instead."""
     monkeypatch.setattr(
         registry.deezer, "fetch_by_isrc", AsyncMock(side_effect=RuntimeError("quota exceeded"))

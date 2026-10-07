@@ -46,7 +46,7 @@ async def test_channel_message_kind_backfill_follows_the_publication_rule(
     migrations_test_database_url: str,
     run_alembic: Callable[..., subprocess.CompletedProcess[str]],
 ) -> None:
-    """A preview means the video went out, else a cover means a photo, else text; a post that
+    """a preview means the video went out, else a cover means a photo, else text; a post that
     was never published stays NULL, and every touched row gets a fresh `updated_at`."""
     old_stamp = datetime(2020, 1, 1, tzinfo=UTC)
     upgraded = run_alembic("upgrade", PREVIOUS_REVISION, database_url=migrations_test_database_url)

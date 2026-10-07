@@ -42,7 +42,7 @@ logger = get_logger(__name__)
 
 router = Router(name="commands")
 
-# The media time limits live in `Settings`, never in `worker.celery_app`:
+# the media time limits live in `Settings`, never in `worker.celery_app`:
 # raising the resolve limits would silently widen the staleness window below.
 settings = get_settings()
 
@@ -52,7 +52,7 @@ DOWNLOAD_DISPATCH_FAILED_ERROR = "не вдалося поставити зад�
 RENDER_DISPATCH_FAILED_ERROR = "не вдалося поставити задачу рендера відео в чергу"
 UNKNOWN_CALLBACK_ANSWER = "Невідома дія."
 
-# The text draft's publish button is still live during a render, and a
+# the text draft's publish button is still live during a render, and a
 # refusal naming `downloading` would read to the admin like a breakage.
 MEDIA_IN_PROGRESS_STATUSES = frozenset(
     {PostStatus.DOWNLOADING, PostStatus.DOWNLOADED, PostStatus.RENDERING}
@@ -67,7 +67,7 @@ PREVIEW_ALREADY_SHOWN_ANSWER = (
     "у канал іде саме те відео. Якщо публікація не вдалася — /retry {post_id}."
 )
 
-# A clip is a `youtube` link, never a `youtubeMusic` one — the latter
+# a clip is a `youtube` link, never a `youtubeMusic` one — the latter
 # is the canonical "— Topic" upload and belongs to the platform half.
 CLIP_PLATFORM = "youtube"
 
@@ -85,7 +85,7 @@ TOO_MANY_LINKS_ANSWER = (
     "«посилання на платформу + кліп YouTube»."
 )
 
-NOT_TRACK_REASON_UA = {
+NOT_TRACK_REASON_UKRAINIAN = {
     "album": "альбом",
     "artist": "артиста",
     "playlist": "плейлист",
@@ -122,12 +122,12 @@ RETRY_RECEIPT = {
     RetryBranch.REPUBLISH: "Повторюю публікацію поста {post_id}.",
 }
 
-# The stage the post is *stuck in*, and what repeating it means. Every one of
+# the stage the post is *stuck in*, and what repeating it means. Every one of
 # these has a self-edge in `db.states`, which is what makes the reclaim legal.
 STALE_STAGE_BRANCH = {
     PostStatus.RESOLVING: RetryBranch.RESOLVE,
     PostStatus.DOWNLOADING: RetryBranch.DOWNLOAD,
-    # Nothing runs in DOWNLOADED: the render dispatch happens right after the
+    # nothing runs in DOWNLOADED: the render dispatch happens right after the
     # download commits, so a post left here means the worker died in between.
     PostStatus.DOWNLOADED: RetryBranch.RENDER,
     PostStatus.RENDERING: RetryBranch.RENDER,
@@ -171,7 +171,7 @@ async def handle_retry(
         return
     post_id = int(arguments[1].strip())
 
-    # Bound before the first refusal can fire, not after the transaction:
+    # bound before the first refusal can fire, not after the transaction:
     # a `/retry` that never dispatches is exactly the one worth tracing.
     bind_post_id(post_id)
     logger.info("retry_requested", user_id=user_id, post_id=post_id)
@@ -181,7 +181,7 @@ async def handle_retry(
 
     async with session_scope(session_factory) as session:
         try:
-            # Locked, not just read: without it two near-simultaneous
+            # locked, not just read: without it two near-simultaneous
             # `/retry` both pass the status check and dispatch.
             post = await session.get(Post, post_id, with_for_update={"nowait": True})
         except DBAPIError:
@@ -200,12 +200,12 @@ async def handle_retry(
             return
 
         if post.status is PostStatus.FAILED:
-            branch = _retry_branch_for_failed_post(post)
+            branch = retry_branch_for_failed_post(post)
 
         elif post.status in STALE_STAGE_BRANCH:
             stuck_status = post.status
-            if not _stage_has_gone_stale(post, _stage_time_limit_seconds(stuck_status)):
-                # The self-edges exist for Celery redelivery, not as a button:
+            if not stage_has_gone_stale(post, stage_time_limit_seconds(stuck_status)):
+                # the self-edges exist for Celery redelivery, not as a button:
                 # a second task would race the first into two drafts.
                 await message.answer(STALE_STAGE_ANSWER[stuck_status].format(post_id=post_id))
                 logger.warning(
@@ -216,7 +216,7 @@ async def handle_retry(
                 )
                 return
 
-            # A self-edge changes no column, so the ORM `onupdate` never fires
+            # a self-edge changes no column, so the ORM `onupdate` never fires
             # and every later /retry would pass this guard too.
             post.updated_at = datetime.now(UTC)
             reclaimed_stale_stage = stuck_status.value
@@ -245,8 +245,8 @@ async def handle_retry(
         reclaimed_stale_stage=reclaimed_stale_stage,
     )
 
-    if not await _dispatch_retry_task(celery_client, branch, post_id, user_id):
-        await _mark_dispatch_failure(
+    if not await dispatch_retry_task(celery_client, branch, post_id, user_id):
+        await mark_dispatch_failure(
             session_factory,
             post_id,
             expected_status=RETRY_TARGET_STATUS[branch],
@@ -266,8 +266,8 @@ async def handle_retry(
     logger.info("retry_dispatched", branch=branch.value, user_id=user_id, post_id=post_id)
 
 
-def _retry_branch_for_failed_post(post: Post) -> RetryBranch:
-    """Read from `failed_from_status`, never guessed from `draft_message_id`: a
+def retry_branch_for_failed_post(post: Post) -> RetryBranch:
+    """read from `failed_from_status`, never guessed from `draft_message_id`: a
     post that failed while downloading has a draft too."""
     stage = post.failed_from_status
     if stage is PostStatus.RESOLVING:
@@ -279,21 +279,21 @@ def _retry_branch_for_failed_post(post: Post) -> RetryBranch:
     if stage is PostStatus.PUBLISHING:
         return RetryBranch.REPUBLISH
 
-    # A row with no stage predates the column; for it a draft means the resolve
-    # succeeded and only publication could have failed.
+    # a row with no recorded stage: a draft means the resolve succeeded and only
+    # publication could have failed
     return RetryBranch.REPUBLISH if post.draft_message_id is not None else RetryBranch.RESOLVE
 
 
-async def _dispatch_retry_task(
+async def dispatch_retry_task(
     celery_client: Celery, branch: RetryBranch, post_id: int, user_id: int
 ) -> bool:
     if branch is RetryBranch.REPUBLISH:
-        return await _dispatch_publish_task(celery_client, post_id, user_id)
+        return await dispatch_publish_task(celery_client, post_id, user_id)
     if branch is RetryBranch.DOWNLOAD:
-        return await _dispatch_media_task(celery_client, DOWNLOAD_POST_AUDIO_TASK_NAME, post_id)
+        return await dispatch_media_task(celery_client, DOWNLOAD_POST_AUDIO_TASK_NAME, post_id)
     if branch is RetryBranch.RENDER:
-        return await _dispatch_media_task(celery_client, RENDER_POST_VIDEO_TASK_NAME, post_id)
-    return await _dispatch_resolve_task(celery_client, post_id)
+        return await dispatch_media_task(celery_client, RENDER_POST_VIDEO_TASK_NAME, post_id)
+    return await dispatch_resolve_task(celery_client, post_id)
 
 
 @router.callback_query()
@@ -303,7 +303,7 @@ async def handle_callback(
     session_factory: async_sessionmaker[AsyncSession],
     celery_client: Celery,
 ) -> None:
-    """Admin-only like every command: the allowlist is an *outer* middleware on
+    """admin-only like every command: the allowlist is an *outer* middleware on
     `dispatcher.update`, and `event_from_user` is set for a `callback_query` too."""
     parsed = parse_callback(callback.data)
     if parsed is None or callback.from_user is None:
@@ -318,17 +318,17 @@ async def handle_callback(
     bind_post_id(parsed.post_id)
 
     if parsed.action is CallbackAction.RENDER:
-        await _handle_render_tap(
+        await handle_render_tap(
             callback, parsed.post_id, callback.from_user.id, bot, session_factory, celery_client
         )
         return
 
-    await _handle_publish_tap(
+    await handle_publish_tap(
         callback, parsed.post_id, callback.from_user.id, bot, session_factory, celery_client
     )
 
 
-async def _handle_publish_tap(
+async def handle_publish_tap(
     callback: CallbackQuery,
     post_id: int,
     user_id: int,
@@ -345,7 +345,7 @@ async def _handle_publish_tap(
 
     async with session_scope(session_factory) as session:
         try:
-            # Locked, not just read: this is the double-tap guard that the
+            # locked, not just read: this is the double-tap guard that the
             # partial unique index cannot be (two sends, two message ids).
             post = await session.get(Post, post_id, with_for_update={"nowait": True})
         except DBAPIError:
@@ -355,18 +355,18 @@ async def _handle_publish_tap(
                 "publish_refused", reason="post_locked", user_id=user_id, post_id=post_id
             )
         else:
-            refusal, draft_reference = _claim_post_for_publishing(post, post_id, user_id)
+            refusal, draft_reference = claim_post_for_publishing(post, post_id, user_id)
 
     if refusal is not None:
         await callback.answer(refusal, show_alert=True)
         return
 
-    # After the commit, before the dispatch: removing it any earlier would
+    # after the commit, before the dispatch: removing it any earlier would
     # strand a post the database then declined to move.
-    await _remove_keyboard(bot, draft_reference, "publish_keyboard_removal_failed")
+    await remove_keyboard(bot, draft_reference, "publish_keyboard_removal_failed")
 
-    if not await _dispatch_publish_task(celery_client, post_id, user_id):
-        await _mark_dispatch_failure(
+    if not await dispatch_publish_task(celery_client, post_id, user_id):
+        await mark_dispatch_failure(
             session_factory,
             post_id,
             expected_status=PostStatus.PUBLISHING,
@@ -384,7 +384,7 @@ async def _handle_publish_tap(
     logger.info("publish_task_dispatched", user_id=user_id, post_id=post_id)
 
 
-async def _handle_render_tap(
+async def handle_render_tap(
     callback: CallbackQuery,
     post_id: int,
     user_id: int,
@@ -392,7 +392,7 @@ async def _handle_render_tap(
     session_factory: async_sessionmaker[AsyncSession],
     celery_client: Celery,
 ) -> None:
-    """The media chain starts here and nowhere else. Minutes of CPU and
+    """the media chain starts here and nowhere else. Minutes of CPU and
     hundreds of megabytes are spent only on a draft the admin approved."""
     logger.info("render_button_tapped", user_id=user_id, post_id=post_id)
 
@@ -407,18 +407,18 @@ async def _handle_render_tap(
             refusal = f"Пост {post_id} зараз обробляється. Спробуйте за кілька секунд."
             logger.warning("render_refused", reason="post_locked", user_id=user_id, post_id=post_id)
         else:
-            refusal, draft_reference = _claim_post_for_media(post, post_id, user_id)
+            refusal, draft_reference = claim_post_for_media(post, post_id, user_id)
 
     if refusal is not None:
         await callback.answer(refusal, show_alert=True)
         return
 
-    # Database, keyboard, dispatch: removing it before the commit
+    # database, keyboard, dispatch: removing it before the commit
     # would strand a post the database then declined to move.
-    await _remove_keyboard(bot, draft_reference, "render_keyboard_removal_failed")
+    await remove_keyboard(bot, draft_reference, "render_keyboard_removal_failed")
 
-    if not await _dispatch_media_task(celery_client, DOWNLOAD_POST_AUDIO_TASK_NAME, post_id):
-        await _mark_dispatch_failure(
+    if not await dispatch_media_task(celery_client, DOWNLOAD_POST_AUDIO_TASK_NAME, post_id):
+        await mark_dispatch_failure(
             session_factory,
             post_id,
             expected_status=PostStatus.DOWNLOADING,
@@ -434,10 +434,10 @@ async def _handle_render_tap(
     logger.info("download_task_dispatched", user_id=user_id, post_id=post_id)
 
 
-def _claim_post_for_publishing(
+def claim_post_for_publishing(
     post: Post | None, post_id: int, user_id: int
 ) -> tuple[str | None, tuple[int, int] | None]:
-    """Returns `(refusal, draft_reference)`, exactly one of them set. Each refusal
+    """returns `(refusal, draft_reference)`, exactly one of them set. Each refusal
     is logged in its own branch with its own reason."""
     if post is None:
         logger.warning("publish_refused", reason="post_not_found", user_id=user_id, post_id=post_id)
@@ -450,7 +450,7 @@ def _claim_post_for_publishing(
         return f"Пост {post_id} уже опубліковано.", None
 
     if post.status is PostStatus.PUBLISHING:
-        # The `publishing` self-edge is for Celery redelivery, not a button:
+        # the `publishing` self-edge is for Celery redelivery, not a button:
         # `set_post_status` accepts it and a second tap would dispatch twice.
         logger.warning(
             "publish_refused", reason="already_publishing", user_id=user_id, post_id=post_id
@@ -481,13 +481,13 @@ def _claim_post_for_publishing(
         )
         return f"Пост {post_id} у стані «{post.status.value}» — публікація недоступна.", None
 
-    return None, _button_message_reference(post)
+    return None, button_message_reference(post)
 
 
-def _claim_post_for_media(
+def claim_post_for_media(
     post: Post | None, post_id: int, user_id: int
 ) -> tuple[str | None, tuple[int, int] | None]:
-    """The render button's mirror of `_claim_post_for_publishing`."""
+    """the render button's mirror of `claim_post_for_publishing`."""
     if post is None:
         logger.warning("render_refused", reason="post_not_found", user_id=user_id, post_id=post_id)
         return f"Пост {post_id} не знайдено.", None
@@ -536,11 +536,11 @@ def _claim_post_for_media(
         )
         return f"Пост {post_id} у стані «{post.status.value}» — відео недоступне.", None
 
-    return None, _button_message_reference(post)
+    return None, button_message_reference(post)
 
 
-def _button_message_reference(post: Post) -> tuple[int, int] | None:
-    """Once a preview exists it carries the button: the text draft lost its
+def button_message_reference(post: Post) -> tuple[int, int] | None:
+    """once a preview exists it carries the button: the text draft lost its
     keyboard when the preview arrived."""
     if post.preview_chat_id is not None and post.preview_message_id is not None:
         return post.preview_chat_id, post.preview_message_id
@@ -549,10 +549,10 @@ def _button_message_reference(post: Post) -> tuple[int, int] | None:
     return None
 
 
-async def _remove_keyboard(
+async def remove_keyboard(
     bot: Bot, draft_reference: tuple[int, int] | None, failure_event: str
 ) -> None:
-    """Cosmetic on its own — the status transition above is the real guard —
+    """cosmetic on its own — the status transition above is the real guard —
     so a failure here must not stop work the database already owns."""
     if draft_reference is None:
         return
@@ -572,12 +572,12 @@ async def handle_link(
     session_factory: async_sessionmaker[AsyncSession],
     celery_client: Celery,
 ) -> None:
-    """Commands above already claimed everything starting with `/`. One link, or
+    """commands above already claimed everything starting with `/`. One link, or
     a «platform link + clip» pair in one message."""
     if message.from_user is None or message.text is None:
         return
 
-    submitted_urls = _split_links(message.text)
+    submitted_urls = split_links(message.text)
 
     if len(submitted_urls) > 2:
         await message.answer(TOO_MANY_LINKS_ANSWER.format(count=len(submitted_urls)))
@@ -587,7 +587,7 @@ async def handle_link(
     classified_urls = [classify_url(submitted_url) for submitted_url in submitted_urls]
 
     for submitted_url, candidate in zip(submitted_urls, classified_urls, strict=True):
-        rejection = _reject_url(submitted_url, candidate)
+        rejection = reject_url(submitted_url, candidate)
         if rejection is not None:
             answer, log_fields = rejection
             await message.answer(answer)
@@ -605,7 +605,7 @@ async def handle_link(
         )
         return
 
-    raw_url, classified, clip = _select_track_source(submitted_urls, classified_urls)
+    raw_url, classified, clip = select_track_source(submitted_urls, classified_urls)
 
     post_id: int | None = None
     track_existed = False
@@ -613,13 +613,13 @@ async def handle_link(
 
     async with session_scope(session_factory) as session:
         try:
-            track, track_existed = await _get_or_create_track(session, raw_url, classified, clip)
+            track, track_existed = await get_or_create_track(session, raw_url, classified, clip)
 
             post = Post(track_id=track.id, created_by_user_id=message.from_user.id)
             session.add(post)
             await session.flush()
         except IntegrityError:
-            # The worker's cleanup deleted this track between the SELECT and
+            # the worker's cleanup deleted this track between the SELECT and
             # this INSERT; unhandled, aiogram answers the admin nothing.
             await session.rollback()
             logger.warning("link_post_insert_lost_its_track")
@@ -648,8 +648,8 @@ async def handle_link(
         clip_attached=clip is not None,
     )
 
-    if not await _dispatch_resolve_task(celery_client, post_id):
-        await _mark_dispatch_failure(
+    if not await dispatch_resolve_task(celery_client, post_id):
+        await mark_dispatch_failure(
             session_factory,
             post_id,
             expected_status=PostStatus.RESOLVING,
@@ -667,15 +667,15 @@ async def handle_link(
     await message.answer(receipt)
 
 
-def _stage_has_gone_stale(post: Post, time_limit_seconds: int) -> bool:
-    """The only exit when the worker died mid-task. It never races a live task:
+def stage_has_gone_stale(post: Post, time_limit_seconds: int) -> bool:
+    """the only exit when the worker died mid-task. It never races a live task:
     Celery's hard limit kills one first, so a running task is always fresher."""
     age_seconds = (datetime.now(UTC) - post.updated_at).total_seconds()
     return age_seconds > time_limit_seconds
 
 
-def _stage_time_limit_seconds(status: PostStatus) -> int:
-    """Each stage against its own hard limit (resolve's in `worker.celery_app`,
+def stage_time_limit_seconds(status: PostStatus) -> int:
+    """each stage against its own hard limit (resolve's in `worker.celery_app`,
     the media ones in `Settings`), so raising one never widens another's window."""
     if status is PostStatus.DOWNLOADING:
         return settings.download_task_time_limit_seconds
@@ -684,12 +684,8 @@ def _stage_time_limit_seconds(status: PostStatus) -> int:
     return TASK_TIME_LIMIT_SECONDS
 
 
-def _resolving_has_gone_stale(post: Post) -> bool:
-    return _stage_has_gone_stale(post, TASK_TIME_LIMIT_SECONDS)
-
-
-def _split_links(text: str) -> list[str]:
-    """Only when *every* token is a link: prose around a link stays a single
+def split_links(text: str) -> list[str]:
+    """only when *every* token is a link: prose around a link stays a single
     unrecognized submission."""
     tokens = text.split()
     if len(tokens) > 1 and all(is_safe_url(token) for token in tokens):
@@ -697,8 +693,8 @@ def _split_links(text: str) -> list[str]:
     return [text.strip()]
 
 
-def _reject_url(raw_url: str, classified: ClassifiedUrl) -> tuple[str, dict[str, object]] | None:
-    """The three syntactic refusals as `(answer, log fields)`, so a pair is
+def reject_url(raw_url: str, classified: ClassifiedUrl) -> tuple[str, dict[str, object]] | None:
+    """the three syntactic refusals as `(answer, log fields)`, so a pair is
     validated link by link rather than as one opaque blob."""
     # UNIQUE on a btree tops out near 2704 bytes and raises
     # ProgramLimitExceededError, which `except IntegrityError` misses.
@@ -715,7 +711,7 @@ def _reject_url(raw_url: str, classified: ClassifiedUrl) -> tuple[str, dict[str,
         )
 
     if classified.kind is UrlKind.NOT_TRACK:
-        reason = NOT_TRACK_REASON_UA.get(classified.not_track_reason or "", "не трек")
+        reason = NOT_TRACK_REASON_UKRAINIAN.get(classified.not_track_reason or "", "не трек")
         return (
             f"Це посилання на {reason}, а не на трек. Надішліть пряме посилання на трек.",
             {
@@ -726,7 +722,7 @@ def _reject_url(raw_url: str, classified: ClassifiedUrl) -> tuple[str, dict[str,
         )
 
     if classified.kind is UrlKind.UNKNOWN:
-        # Only the length: the raw text of an unrecognized message is not a
+        # only the length: the raw text of an unrecognized message is not a
         # URL and has no business in the logs.
         return (
             "Не розпізнав це як посилання на трек.",
@@ -736,10 +732,10 @@ def _reject_url(raw_url: str, classified: ClassifiedUrl) -> tuple[str, dict[str,
     return None
 
 
-def _select_track_source(
+def select_track_source(
     submitted_urls: list[str], classified_urls: list[ClassifiedUrl]
 ) -> tuple[str, ClassifiedUrl, ClassifiedUrl | None]:
-    """A pair resolves from its platform half: the clip's own metadata is
+    """a pair resolves from its platform half: the clip's own metadata is
     the raw YouTube caption."""
     clip = next((url for url in classified_urls if url.platform == CLIP_PLATFORM), None)
 
@@ -750,8 +746,8 @@ def _select_track_source(
     return submitted_urls[0], classified_urls[0], clip
 
 
-def _seed_user_input_clip(track: Track, clip: ClassifiedUrl | None) -> None:
-    """Seeded now, so the clip survives a resolve that never completes; `manual`
+def seed_user_input_clip(track: Track, clip: ClassifiedUrl | None) -> None:
+    """seeded now, so the clip survives a resolve that never completes; `manual`
     is the top tier, so every later resolve keeps it."""
     if clip is None:
         return
@@ -767,54 +763,54 @@ def _seed_user_input_clip(track: Track, clip: ClassifiedUrl | None) -> None:
     if stored.get(CLIP_PLATFORM) == link:
         return
 
-    # Reassigned, never mutated in place: the column is plain JSONB, so an
+    # reassigned, never mutated in place: the column is plain JSONB, so an
     # in-place edit would never be seen as dirty and would not be written.
     track.platform_links = {**stored, CLIP_PLATFORM: link}
 
 
-async def _get_or_create_track(
+async def get_or_create_track(
     session: AsyncSession,
     raw_url: str,
     classified: ClassifiedUrl,
     clip: ClassifiedUrl | None = None,
 ) -> tuple[Track, bool]:
-    """Race-safe on UNIQUE `source_url_normalized`: the INSERT loser re-reads the
+    """race-safe on UNIQUE `source_url_normalized`: the INSERT loser re-reads the
     winner. Clip seeded before the flush: re-reading a server default is a lazy load."""
-    existing = await _select_track_by_url(session, classified.normalized_url)
+    existing = await select_track_by_url(session, classified.normalized_url)
     if existing is not None:
-        _seed_user_input_clip(existing, clip)
+        seed_user_input_clip(existing, clip)
         return existing, True
 
     # `DBAPIError` is deliberately not caught here — the caller turns it into
     # an answer to the admin, and this function has no message of its own.
     track = Track(source_url=raw_url, source_url_normalized=classified.normalized_url)
-    _seed_user_input_clip(track, clip)
+    seed_user_input_clip(track, clip)
 
     session.add(track)
     try:
         await session.flush()
     except IntegrityError:
         await session.rollback()
-        existing = await _select_track_by_url(session, classified.normalized_url)
+        existing = await select_track_by_url(session, classified.normalized_url)
         if existing is not None:
-            _seed_user_input_clip(existing, clip)
+            seed_user_input_clip(existing, clip)
             return existing, True
         raise
     return track, False
 
 
-async def _select_track_by_url(session: AsyncSession, normalized_url: str) -> Track | None:
+async def select_track_by_url(session: AsyncSession, normalized_url: str) -> Track | None:
     return await session.scalar(select(Track).where(Track.source_url_normalized == normalized_url))
 
 
-async def _mark_dispatch_failure(
+async def mark_dispatch_failure(
     session_factory: async_sessionmaker[AsyncSession],
     post_id: int,
     *,
     expected_status: PostStatus,
     error: str,
 ) -> None:
-    """The post is committed as in-progress with no task to move it, so the
+    """the post is committed as in-progress with no task to move it, so the
     bot's own "спробуйте /retry" advice would be false until it goes stale."""
     try:
         async with session_scope(session_factory) as session:
@@ -827,7 +823,7 @@ async def _mark_dispatch_failure(
         logger.exception("dispatch_failure_status_write_failed", post_id=post_id)
 
 
-async def _dispatch_resolve_task(celery_client: Celery, post_id: int) -> bool:
+async def dispatch_resolve_task(celery_client: Celery, post_id: int) -> bool:
     # `send_task()` blocks synchronously; off-loop, or an unreachable Redis
     # stalls this single-loop process's event loop.
     try:
@@ -840,8 +836,8 @@ async def _dispatch_resolve_task(celery_client: Celery, post_id: int) -> bool:
     return True
 
 
-async def _dispatch_media_task(celery_client: Celery, task_name: str, post_id: int) -> bool:
-    """By name: `bot/` never imports `worker.tasks`."""
+async def dispatch_media_task(celery_client: Celery, task_name: str, post_id: int) -> bool:
+    """by name: `bot/` never imports `worker.tasks`."""
     try:
         await asyncio.to_thread(celery_client.send_task, task_name, kwargs={"post_id": post_id})
     except Exception:
@@ -850,7 +846,7 @@ async def _dispatch_media_task(celery_client: Celery, task_name: str, post_id: i
     return True
 
 
-async def _dispatch_publish_task(
+async def dispatch_publish_task(
     celery_client: Celery, post_id: int, published_by_user_id: int
 ) -> bool:
     """`published_by_user_id` is whoever tapped the button or ran `/retry`, not

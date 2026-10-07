@@ -6,13 +6,13 @@ from pathlib import Path
 from typing import Annotated, Literal
 from urllib.parse import unquote, urlsplit
 
-from pydantic import Field, SecretStr, field_validator, model_validator
+from pydantic import Field, SecretStr, ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 from sqlalchemy.engine import make_url
 
 
 class Settings(BaseSettings):
-    """Values that must never reach logs are `SecretStr`; `pisniar.logging` redacts them."""
+    """values that must never reach logs are `SecretStr`; `pisniar.logging` redacts them."""
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     )
 
     environment: Literal["dev", "docker"] = "dev"
-    # Independent of `environment` on purpose: "docker" doesn't always mean
+    # independent of `environment` on purpose: "docker" doesn't always mean
     # "read JSON logs" — `make up` still wants console output while `environment` stays "dev".
     log_format: Literal["json", "console"] = "json"
     log_level: str = "INFO"
@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     # `split_admin_ids` below ever runs, and that blows up as invalid JSON.
     admin_ids: Annotated[list[int], NoDecode] = Field(min_length=1)
     alert_chat_id: int
-    # The publish target, and the only source of it. Numeric, not
+    # the publish target, and the only source of it. Numeric, not
     # `@username`: a username can be reassigned to another chat, an id cannot.
     channel_id: int
 
@@ -43,33 +43,33 @@ class Settings(BaseSettings):
 
     spotify_client_id: str
     spotify_client_secret: SecretStr
-    # Optional: the `musicbrainz` source stays disabled without a contact,
+    # optional: the `musicbrainz` source stays disabled without a contact,
     # per MusicBrainz's own policy.
     musicbrainz_contact: str | None = None
     itunes_country: str = "UA"
-    # Both a hit and a `{"found": false}` go stale after an hour, so `/retry`
+    # both a hit and a `{"found": false}` go stale after an hour, so `/retry`
     # can recover a release song.link has not indexed yet.
     source_fetch_ttl_seconds: int = 3600
 
-    # Mount point of the `media-data` volume inside the worker container, and
+    # mount point of the `media-data` volume inside the worker container, and
     # the only root `worker/` ever builds a media path under.
     media_root: Path = Path("/data")
-    # Checked with `shutil.disk_usage()` *before* a download starts: running
+    # checked with `shutil.disk_usage()` *before* a download starts: running
     # out mid-render leaves a file that looks finished.
     media_min_free_bytes: int = Field(default=2_000_000_000, gt=0)
-    # Per-task limits. The resolve limits in `worker.celery_app` also gate
+    # per-task limits. The resolve limits in `worker.celery_app` also gate
     # `/retry`'s "resolve has gone stale" window, so they are never raised here.
     download_task_soft_time_limit_seconds: int = Field(default=120, gt=0)
     download_task_time_limit_seconds: int = Field(default=180, gt=0)
-    # Covers LRCLIB's worst case (~187 s of timeouts and retries) on top of the
+    # covers LRCLIB's worst case (~187 s of timeouts and retries) on top of the
     # render: a slow lyrics source must end as a video without text, not a timeout.
     render_task_soft_time_limit_seconds: int = Field(default=360, gt=0)
     render_task_time_limit_seconds: int = Field(default=420, gt=0)
 
-    # Unset disables the Mini App entry points; `https` only, since Telegram refuses plain http.
+    # unset disables the Mini App entry points; `https` only, since Telegram refuses plain http.
     webapp_public_url: str | None = None
     webapp_port: int = Field(default=8081, gt=0, lt=65536)
-    # Absolute, like `media_root`: a relative path would resolve against the container's cwd.
+    # absolute, like `media_root`: a relative path would resolve against the container's cwd.
     webapp_static_dir: Path = Path("/app/webapp-static")
     # `initData` older than this, or dated further ahead than the future window, is refused.
     webapp_auth_max_age_seconds: int = Field(default=600, gt=0)
@@ -90,33 +90,30 @@ class Settings(BaseSettings):
             raise ValueError("database_url must use the postgresql+asyncpg:// driver")
         return value
 
-    @field_validator("media_root")
+    @field_validator("media_root", "webapp_static_dir")
     @classmethod
-    def require_absolute_media_root(cls, value: Path) -> Path:
-        """A relative root would resolve against the worker's `/app` cwd —
-        media would land inside the image instead of on the volume."""
+    def require_absolute_container_path(cls, value: Path, validation_info: ValidationInfo) -> Path:
+        """a relative path would resolve against the container's `/app` cwd — media
+        would land inside the image instead of on the volume."""
         if not value.as_posix().startswith("/"):
-            raise ValueError("media_root must be an absolute path inside the container")
-        return value
-
-    @field_validator("webapp_static_dir")
-    @classmethod
-    def require_absolute_webapp_static_dir(cls, value: Path) -> Path:
-        if not value.as_posix().startswith("/"):
-            raise ValueError("webapp_static_dir must be an absolute path inside the container")
+            raise ValueError(
+                f"{validation_info.field_name} must be an absolute path inside the container"
+            )
         return value
 
     @field_validator("webapp_public_url", mode="before")
     @classmethod
     def normalise_webapp_public_url(cls, value: object) -> object:
-        """An empty `WEBAPP_PUBLIC_URL=` in `.env` means "off", not an invalid URL."""
+        """an empty `WEBAPP_PUBLIC_URL=` in `.env` means "off", not an invalid URL."""
         if value is None:
             return None
         if not isinstance(value, str):
             return value
+
         stripped = value.strip().rstrip("/")
         if not stripped:
             return None
+
         parts = urlsplit(stripped)
         has_extras = parts.path or parts.query or parts.fragment or parts.username
         if parts.scheme != "https" or not parts.hostname or has_extras:
@@ -125,7 +122,7 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def require_soft_limit_below_hard_limit(self) -> Settings:
-        """A soft limit at or above the hard one never fires, and the task is
+        """a soft limit at or above the hard one never fires, and the task is
         SIGKILLed with no chance to clean up its `.partial` files."""
         limit_pairs = (
             (
@@ -147,18 +144,14 @@ class Settings(BaseSettings):
                 )
         return self
 
-    @property
-    def is_docker(self) -> bool:
-        return self.environment == "docker"
-
 
 def get_settings() -> Settings:
-    """Not cached: tests build fresh settings per case via `monkeypatch.setenv`."""
+    """not cached: tests build fresh settings per case via `monkeypatch.setenv`."""
     return Settings()
 
 
 def redaction_secrets(settings: Settings) -> list[str]:
-    """Tracebacks count too: `/readyz` logs with `exc_info=True`, and asyncpg or
+    """tracebacks count too: `/readyz` logs with `exc_info=True`, and asyncpg or
     kombu connection errors can embed the DSN password in their message."""
     secrets = [
         settings.bot_token.get_secret_value(),
@@ -168,12 +161,12 @@ def redaction_secrets(settings: Settings) -> list[str]:
     if password:
         secrets.append(password)
 
-    secrets.extend(_redis_password_forms(settings.redis_url))
+    secrets.extend(redis_password_forms(settings.redis_url))
     return secrets
 
 
-def _redis_password_forms(redis_url: str) -> list[str]:
-    """Both forms: a leaked URL carries the percent-encoded password, while
+def redis_password_forms(redis_url: str) -> list[str]:
+    """both forms: a leaked URL carries the percent-encoded password, while
     redis-py/kombu unquote it before it reaches a client-side message."""
     quoted_password = urlsplit(redis_url).password
     if not quoted_password:

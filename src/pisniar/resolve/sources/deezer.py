@@ -19,7 +19,7 @@ THROTTLE = Throttler(min_interval_seconds=1.0)
 SEARCH_LIMIT = 5
 SOURCE_NAME = "deezer"
 
-# A missing ISRC or album answers `DataException`, code 800. Anything else is
+# a missing ISRC or album answers `DataException`, code 800. Anything else is
 # an outage, not a miss, and raises instead of being cached as "not found".
 NOT_FOUND_ERROR_CODES = frozenset({800})
 NOT_FOUND_ERROR_TYPES = frozenset({"DataException"})
@@ -47,12 +47,12 @@ class DeezerAlbumResult:
 
 
 class DeezerApiError(RuntimeError):
-    """A 200 whose error body is not the documented miss. Raised, not cached:
+    """a 200 whose error body is not the documented miss. Raised, not cached:
     a quota failure cached as `{"found": false}` blanks the row for a whole TTL."""
 
 
-def _is_not_found_body(data: object) -> bool:
-    """The pitfall check: Deezer answers 200 with `{"error": {...}}` for both
+def is_not_found_body(data: object) -> bool:
+    """the pitfall check: Deezer answers 200 with `{"error": {...}}` for both
     a miss and an outage, so the body — not the status code — decides."""
     body = as_dict(data)
     if "error" not in body:
@@ -72,11 +72,11 @@ def _is_not_found_body(data: object) -> bool:
     )
 
 
-async def _request(
-    client: httpx.AsyncClient, url: str, params: dict[str, str | int]
+async def send_request(
+    client: httpx.AsyncClient, url: str, query_parameters: dict[str, str | int]
 ) -> dict[str, object]:
     await THROTTLE.wait()
-    response = await client.get(url, params=params)
+    response = await client.get(url, params=query_parameters)
     response.raise_for_status()
     data: dict[str, object] = response.json()
     return data
@@ -91,13 +91,13 @@ async def fetch_by_isrc(
     cache_key = build_request_key("deezer:isrc:", isrc, casefold=False)
 
     async def do_fetch() -> dict[str, object]:
-        data = await _request(client, f"https://api.deezer.com/track/isrc:{isrc}", {})
-        if _is_not_found_body(data):
+        data = await send_request(client, f"https://api.deezer.com/track/isrc:{isrc}", {})
+        if is_not_found_body(data):
             return {"found": False}
         return {"found": True, "data": data}
 
     payload = await cache.get_or_fetch("deezer", cache_key, do_fetch)
-    return _track_result_from_payload(payload)
+    return track_result_from_payload(payload)
 
 
 async def search_by_name(
@@ -106,14 +106,14 @@ async def search_by_name(
     cache_key = build_request_key("deezer:search:", artist, title)
 
     async def do_fetch() -> dict[str, object]:
-        data = await _request(
+        data = await send_request(
             client,
             "https://api.deezer.com/search",
             {"q": f'artist:"{artist}" track:"{title}"', "limit": SEARCH_LIMIT},
         )
-        # Checked here too: a quota error body would otherwise be cached as
+        # checked here too: a quota error body would otherwise be cached as
         # an empty result list, which looks exactly like "nothing found".
-        if _is_not_found_body(data):
+        if is_not_found_body(data):
             return {"results": []}
         return {"results": as_list(data.get("data"))}
 
@@ -121,7 +121,7 @@ async def search_by_name(
     results = payload.get("results")
     if not isinstance(results, list):
         return []
-    candidates = [_candidate_from_search_item(item) for item in results[:SEARCH_LIMIT]]
+    candidates = [candidate_from_search_item(item) for item in results[:SEARCH_LIMIT]]
     return [candidate for candidate in candidates if candidate.url]
 
 
@@ -131,16 +131,16 @@ async def fetch_album(
     cache_key = build_request_key("deezer:album:", str(album_id), casefold=False)
 
     async def do_fetch() -> dict[str, object]:
-        data = await _request(client, f"https://api.deezer.com/album/{album_id}", {})
-        if _is_not_found_body(data):
+        data = await send_request(client, f"https://api.deezer.com/album/{album_id}", {})
+        if is_not_found_body(data):
             return {"found": False}
         return {"found": True, "data": data}
 
     payload = await cache.get_or_fetch("deezer", cache_key, do_fetch)
-    return _album_result_from_payload(payload)
+    return album_result_from_payload(payload)
 
 
-def _track_result_from_payload(payload: dict[str, object]) -> DeezerTrackResult:
+def track_result_from_payload(payload: dict[str, object]) -> DeezerTrackResult:
     if not payload.get("found"):
         return DeezerTrackResult(found=False)
 
@@ -158,7 +158,7 @@ def _track_result_from_payload(payload: dict[str, object]) -> DeezerTrackResult:
     )
 
 
-def _album_result_from_payload(payload: dict[str, object]) -> DeezerAlbumResult:
+def album_result_from_payload(payload: dict[str, object]) -> DeezerAlbumResult:
     if not payload.get("found"):
         return DeezerAlbumResult(found=False)
 
@@ -184,8 +184,8 @@ def _album_result_from_payload(payload: dict[str, object]) -> DeezerAlbumResult:
     )
 
 
-def _candidate_from_search_item(raw_item: object) -> TrackCandidate:
-    """Every field through `json_utils`, so a `null` link never becomes the
+def candidate_from_search_item(raw_item: object) -> TrackCandidate:
+    """every field through `json_utils`, so a `null` link never becomes the
     string `"None"`, nor a non-dict entry an `AttributeError`."""
     item = as_dict(raw_item)
     duration_seconds = as_int(item.get("duration"))

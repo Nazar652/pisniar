@@ -26,7 +26,7 @@ TRACK_ID = 7
 
 @pytest.fixture(autouse=True)
 def persist_logger(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
-    """A stand-in: a cached structlog proxy defeats `capture_logs()`."""
+    """a stand-in: a cached structlog proxy defeats `capture_logs()`."""
     fake_logger = MagicMock()
     monkeypatch.setattr(lyrics, "logger", fake_logger)
     return fake_logger
@@ -65,7 +65,7 @@ def test_a_pause_marker_is_kept_because_it_ends_the_line_before_it() -> None:
     ],
 )
 def test_nothing_but_synced_lyrics_is_ever_written(outcome: LyricsOutcome) -> None:
-    """Untimed text stays a log class while `start_ms` is NOT NULL."""
+    """untimed text stays a log class while `start_ms` is NOT NULL."""
     result = LyricsResult(outcome=outcome, lines=(LyricsLine(start_ms=None, text="голий текст"),))
 
     assert lyrics.rows_to_write(TRACK_ID, result) == ([], 0)
@@ -74,7 +74,7 @@ def test_nothing_but_synced_lyrics_is_ever_written(outcome: LyricsOutcome) -> No
 def test_a_line_past_the_check_is_cut_to_it_and_logged_without_its_text(
     persist_logger: MagicMock,
 ) -> None:
-    """Cut, not dropped: a gap in `line_index` would read like a line deleted by
+    """cut, not dropped: a gap in `line_index` would read like a line deleted by
     hand."""
     long_text = "й" * (MAX_LYRIC_TEXT_LENGTH + 37)
 
@@ -125,7 +125,7 @@ STORED_LINES = (LyricLine(line_index=0, start_ms=1_000, text="раз"),)
 
 
 class PrepareSpy:
-    """Replaces the three collaborators `prepare_lyrics` orchestrates and records
+    """replaces the three collaborators `prepare_lyrics` orchestrates and records
     the order they ran in, so "no network when lines exist" is observed."""
 
     def __init__(
@@ -186,7 +186,7 @@ async def test_stored_lines_are_used_and_lrclib_is_never_asked(
 async def test_fresh_synced_lyrics_are_persisted_then_read_back(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Rendered from what the table holds, not from the adapter's answer: the two
+    """rendered from what the table holds, not from the adapter's answer: the two
     differ once a line is truncated to the CHECK."""
     spy = PrepareSpy(
         monkeypatch,
@@ -265,7 +265,7 @@ async def test_a_source_that_fails_means_a_video_without_text(
 async def test_a_timeout_or_a_database_error_under_the_fetch_is_never_swallowed(
     monkeypatch: pytest.MonkeyPatch, failure: BaseException
 ) -> None:
-    """The soft limit is reported as a timeout, and `SourceCache` talks to
+    """the soft limit is reported as a timeout, and `SourceCache` talks to
     Postgres inside the fetch: neither is the source failing."""
     PrepareSpy(monkeypatch, stored_before=(), fetch_result=failure)
 
@@ -334,7 +334,7 @@ def test_a_video_with_text_gets_no_notice(reason: str) -> None:
 
 
 def test_a_video_with_text_gets_no_notice_whatever_the_reason_says() -> None:
-    """The subtitle digest decides whether text is in the frames; the reason only
+    """the subtitle digest decides whether text is in the frames; the reason only
     explains an absence."""
     assert lyrics.no_text_notice(42, "lyrics_absent", "0123456789abcdef") is None
 

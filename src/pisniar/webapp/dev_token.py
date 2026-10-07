@@ -18,15 +18,15 @@ from pisniar.webapp.auth import issue_session_token
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="dev_token", description=__doc__)
     parser.add_argument("--user-id", type=int, required=True)
-    args = parser.parse_args(argv)
+    arguments = parser.parse_args(argv)
 
     settings = get_settings()
-    if args.user_id not in settings.admin_ids:
+    if arguments.user_id not in settings.admin_ids:
         print("user id is not in ADMIN_IDS", file=sys.stderr)
         return 1
 
     token = issue_session_token(
-        args.user_id,
+        arguments.user_id,
         settings.bot_token.get_secret_value(),
         int(time.time()),
         settings.webapp_session_ttl_seconds,

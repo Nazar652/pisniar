@@ -25,9 +25,9 @@ def create_app(*, session_factory: async_sessionmaker[AsyncSession], redis_url: 
 
     @app.get("/readyz")
     async def readyz(response: Response) -> dict[str, str]:
-        postgres_ok = await _check_postgres(session_factory)
-        redis_ok = await _check_redis(redis_url)
-        if postgres_ok and redis_ok:
+        postgres_available = await check_postgres(session_factory)
+        redis_available = await check_redis(redis_url)
+        if postgres_available and redis_available:
             return {"status": "ok"}
         response.status_code = 503
         return {"status": "unavailable"}
@@ -35,7 +35,7 @@ def create_app(*, session_factory: async_sessionmaker[AsyncSession], redis_url: 
     return app
 
 
-async def _check_postgres(session_factory: async_sessionmaker[AsyncSession]) -> bool:
+async def check_postgres(session_factory: async_sessionmaker[AsyncSession]) -> bool:
     try:
         async with session_factory() as session:
             await session.execute(text("SELECT 1"))
@@ -45,7 +45,7 @@ async def _check_postgres(session_factory: async_sessionmaker[AsyncSession]) -> 
     return True
 
 
-async def _check_redis(redis_url: str) -> bool:
+async def check_redis(redis_url: str) -> bool:
     client = redis_asyncio.Redis.from_url(redis_url)
     try:
         await client.ping()

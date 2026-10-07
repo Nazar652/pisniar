@@ -1,4 +1,4 @@
-"""0006_step4b_lyric
+"""0006 lyric
 
 One line of lyrics per row, keyed to a **track** with `ON DELETE CASCADE`:
 stored text is not a reason to refuse deleting a track. `start_ms` is absolute
@@ -25,7 +25,7 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    """Upgrade schema."""
+    """upgrade schema."""
     op.create_table(
         "lyric",
         sa.Column("id", sa.BigInteger(), sa.Identity(always=False), nullable=False),
@@ -57,5 +57,5 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """Downgrade schema."""
+    """downgrade schema."""
     op.drop_table("lyric")

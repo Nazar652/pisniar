@@ -35,10 +35,10 @@ def render_schema(schema: dict[str, Any]) -> str:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="export_openapi")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
-    args = parser.parse_args(argv)
+    arguments = parser.parse_args(argv)
 
     # `newline="\n"`: a Windows host must not turn the file into CRLF.
-    with args.output.open("w", encoding="utf-8", newline="\n") as handle:
+    with arguments.output.open("w", encoding="utf-8", newline="\n") as handle:
         handle.write(render_schema(build_openapi_schema()))
     return 0
 

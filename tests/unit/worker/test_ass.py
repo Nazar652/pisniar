@@ -14,15 +14,15 @@ from pisniar.worker import render as video_render
 FRAGMENT_START_MS = 0
 FRAGMENT_END_MS = 45_000
 
-# Only used to assert the slots do not overlap: libass draws a line roughly
+# only used to assert the slots do not overlap: libass draws a line roughly
 # 1.2x its font size tall, so this is the pessimistic block height.
 LINE_HEIGHT_RATIO = 1.2
 
-# Measured on the worker image: libass stacks lines one `Fontsize` apart, so a
+# measured on the worker image: libass stacks lines one `Fontsize` apart, so a
 # two-line 44 px block inks 75 px where this model claims 88, the safe direction.
 MEASURED_LINE_HEIGHT_RATIO = 1.0
 
-# A 123-character line, too long for one line of the band.
+# a 123-character line, too long for one line of the band.
 LONG_LINE_OF_123_CHARACTERS = (
     "Цей рядок навмисно довгий, бо гейт показав, що стовідсотково "
     "не влізе в один рядок і його доведеться таки розбивати надвоє."
@@ -72,7 +72,7 @@ def current_rows(document: str) -> list[str]:
 
 
 def test_the_script_declares_the_frame_it_is_drawn_onto() -> None:
-    """Without `PlayResX/Y` libass assumes 384x288 and every coordinate below
+    """without `PlayResX/Y` libass assumes 384x288 and every coordinate below
     lands somewhere else."""
     document = build(lines_of((1_000, "рядок")))
 
@@ -125,7 +125,7 @@ def test_every_dialogue_row_has_exactly_the_declared_number_of_fields() -> None:
 
 
 def test_a_comma_in_the_lyrics_is_harmless_because_text_is_the_last_field() -> None:
-    """True today, and pinned here rather than remembered."""
+    """true today, and pinned here rather than remembered."""
     document = build(lines_of((1_000, "так, ось, кома")))
 
     assert ass.EVENT_FORMAT_FIELDS[-1] == "Text"
@@ -133,7 +133,7 @@ def test_a_comma_in_the_lyrics_is_harmless_because_text_is_the_last_field() -> N
 
 
 def test_each_line_is_placed_by_an_explicit_position_from_the_constants() -> None:
-    """Slot symmetry is a constant, not an accident of margins."""
+    """slot symmetry is a constant, not an accident of margins."""
     document = build(lines_of((1_000, "перший"), (3_000, "другий"), (5_000, "третій")))
     middle = [row for row in dialogue_rows(document) if field_of(row, "Start") == "0:00:03.00"]
 
@@ -160,7 +160,7 @@ def test_the_first_and_last_lines_have_one_neighbour_each() -> None:
 
 
 def test_the_text_band_starts_where_the_lifted_cover_ends() -> None:
-    """The `pad` offset and the slot geometry are one decision in two files, so
+    """the `pad` offset and the slot geometry are one decision in two files, so
     they are pinned against each other."""
     assert ass.TEXT_BAND_TOP_PX == video_render.COVER_TOP_OFFSET_PX + video_render.VIDEO_WIDTH
 
@@ -185,7 +185,7 @@ def block_extent(slot_y: int, *, wrapped_lines: int, font_size_px: int) -> tuple
 
 
 def test_a_current_line_that_wraps_to_two_still_clears_its_smaller_neighbours() -> None:
-    """The tightest case: the current block doubles while the side slots stay one
+    """the tightest case: the current block doubles while the side slots stay one
     smaller line; 35 px of black is left on each side, 23 px under the 1.2x reading."""
     current_top, current_bottom = block_extent(
         ass.CURRENT_SLOT_Y,
@@ -210,7 +210,7 @@ def test_a_current_line_that_wraps_to_two_still_clears_its_smaller_neighbours() 
 
 
 def test_the_two_line_case_is_the_one_the_frame_has_to_show() -> None:
-    """The clearance above matters only if the wrapper can still produce a
+    """the clearance above matters only if the wrapper can still produce a
     two-line current block at the measured glyph widths."""
     document = build(lines_of((1_000, LONG_LINE_OF_123_CHARACTERS)))
     body = field_of(current_rows(document)[0], "Text").split("}", 1)[1]
@@ -298,20 +298,20 @@ def test_inverted_fragment_bounds_are_our_own_error_and_are_loud() -> None:
 
 
 def test_the_order_of_the_frames_is_the_stored_line_index_never_the_timecode() -> None:
-    """Untimed lines will have only `line_index` to stand on, so a source's
+    """untimed lines will have only `line_index` to stand on, so a source's
     out-of-order timecodes must not reorder the lines."""
     lines = [
         ass.LyricLine(line_index=0, start_ms=5_000, text="перший"),
         ass.LyricLine(line_index=1, start_ms=1_000, text="другий"),
     ]
 
-    placed = ass._place_lines(lines, 0)
+    placed = ass.place_lines(lines, 0)
 
     assert [line.text for line in placed] == ["перший", "другий"]
 
 
 def test_a_source_that_timed_its_lines_out_of_order_is_not_resequenced() -> None:
-    """Ordering by time would quietly repair the source and draw both lines,
+    """ordering by time would quietly repair the source and draw both lines,
     which is a different song's order."""
     lines = [
         ass.LyricLine(line_index=0, start_ms=5_000, text="перший"),
@@ -325,7 +325,7 @@ def test_a_source_that_timed_its_lines_out_of_order_is_not_resequenced() -> None
 
 
 def test_a_line_without_a_timecode_is_kept_out_of_the_frame() -> None:
-    """The predicate is spelled out while it is still a tautology, so dropping
+    """the predicate is spelled out while it is still a tautology, so dropping
     NOT NULL on `start_ms` later changes nothing here."""
     lines = [
         ass.LyricLine(line_index=0, start_ms=None, text="без таймкоду"),
@@ -392,7 +392,7 @@ def test_a_line_that_is_only_control_characters_becomes_a_pause() -> None:
 
 
 def test_a_long_line_is_wrapped_by_us_and_never_by_libass() -> None:
-    """Left to libass, a 123-character line runs off both edges of the frame;
+    """left to libass, a 123-character line runs off both edges of the frame;
     `WrapStyle: 2` plus our own measurement is what stops it."""
     long_line = "дуже довгий рядок тексту пісні " * 5
 
@@ -409,7 +409,7 @@ def test_a_long_line_is_wrapped_by_us_and_never_by_libass() -> None:
 
 
 def test_a_wrapped_line_uses_the_width_the_band_actually_has() -> None:
-    """Counted in characters on purpose: measuring the result with the function
+    """counted in characters on purpose: measuring the result with the function
     that produced it would pass however wrong that function got."""
     assert len(LONG_LINE_OF_123_CHARACTERS) == 123
 
@@ -424,14 +424,14 @@ def test_a_wrapped_line_uses_the_width_the_band_actually_has() -> None:
 
 
 def test_an_apostrophe_and_both_quote_shapes_are_measured_from_the_table() -> None:
-    """Ukrainian spells the apostrophe four ways and the source picks one; none may
+    """ukrainian spells the apostrophe four ways and the source picks one; none may
     fall through to the fallback, which is over-wide by design."""
     for character in "'’ʼ«»“”„":
         assert ord(character) in noto_sans_widths.ADVANCE_WIDTHS
 
 
 def test_a_codepoint_the_table_does_not_cover_is_still_measured() -> None:
-    """Song text can hold anything; an unmeasurable glyph must widen the
+    """song text can hold anything; an unmeasurable glyph must widen the
     line, never raise and never count as zero."""
     emoji = "\U0001f525"
 
@@ -443,7 +443,7 @@ def test_a_codepoint_the_table_does_not_cover_is_still_measured() -> None:
 
 
 def test_a_side_slot_never_grows_to_a_second_line() -> None:
-    """One wrapped line, not two: a second one in a side slot is exactly how
+    """one wrapped line, not two: a second one in a side slot is exactly how
     a long line climbs into the neighbouring slot."""
     long_line = "дуже довгий рядок тексту пісні " * 5
 
@@ -471,7 +471,7 @@ def test_a_word_wider_than_the_band_is_split_instead_of_overflowing() -> None:
 
 
 def test_the_number_of_drawn_lines_is_capped() -> None:
-    """A thousand lines over 45 seconds is a broken LRC or a bill for ffmpeg's
+    """a thousand lines over 45 seconds is a broken LRC or a bill for ffmpeg's
     CPU, not a song."""
     many = lines_of(*((index * 10 + 1, f"рядок {index}") for index in range(400)))
 
@@ -493,7 +493,7 @@ def test_the_same_text_fits_on_fewer_pixels_in_the_smaller_style() -> None:
 
 
 def test_a_single_glyph_wider_than_the_whole_band_still_gets_a_line() -> None:
-    """The wrapper asks for the longest head that fits; an empty answer
+    """the wrapper asks for the longest head that fits; an empty answer
     would spin it forever, so the floor is one character."""
     wrapped = ass.wrap_for_slot("щщщ", font_size_px=10_000, max_lines=2)
 

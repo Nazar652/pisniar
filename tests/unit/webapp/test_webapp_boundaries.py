@@ -8,9 +8,9 @@ from pathlib import Path
 SOURCE_ROOT = Path(__file__).resolve().parents[3] / "src" / "pisniar"
 
 
-def imported_modules(package_dir: Path) -> dict[str, set[str]]:
+def imported_modules(package_directory: Path) -> dict[str, set[str]]:
     found: dict[str, set[str]] = {}
-    for path in sorted(package_dir.rglob("*.py")):
+    for path in sorted(package_directory.rglob("*.py")):
         modules: set[str] = set()
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if isinstance(node, ast.Import):

@@ -22,14 +22,14 @@ def zero_throttle_intervals(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(ytmusic.THROTTLE, "min_interval_seconds", 0.0)
     monkeypatch.setattr(musicbrainz.THROTTLE, "min_interval_seconds", 0.0)
 
-    # The backoff too, not only the throttle: `lrclib` retries the "did not
+    # the backoff too, not only the throttle: `lrclib` retries the "did not
     # answer" class three times, and the sleeps are the test suite's time.
     monkeypatch.setattr(lrclib, "RETRY_BASE_DELAY_SECONDS", 0.0)
 
 
 @pytest.fixture
 def fake_cache() -> SourceCache:
-    """Keeps adapter tests off the database while the request keys stay readable
+    """keeps adapter tests off the database while the request keys stay readable
     in `fake_cache.get_or_fetch.await_args_list`."""
     cache = AsyncMock(spec=SourceCache)
 

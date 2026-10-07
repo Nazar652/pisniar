@@ -9,6 +9,7 @@ import pytest
 
 from pisniar.resolve.matching import (
     DURATION_TOLERANCE_MS,
+    find_matching_candidate,
     is_match,
     is_valid_isrc,
     is_valid_spotify_id,
@@ -16,7 +17,9 @@ from pisniar.resolve.matching import (
     known_duration,
     normalize_artist_set,
     normalize_text,
+    rejected_candidates_warning,
 )
+from pisniar.resolve.types import TrackCandidate
 
 
 def test_duration_tolerance_is_three_seconds() -> None:
@@ -42,7 +45,7 @@ def test_normalize_text_strips_diacritics() -> None:
     assert normalize_text("Alternativă") == normalize_text("Alternativa")
 
 
-# Spotify reference (artist, title, ms) vs the candidate the named source
+# spotify reference (artist, title, ms) vs the candidate the named source
 # actually returned for it. Nine tracks, both alphabets, two sources.
 REAL_CROSS_PLATFORM_PAIRS = [
     ("itunes", "АННА", "Горн", 270981, "Анна", "Горн", 270982),
@@ -194,7 +197,7 @@ def test_is_match_rejects_same_word_different_song() -> None:
 def test_is_match_rejects_the_five_real_berserker_impostors(
     candidate_artist: str, candidate_title: str, candidate_duration_ms: int
 ) -> None:
-    """All five came back in one live ytmusicapi search for "Krovna —
+    """all five came back in one live ytmusicapi search for "Krovna —
     Berserker" with a title that is exactly equal after normalization."""
     assert normalize_text(candidate_title) == "berserker"
     assert not is_match(
@@ -208,7 +211,7 @@ def test_is_match_rejects_the_five_real_berserker_impostors(
 
 
 def test_is_match_rejects_a_same_title_track_by_another_ukrainian_band() -> None:
-    # Live ytmusicapi result for "Тол — Сумніви": KOLORYT has a song of the
+    # live ytmusicapi result for "Тол — Сумніви": KOLORYT has a song of the
     # very same name, and only the artist set tells them apart.
     assert not is_match(
         reference_artist="Тол",
@@ -231,7 +234,7 @@ def test_is_match_rejects_a_same_title_track_by_another_ukrainian_band() -> None
     ],
 )
 def test_normalize_text_keeps_real_bracketed_tails(live_title: str, expected: str) -> None:
-    """Every title here came back live: the first four mark a different
+    """every title here came back live: the first four mark a different
     recording, the fifth is simply part of a reference track's own name."""
     assert normalize_text(live_title) == expected
 
@@ -337,7 +340,7 @@ def test_is_valid_isrc_accepts_well_formed_identifiers(isrc: str) -> None:
     ],
 )
 def test_is_valid_isrc_rejects_anything_that_could_reshape_a_url(isrc: str | None) -> None:
-    """The value is pasted into `/track/isrc:<isrc>`, so a stray `/` or `?` from a
+    """the value is pasted into `/track/isrc:<isrc>`, so a stray `/` or `?` from a
     source would change which endpoint we call."""
     assert is_valid_isrc(isrc) is False
 
@@ -361,7 +364,7 @@ def test_is_valid_spotify_id_accepts_a_real_base62_id() -> None:
 def test_is_valid_spotify_id_rejects_anything_that_could_reshape_a_url(
     spotify_id: str | None,
 ) -> None:
-    """The id goes into `/v1/tracks/<id>` and into an `href`; a space alone is a
+    """the id goes into `/v1/tracks/<id>` and into an `href`; a space alone is a
     Telegram 400 on the whole post."""
     assert is_valid_spotify_id(spotify_id) is False
 
@@ -385,6 +388,47 @@ def test_is_valid_youtube_video_id_accepts_a_real_id() -> None:
 def test_is_valid_youtube_video_id_rejects_anything_that_could_reshape_a_url(
     video_id: str | None,
 ) -> None:
-    """The id is source-supplied and goes into a `watch?v=` URL and into `yt-dlp`,
+    """the id is source-supplied and goes into a `watch?v=` URL and into `yt-dlp`,
     the same reason the ISRC is validated."""
     assert is_valid_youtube_video_id(video_id) is False
+
+
+def make_candidate(
+    title: str, artist: str = "Radiohead", url: str = "https://x/1"
+) -> TrackCandidate:
+    return TrackCandidate(
+        platform="deezer",
+        url=url,
+        source="deezer",
+        artist_name=artist,
+        title=title,
+        duration_ms=238_000,
+    )
+
+
+def test_the_first_candidate_that_matches_is_returned() -> None:
+    wrong = make_candidate("Other Song", url="https://x/0")
+    first = make_candidate("Creep", url="https://x/1")
+    second = make_candidate("Creep", url="https://x/2")
+
+    found = find_matching_candidate(
+        [wrong, first, second], artist="Radiohead", title="Creep", duration_ms=238_000
+    )
+
+    assert found is first
+
+
+def test_no_matching_candidate_gives_none() -> None:
+    candidates = [make_candidate("Other Song"), make_candidate("Creep", artist="Someone Else")]
+
+    assert (
+        find_matching_candidate(candidates, artist="Radiohead", title="Creep", duration_ms=238_000)
+        is None
+    )
+    assert find_matching_candidate([], artist="Radiohead", title="Creep", duration_ms=None) is None
+
+
+def test_the_rejection_warning_names_the_source_the_count_and_the_reference() -> None:
+    assert rejected_candidates_warning("itunes", 3, "Radiohead", "Creep") == (
+        "itunes: 3 кандидат(и) відхилено звіркою для «Radiohead — Creep»"
+    )

@@ -20,12 +20,18 @@ from pisniar.worker.celery_app import TASK_SOFT_TIME_LIMIT_SECONDS, TASK_TIME_LI
 
 # conftest.py sets fallbacks for these; "missing field" tests need them
 # genuinely absent, so this fixture removes them from real OS environ.
-REQUIRED_ENV_VARS = ("BOT_TOKEN", "ADMIN_IDS", "ALERT_CHAT_ID", "CHANNEL_ID", "DATABASE_URL")
+REQUIRED_ENVIRONMENT_VARIABLES = (
+    "BOT_TOKEN",
+    "ADMIN_IDS",
+    "ALERT_CHAT_ID",
+    "CHANNEL_ID",
+    "DATABASE_URL",
+)
 
 
 @pytest.fixture
-def no_ambient_settings_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in REQUIRED_ENV_VARS:
+def no_ambient_settings_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in REQUIRED_ENVIRONMENT_VARIABLES:
         monkeypatch.delenv(name, raising=False)
 
 
@@ -59,7 +65,7 @@ def build_settings(
     )
 
 
-def test_missing_bot_token_raises(no_ambient_settings_env: None) -> None:
+def test_missing_bot_token_raises(no_ambient_settings_environment: None) -> None:
     with pytest.raises(pydantic.ValidationError) as excinfo:
         Settings(
             _env_file=None,
@@ -71,7 +77,7 @@ def test_missing_bot_token_raises(no_ambient_settings_env: None) -> None:
     assert "bot_token" in str(excinfo.value)
 
 
-def test_missing_admin_ids_raises(no_ambient_settings_env: None) -> None:
+def test_missing_admin_ids_raises(no_ambient_settings_environment: None) -> None:
     with pytest.raises(pydantic.ValidationError):
         Settings(
             _env_file=None,
@@ -82,8 +88,8 @@ def test_missing_admin_ids_raises(no_ambient_settings_env: None) -> None:
         )
 
 
-def test_missing_channel_id_raises(no_ambient_settings_env: None) -> None:
-    """No default and no fallback: a guessed publish target would mean a post
+def test_missing_channel_id_raises(no_ambient_settings_environment: None) -> None:
+    """no default and no fallback: a guessed publish target would mean a post
     in the wrong channel, and that is not recoverable."""
     with pytest.raises(pydantic.ValidationError) as excinfo:
         Settings(
@@ -125,13 +131,6 @@ def test_environment_defaults_to_dev() -> None:
     settings = build_settings()
 
     assert settings.environment == "dev"
-    assert settings.is_docker is False
-
-
-def test_environment_docker_sets_is_docker() -> None:
-    settings = build_settings(environment="docker")
-
-    assert settings.is_docker is True
 
 
 def test_log_format_is_independent_of_environment() -> None:
@@ -147,7 +146,7 @@ def test_log_format_is_independent_of_environment() -> None:
 
 
 def test_log_format_defaults_to_json(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Isolated from an ambient `LOG_FORMAT` (compose.override.yml sets "console"):
+    # isolated from an ambient `LOG_FORMAT` (compose.override.yml sets "console"):
     # this asserts the pydantic default.
     monkeypatch.delenv("LOG_FORMAT", raising=False)
     settings = Settings(
@@ -190,7 +189,7 @@ def test_media_root_defaults_to_the_mounted_volume(monkeypatch: pytest.MonkeyPat
 
 
 def test_media_root_must_be_absolute() -> None:
-    """A relative root resolves against the worker's `/app` cwd — media would
+    """a relative root resolves against the worker's `/app` cwd — media would
     land inside the container's filesystem and disappear on the next build."""
     with pytest.raises(pydantic.ValidationError) as excinfo:
         build_settings(media_root="data/media")
@@ -199,14 +198,14 @@ def test_media_root_must_be_absolute() -> None:
 
 
 def test_media_min_free_bytes_must_be_positive() -> None:
-    """Zero would make the pre-download space check pass on a full volume,
+    """zero would make the pre-download space check pass on a full volume,
     which is the whole failure it exists to catch."""
     with pytest.raises(pydantic.ValidationError):
         build_settings(media_min_free_bytes=0)
 
 
 def test_a_download_soft_limit_at_or_above_the_hard_limit_is_refused() -> None:
-    """A soft limit that never fires means SIGKILL with no chance to remove
+    """a soft limit that never fires means SIGKILL with no chance to remove
     the `.partial` file the task was writing."""
     with pytest.raises(pydantic.ValidationError) as excinfo:
         build_settings(
@@ -254,7 +253,7 @@ def test_redaction_secrets_includes_spotify_client_secret() -> None:
 
 
 def test_redaction_secrets_includes_the_redis_password() -> None:
-    """Without it the broker password leaks through kombu's traceback and through
+    """without it the broker password leaks through kombu's traceback and through
     `readyz_redis_unavailable`, which logs with `exc_info=True`."""
     settings = build_settings(redis_url="redis://:super-secret-redis-value@redis:6379/0")
 
@@ -262,7 +261,7 @@ def test_redaction_secrets_includes_the_redis_password() -> None:
 
 
 def test_redaction_secrets_covers_a_percent_encoded_redis_password() -> None:
-    """A leaked URL carries the encoded form; redis-py unquotes it before it
+    """a leaked URL carries the encoded form; redis-py unquotes it before it
     reaches a client-side error message. Both can surface, so both go in."""
     settings = build_settings(redis_url="redis://:pa%40ss%2Fword@redis:6379/0")
 
@@ -283,7 +282,7 @@ def test_the_redis_password_is_redacted_from_a_message_and_a_traceback(
     capsys: pytest.CaptureFixture[str],
     preserve_root_logging_state: None,
 ) -> None:
-    """An event field and a rendered traceback: `format_exc_info` runs before the
+    """an event field and a rendered traceback: `format_exc_info` runs before the
     redaction processor, so the traceback is already a plain string."""
     settings = build_settings(redis_url="redis://:super-secret-redis-value@redis:6379/0")
     configure_logging(log_format="json", log_level="INFO", secrets=redaction_secrets(settings))

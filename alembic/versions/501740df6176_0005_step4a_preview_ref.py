@@ -1,4 +1,4 @@
-"""0005_step4a_preview_ref
+"""0005 preview reference
 
 The video preview's own chat/message reference, shaped like the draft pair:
 `editMessageMedia` cannot turn the text draft into media, so the preview is a
@@ -22,16 +22,14 @@ down_revision: str | Sequence[str] | None = "199284e533b4"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
-_PREVIEW_REFERENCE_IS_SET = sa.text(
-    "preview_chat_id IS NOT NULL AND preview_message_id IS NOT NULL"
-)
+PREVIEW_REFERENCE_IS_SET = sa.text("preview_chat_id IS NOT NULL AND preview_message_id IS NOT NULL")
 
 
 def upgrade() -> None:
-    """Upgrade schema."""
+    """upgrade schema."""
     op.add_column("post", sa.Column("preview_chat_id", sa.BigInteger(), nullable=True))
     op.add_column("post", sa.Column("preview_message_id", sa.BigInteger(), nullable=True))
-    # Same one-sided-pair problem as the draft and channel references: half a
+    # same one-sided-pair problem as the draft and channel references: half a
     # reference is a message the bot can neither edit nor find again.
     op.create_check_constraint(
         op.f("ck_post_preview_ref_complete"),
@@ -43,14 +41,14 @@ def upgrade() -> None:
         "post",
         ["preview_chat_id", "preview_message_id"],
         unique=True,
-        postgresql_where=_PREVIEW_REFERENCE_IS_SET,
+        postgresql_where=PREVIEW_REFERENCE_IS_SET,
     )
 
 
 def downgrade() -> None:
-    """Downgrade schema."""
+    """downgrade schema."""
     op.drop_index(
-        "uq_post_preview_message", table_name="post", postgresql_where=_PREVIEW_REFERENCE_IS_SET
+        "uq_post_preview_message", table_name="post", postgresql_where=PREVIEW_REFERENCE_IS_SET
     )
     op.drop_constraint(op.f("ck_post_preview_ref_complete"), "post", type_="check")
     op.drop_column("post", "preview_message_id")

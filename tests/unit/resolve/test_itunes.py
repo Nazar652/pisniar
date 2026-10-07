@@ -26,22 +26,22 @@ def test_throttle_interval_is_at_least_three_seconds() -> None:
 
 
 async def test_search_by_name_sends_explicit_country(fake_cache: SourceCache) -> None:
-    captured_params: dict[str, str] = {}
+    captured_query_parameters: dict[str, str] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
-        captured_params.update(dict(request.url.params))
+        captured_query_parameters.update(dict(request.url.params))
         return httpx.Response(200, json=SEARCH_BODY)
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         await itunes.search_by_name(client, fake_cache, "Krovna", "Berserker", country="UA")
 
-    assert captured_params["country"] == "UA"
+    assert captured_query_parameters["country"] == "UA"
 
 
 def test_candidate_from_result_maps_fields() -> None:
     results = SEARCH_BODY["results"]
     assert isinstance(results, list)
-    candidate = itunes._candidate_from_result(results[0])
+    candidate = itunes.candidate_from_result(results[0])
 
     assert candidate.platform == "appleMusic"
     assert candidate.source == "itunes"
@@ -58,13 +58,13 @@ def test_search_limit_is_five() -> None:
 def test_result_with_a_null_track_view_url_is_dropped_rather_than_stringified() -> None:
     """`str()` would turn JSON `null` into `"None"`, which passes the emptiness
     filter and trips `is_safe_url` only later, far from the cause."""
-    candidate = itunes._candidate_from_result({"trackName": "X", "trackViewUrl": None})
+    candidate = itunes.candidate_from_result({"trackName": "X", "trackViewUrl": None})
 
     assert candidate.url == ""
 
 
 def test_result_that_is_not_a_dict_does_not_raise() -> None:
-    candidate = itunes._candidate_from_result(["unexpected"])
+    candidate = itunes.candidate_from_result(["unexpected"])
 
     assert candidate.url == ""
     assert candidate.title == ""

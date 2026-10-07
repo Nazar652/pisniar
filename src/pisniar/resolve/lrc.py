@@ -12,21 +12,21 @@ from pisniar.logging import get_logger
 
 logger = get_logger(__name__)
 
-# Above this share of unparseable lines the payload is a different format —
+# above this share of unparseable lines the payload is a different format —
 # plain lyrics, an error page, HTML — not "a few crooked lines".
 MAX_DROPPED_LINE_RATIO = 0.2
 
 # `[mm:ss.xx]` and `[mm:ss.xxx]`; the fraction is optional and `mm` may
 # exceed 59, both of which real LRC payloads contain.
-_TIMESTAMP_RE = re.compile(r"^(\d{1,4}):([0-5]?\d)(?:[.:](\d{1,3}))?$")
+TIMESTAMP_PATTERN = re.compile(r"^(\d{1,4}):([0-5]?\d)(?:[.:](\d{1,3}))?$")
 # `[ar:...]`, `[ti:...]`, `[length:...]`, `[by:]`, `[offset:]` — ignored,
 # `offset` included: applying it would shift every timecode silently.
-_METADATA_RE = re.compile(r"^[A-Za-z_]+:")
-_LEADING_TAG_RE = re.compile(r"\[([^\]]*)\]")
+METADATA_PATTERN = re.compile(r"^[A-Za-z_]+:")
+LEADING_TAG_PATTERN = re.compile(r"\[([^\]]*)\]")
 
 
 class LrcParseError(ValueError):
-    """The payload is not LRC — too large a share of it did not parse."""
+    """the payload is not LRC — too large a share of it did not parse."""
 
 
 @dataclass(frozen=True)
@@ -38,13 +38,13 @@ class LrcLine:
 
     @property
     def is_pause(self) -> bool:
-        """An empty text under a timecode is a gap marker: it draws nothing
+        """an empty text under a timecode is a gap marker: it draws nothing
         and it is what ends the line before it."""
         return not self.text
 
 
 def parse_lrc(content: str) -> list[LrcLine]:
-    """Timed lines sorted by time, several per source line when it carries
+    """timed lines sorted by time, several per source line when it carries
     several tags. Metadata tags are ignored; ties keep source order."""
     parsed: list[LrcLine] = []
     considered_count = 0
@@ -55,10 +55,15 @@ def parse_lrc(content: str) -> list[LrcLine]:
         if not source_line:
             continue
 
-        tags, text = _split_tags(source_line)
-        timestamps = _timestamps_of(tags)
+        tags, text = split_tags(source_line)
+        timestamps = timestamps_of(tags)
 
-        if not timestamps and not text and tags and all(_METADATA_RE.match(tag) for tag in tags):
+        if (
+            not timestamps
+            and not text
+            and tags
+            and all(METADATA_PATTERN.match(tag) for tag in tags)
+        ):
             continue
 
         considered_count += 1
@@ -70,7 +75,7 @@ def parse_lrc(content: str) -> list[LrcLine]:
 
         parsed.extend(LrcLine(start_ms=start_ms, text=text) for start_ms in timestamps)
 
-    _refuse_a_payload_that_is_not_lrc(considered_count, dropped_count)
+    refuse_a_payload_that_is_not_lrc(considered_count, dropped_count)
 
     parsed.sort(key=lambda line: line.start_ms)
     logger.info(
@@ -82,27 +87,27 @@ def parse_lrc(content: str) -> list[LrcLine]:
     return parsed
 
 
-def _split_tags(source_line: str) -> tuple[list[str], str]:
-    """Tags only count at the start: a `[` inside the lyrics is text."""
+def split_tags(source_line: str) -> tuple[list[str], str]:
+    """tags only count at the start: a `[` inside the lyrics is text."""
     tags: list[str] = []
     position = 0
 
-    while (match := _LEADING_TAG_RE.match(source_line, position)) is not None:
+    while (match := LEADING_TAG_PATTERN.match(source_line, position)) is not None:
         tags.append(match.group(1))
         position = match.end()
 
     return tags, " ".join(source_line[position:].split())
 
 
-def _timestamps_of(tags: list[str]) -> list[int]:
-    """Several tags on one source line mean the same text repeats at several
+def timestamps_of(tags: list[str]) -> list[int]:
+    """several tags on one source line mean the same text repeats at several
     moments — a documented LRC shorthand, not a duplicate."""
-    parsed_tags = (_parse_timestamp(tag) for tag in tags)
+    parsed_tags = (parse_timestamp(tag) for tag in tags)
     return [start_ms for start_ms in parsed_tags if start_ms is not None]
 
 
-def _parse_timestamp(tag: str) -> int | None:
-    match = _TIMESTAMP_RE.match(tag)
+def parse_timestamp(tag: str) -> int | None:
+    match = TIMESTAMP_PATTERN.match(tag)
     if match is None:
         return None
 
@@ -113,7 +118,7 @@ def _parse_timestamp(tag: str) -> int | None:
     return int(minutes) * 60_000 + int(seconds) * 1_000 + milliseconds
 
 
-def _refuse_a_payload_that_is_not_lrc(considered_count: int, dropped_count: int) -> None:
+def refuse_a_payload_that_is_not_lrc(considered_count: int, dropped_count: int) -> None:
     if considered_count == 0:
         return
 

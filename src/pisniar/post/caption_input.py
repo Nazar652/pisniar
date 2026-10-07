@@ -13,7 +13,7 @@ from pisniar.resolve.types import GenreInfo, PlatformLink
 
 
 def genres_from_stored(stored: list[object]) -> list[GenreInfo]:
-    """Reads `post.genres` (JSONB) back as domain objects, so a caption
+    """reads `post.genres` (JSONB) back as domain objects, so a caption
     rebuilt after an empty genre fetch says what the column says."""
     genres: list[GenreInfo] = []
     for entry in stored:
@@ -36,7 +36,7 @@ def genres_from_stored(stored: list[object]) -> list[GenreInfo]:
 
 
 def languages_from_stored(stored: list[object]) -> list[str]:
-    """Falls back to the schema default, never to an empty line: the language
+    """falls back to the schema default, never to an empty line: the language
     is always shown."""
     languages = [entry for entry in stored if isinstance(entry, str) and entry]
     return languages or list(DEFAULT_LANGUAGES)

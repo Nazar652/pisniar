@@ -15,7 +15,7 @@ FRAGMENT_LENGTH_MS = 45_000
 
 
 class FragmentBoundsError(ValueError):
-    """A duration no fragment can be cut out of."""
+    """a duration no fragment can be cut out of."""
 
 
 @dataclass(frozen=True)

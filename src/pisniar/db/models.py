@@ -33,14 +33,14 @@ if TYPE_CHECKING:
     from sqlalchemy.engine import Dialect
 
 VALID_POST_STATUSES = tuple(status.value for status in PostStatus)
-_VALID_POST_STATUSES_SQL_LIST = ", ".join(f"'{value}'" for value in VALID_POST_STATUSES)
+VALID_POST_STATUSES_SQL_LIST = ", ".join(f"'{value}'" for value in VALID_POST_STATUSES)
 
-# Language belongs to the recording, not a publication, and no source reports
+# language belongs to the recording, not a publication, and no source reports
 # it — so it is stored with a default and edited by hand.
 DEFAULT_LANGUAGES = ["українська"]
-_DEFAULT_LANGUAGES_SQL = f"'{json.dumps(DEFAULT_LANGUAGES, ensure_ascii=False)}'::jsonb"
+DEFAULT_LANGUAGES_SQL = f"'{json.dumps(DEFAULT_LANGUAGES, ensure_ascii=False)}'::jsonb"
 
-# Track columns a human may set so that no later resolve overwrites them.
+# track columns a human may set so that no later resolve overwrites them.
 MANUAL_FIELD_NAMES = (
     "title",
     "artists",
@@ -51,17 +51,17 @@ MANUAL_FIELD_NAMES = (
 )
 MANUAL_FIELD_NAMES_JSON = json.dumps(list(MANUAL_FIELD_NAMES))
 
-# What kind of Telegram message `channel_message_id` points at, which decides how it is edited.
+# what kind of Telegram message `channel_message_id` points at, which decides how it is edited.
 CHANNEL_MESSAGE_KINDS = ("photo", "video", "text")
 CHANNEL_MESSAGE_KINDS_SQL_LIST = ", ".join(f"'{value}'" for value in CHANNEL_MESSAGE_KINDS)
 
-# A karaoke line, not a verse: anything longer is a parser that lost the line
+# a karaoke line, not a verse: anything longer is a parser that lost the line
 # breaks, and the CHECK is where that stops being silent.
 MAX_LYRIC_TEXT_LENGTH = 500
 
 
 class PostStatusType(TypeDecorator[PostStatus]):
-    """The column is TEXT, not a native enum. Without this `post.status` loads as a
+    """the column is TEXT, not a native enum. Without this `post.status` loads as a
     plain `str` and `post.status is PostStatus.X` is always False."""
 
     impl = Text
@@ -108,7 +108,7 @@ class Track(Base):
     source_url: Mapped[str] = mapped_column(Text, nullable=False)
     source_url_normalized: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
 
-    # Indexed for the duplicate warning: the same recording submitted through
+    # indexed for the duplicate warning: the same recording submitted through
     # another platform's URL is otherwise invisible.
     isrc: Mapped[str | None] = mapped_column(Text, index=True)
     title: Mapped[str | None] = mapped_column(Text)
@@ -120,26 +120,26 @@ class Track(Base):
     year: Mapped[int | None] = mapped_column(SmallInteger)
     release_type: Mapped[str | None] = mapped_column(Text)
     release_title: Mapped[str | None] = mapped_column(Text)
-    # Needed to rebuild a caption: the rendered one holds it only inside an `href`.
+    # needed to rebuild a caption: the rendered one holds it only inside an `href`.
     album_id_spotify: Mapped[str | None] = mapped_column(Text)
     cover_url: Mapped[str | None] = mapped_column(Text)
-    # The downloaded audio is checked against it, so a re-resolve must never null
+    # the downloaded audio is checked against it, so a re-resolve must never null
     # it (hence its place in `STORED_SCALAR_FIELDS`).
     duration_ms: Mapped[int | None] = mapped_column(BigInteger)
     # form: ["українська", ...]; the first is the primary language, the order is the admin's.
     languages: Mapped[list[object]] = mapped_column(
-        JSONB, nullable=False, server_default=text(_DEFAULT_LANGUAGES_SQL)
+        JSONB, nullable=False, server_default=text(DEFAULT_LANGUAGES_SQL)
     )
     platform_links: Mapped[dict[str, object]] = mapped_column(
         JSONB, nullable=False, server_default=text("'{}'::jsonb")
     )
     resolved_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
-    # Names from `MANUAL_FIELD_NAMES` a human changed; a re-resolve keeps those values, an
+    # names from `MANUAL_FIELD_NAMES` a human changed; a re-resolve keeps those values, an
     # empty one included (the value is NULL in its own column, the name is listed here).
     manual_fields: Mapped[list[object]] = mapped_column(
         JSONB, nullable=False, server_default=text("'[]'::jsonb")
     )
-    # Platform keys a human removed; a re-resolve must not bring them back.
+    # platform keys a human removed; a re-resolve must not bring them back.
     removed_platforms: Mapped[list[object]] = mapped_column(
         JSONB, nullable=False, server_default=text("'[]'::jsonb")
     )
@@ -150,18 +150,17 @@ class Track(Base):
 
 
 class Post(Base):
-    """Several posts per track are allowed (no `UNIQUE (track_id)`). `fragment_*_ms`
+    """several posts per track are allowed (no `UNIQUE (track_id)`). `fragment_*_ms`
     are absolute from the start of the *full* track, never fragment-local."""
 
     __tablename__ = "post"
     __table_args__ = (
         CheckConstraint(
-            f"status IN ({_VALID_POST_STATUSES_SQL_LIST})",
+            f"status IN ({VALID_POST_STATUSES_SQL_LIST})",
             name="status_valid",
         ),
         CheckConstraint(
-            f"failed_from_status IS NULL OR failed_from_status IN "
-            f"({_VALID_POST_STATUSES_SQL_LIST})",
+            f"failed_from_status IS NULL OR failed_from_status IN ({VALID_POST_STATUSES_SQL_LIST})",
             name="failed_from_status_valid",
         ),
         # (NULL, NULL) means no fragment yet.
@@ -203,7 +202,7 @@ class Post(Base):
             unique=True,
             postgresql_where=text("draft_chat_id IS NOT NULL AND draft_message_id IS NOT NULL"),
         ),
-        # The video preview is a *separate* message from the draft:
+        # the video preview is a *separate* message from the draft:
         # `editMessageMedia` cannot turn a text message into a media one.
         CheckConstraint(
             "num_nonnulls(preview_chat_id, preview_message_id) <> 1",
@@ -248,19 +247,19 @@ class Post(Base):
 
     channel_chat_id: Mapped[int | None] = mapped_column(BigInteger)
     channel_message_id: Mapped[int | None] = mapped_column(BigInteger)
-    # Set in the same statement as `channel_message_id`; the edit call depends on it.
+    # set in the same statement as `channel_message_id`; the edit call depends on it.
     channel_message_kind: Mapped[str | None] = mapped_column(Text)
-    # The admin chat the draft was delivered to; `draft_message_id IS NULL`
+    # the admin chat the draft was delivered to; `draft_message_id IS NULL`
     # is delivery's own idempotency guard against Celery redelivery.
     draft_chat_id: Mapped[int | None] = mapped_column(BigInteger)
     draft_message_id: Mapped[int | None] = mapped_column(BigInteger)
-    # The rendered video shown to the admin before publication;
+    # the rendered video shown to the admin before publication;
     # `preview_message_id IS NULL` is that delivery's idempotency guard.
     preview_chat_id: Mapped[int | None] = mapped_column(BigInteger)
     preview_message_id: Mapped[int | None] = mapped_column(BigInteger)
     published_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     last_error: Mapped[str | None] = mapped_column(Text)
-    # The stage that failed, written by `set_post_status()`; `/retry` routes by it,
+    # the stage that failed, written by `set_post_status()`; `/retry` routes by it,
     # since every stage past resolve already has a `draft_message_id`.
     failed_from_status: Mapped[PostStatus | None] = mapped_column(PostStatusType)
     # `created_by_user_id` is who *submitted* the link; this one is who
@@ -272,7 +271,7 @@ class Post(Base):
 
 
 class AudioAsset(Base):
-    """Keyed to a track, so posts share one download. The unique pair is the
+    """keyed to a track, so posts share one download. The unique pair is the
     database half of idempotency; the atomic `os.replace` on disk is the other."""
 
     __tablename__ = "audio_asset"
@@ -298,12 +297,12 @@ class AudioAsset(Base):
     track_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("track.id", ondelete="CASCADE"), nullable=False
     )
-    # From `platform_links["youtubeMusic"]` and never `["youtube"]` — stored so
+    # from `platform_links["youtubeMusic"]` and never `["youtube"]` — stored so
     # a wrong download can be told apart from a wrong choice of source.
     video_id: Mapped[str] = mapped_column(Text, nullable=False)
     path: Mapped[str] = mapped_column(Text, nullable=False)
     size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    # Measured by `ffprobe` on the file itself, never copied from the resolve:
+    # measured by `ffprobe` on the file itself, never copied from the resolve:
     # that is what makes it evidence yt-dlp returned the track we asked for.
     duration_ms: Mapped[int] = mapped_column(BigInteger, nullable=False)
     # yt-dlp's extraction path is deprecated upstream: the version tells a broken
@@ -312,7 +311,7 @@ class AudioAsset(Base):
 
 
 class Render(Base):
-    """Keyed to a post: the caption and fragment bounds belong to the publication.
+    """keyed to a post: the caption and fragment bounds belong to the publication.
     `params_hash` covers every input the frames depend on, `text_version` included."""
 
     __tablename__ = "render"
@@ -337,7 +336,7 @@ class Render(Base):
         BigInteger, ForeignKey("post.id", ondelete="CASCADE"), nullable=False
     )
     params_hash: Mapped[str] = mapped_column(Text, nullable=False)
-    # A digest of the `.ass` file, null for a video without text. It is an input
+    # a digest of the `.ass` file, null for a video without text. It is an input
     # to `params_hash`, so the column keeps that hash auditable.
     text_version: Mapped[str | None] = mapped_column(Text)
     path: Mapped[str] = mapped_column(Text, nullable=False)
@@ -348,7 +347,7 @@ class Render(Base):
 
 
 class Lyric(Base):
-    """Keyed to a track, so posts of one recording share the text. `start_ms` is
+    """keyed to a track, so posts of one recording share the text. `start_ms` is
     absolute in the full track; there is no `end_ms`, render time derives it."""
 
     __tablename__ = "lyric"
@@ -374,10 +373,10 @@ class Lyric(Base):
     track_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("track.id", ondelete="CASCADE"), nullable=False
     )
-    # The only source of render order — `start_ms` orders nothing.
+    # the only source of render order — `start_ms` orders nothing.
     line_index: Mapped[int] = mapped_column(Integer, nullable=False)
     start_ms: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    # Raw as the source gave it; the ASS substitution happens at render time
+    # raw as the source gave it; the ASS substitution happens at render time
     # (`worker.ass`), so nothing lossy is stored.
     text: Mapped[str] = mapped_column(Text, nullable=False)
     # `'lrclib'`, or `'manual'` for hand-edited text.
@@ -385,7 +384,7 @@ class Lyric(Base):
 
 
 def renderable_lyrics_statement(track_id: int) -> Select[tuple[Lyric]]:
-    """The render path's only read of `lyric`. `IS NOT NULL` is a tautology while the
+    """the render path's only read of `lyric`. `IS NOT NULL` is a tautology while the
     column is NOT NULL, so allowing untimed lines later changes no render code."""
     return (
         select(Lyric)
@@ -415,7 +414,7 @@ class SourceFetch(Base):
     source: Mapped[str] = mapped_column(Text, nullable=False)
     request_key: Mapped[str] = mapped_column(Text, nullable=False)
     payload: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
-    # Set from the clock at fetch time: `now()` is the transaction's start.
+    # set from the clock at fetch time: `now()` is the transaction's start.
     # Indexed for the TTL read.
     fetched_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False, server_default=text("now()"), index=True

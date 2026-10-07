@@ -43,7 +43,7 @@ def make_post(status: PostStatus | None = None) -> Post:
 def test_a_missing_post_is_refused_with_its_own_reason(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_logger = capture_logger(monkeypatch)
 
-    refusal, draft_reference = handlers._claim_post_for_publishing(None, POST_ID, PUBLISHER_ID)
+    refusal, draft_reference = handlers.claim_post_for_publishing(None, POST_ID, PUBLISHER_ID)
 
     assert refusal is not None
     assert draft_reference is None
@@ -59,7 +59,7 @@ def test_an_already_published_post_is_refused_with_its_own_reason(
     post = make_post(PostStatus.RESOLVING)
     post.channel_message_id = 55
 
-    refusal, _draft_reference = handlers._claim_post_for_publishing(post, POST_ID, PUBLISHER_ID)
+    refusal, _ = handlers.claim_post_for_publishing(post, POST_ID, PUBLISHER_ID)
 
     assert refusal is not None
     assert warnings_named(fake_logger, "publish_refused")[0]["reason"] == "already_published"
@@ -73,7 +73,7 @@ def test_a_second_tap_while_publishing_is_refused_with_its_own_reason(
     for step in (PostStatus.RESOLVING, PostStatus.RESOLVED, PostStatus.PUBLISHING):
         set_post_status(post, step)
 
-    refusal, _draft_reference = handlers._claim_post_for_publishing(post, POST_ID, PUBLISHER_ID)
+    refusal, _ = handlers.claim_post_for_publishing(post, POST_ID, PUBLISHER_ID)
 
     assert refusal is not None
     assert warnings_named(fake_logger, "publish_refused")[0]["reason"] == "already_publishing"
@@ -85,7 +85,7 @@ def test_an_illegal_status_is_refused_with_the_status_in_the_log(
     fake_logger = capture_logger(monkeypatch)
     post = make_post(PostStatus.RESOLVING)
 
-    refusal, _draft_reference = handlers._claim_post_for_publishing(post, POST_ID, PUBLISHER_ID)
+    refusal, _ = handlers.claim_post_for_publishing(post, POST_ID, PUBLISHER_ID)
 
     assert refusal is not None
     refusal_fields = warnings_named(fake_logger, "publish_refused")[0]
@@ -101,7 +101,7 @@ def test_a_claimed_post_is_not_logged_as_a_refusal(monkeypatch: pytest.MonkeyPat
     post.draft_chat_id = 111
     post.draft_message_id = 222
 
-    refusal, draft_reference = handlers._claim_post_for_publishing(post, POST_ID, PUBLISHER_ID)
+    refusal, draft_reference = handlers.claim_post_for_publishing(post, POST_ID, PUBLISHER_ID)
 
     assert refusal is None
     assert draft_reference == (111, 222)
@@ -131,5 +131,5 @@ async def test_a_malformed_retry_command_leaves_a_trace(monkeypatch: pytest.Monk
 
     refusal_fields = warnings_named(fake_logger, "retry_refused")[0]
     assert refusal_fields == {"reason": "bad_arguments", "user_id": PUBLISHER_ID}
-    # The admin's own text is not a post id and has no business in the logs.
+    # the admin's own text is not a post id and has no business in the logs.
     assert not any("обовязково" in str(value) for value in refusal_fields.values())

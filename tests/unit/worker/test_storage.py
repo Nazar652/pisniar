@@ -32,7 +32,7 @@ def test_the_render_path_is_post_id_and_hash_only(tmp_path: Path) -> None:
 
 
 def test_the_tmp_directory_is_per_post(tmp_path: Path) -> None:
-    assert media_storage.task_tmp_directory(tmp_path, 7) == tmp_path / "tmp" / "7"
+    assert media_storage.task_temporary_directory(tmp_path, 7) == tmp_path / "tmp" / "7"
 
 
 def test_the_subtitle_file_sits_in_the_post_tmp_directory_under_a_constant_name(
@@ -42,7 +42,7 @@ def test_the_subtitle_file_sits_in_the_post_tmp_directory_under_a_constant_name(
 
 
 def test_the_subtitle_path_carries_nothing_the_filtergraph_would_read(tmp_path: Path) -> None:
-    """`render._escape_filter_path` misses `,`, `;`, `[` and `]`, so only a numeric
+    """`render.escape_filter_path` misses `,`, `;`, `[` and `]`, so only a numeric
     id and a constant name keep them out of the `subtitles=` argument."""
     path = media_storage.subtitles_file_path(tmp_path, 12345).as_posix()
 
@@ -68,7 +68,7 @@ def test_a_non_positive_id_never_becomes_a_path_component(tmp_path: Path, track_
 def test_a_video_id_that_is_not_eleven_url_safe_characters_is_refused(
     tmp_path: Path, video_id: str
 ) -> None:
-    """The same validation the URL goes through, applied again where the value
+    """the same validation the URL goes through, applied again where the value
     would become a filename."""
     with pytest.raises(media_storage.MediaPathError):
         media_storage.audio_file_path(tmp_path, 1, video_id, "webm")
@@ -131,7 +131,7 @@ def test_publishing_moves_the_file_under_its_final_name(tmp_path: Path) -> None:
 def test_a_crash_between_writing_and_renaming_leaves_no_file_with_the_final_name(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The `.partial` name is what makes "the final name exists" mean "the file
+    """the `.partial` name is what makes "the final name exists" mean "the file
     is complete"."""
     staging = tmp_path / "tmp" / "video.mp4.partial"
     staging.parent.mkdir(parents=True)
@@ -221,21 +221,8 @@ def test_a_failing_tmp_cleanup_never_replaces_the_real_error(
     media_storage.remove_tree_quietly(directory)
 
 
-def test_removing_a_file_that_is_already_gone_is_not_an_error(tmp_path: Path) -> None:
-    media_storage.remove_file_quietly(tmp_path / "absent.mp4")
-
-
-def test_removing_a_file_takes_it_off_disk(tmp_path: Path) -> None:
-    path = tmp_path / "video.mp4"
-    path.write_bytes(b"x")
-
-    media_storage.remove_file_quietly(path)
-
-    assert not path.exists()
-
-
 def test_os_replace_is_what_publishes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Atomicity is `os.replace` and nothing else: a copy-then-delete would
+    """atomicity is `os.replace` and nothing else: a copy-then-delete would
     expose a half-written file under the final name."""
     calls: list[tuple[object, object]] = []
     original_replace = os.replace
@@ -255,7 +242,7 @@ def test_os_replace_is_what_publishes(tmp_path: Path, monkeypatch: pytest.Monkey
 
 
 def test_the_thumbnail_sits_beside_its_video_under_the_same_hash(tmp_path: Path) -> None:
-    """No column of its own: the path is derived, so the same directory
+    """no column of its own: the path is derived, so the same directory
     cleanup removes both and neither can outlive the other."""
     params_hash = "a" * 64
 
@@ -294,7 +281,7 @@ def test_removing_a_tracks_artifacts_takes_the_whole_audio_directory(tmp_path: P
 
 
 def test_removing_artifacts_of_a_post_that_never_had_any_is_not_an_error(tmp_path: Path) -> None:
-    """It runs after a delete commits, where raising would turn a successful
+    """it runs after a delete commits, where raising would turn a successful
     cleanup into an alert about a failure that did not happen."""
     media_storage.remove_post_artifacts(tmp_path, 7)
     media_storage.remove_track_artifacts(tmp_path, 3)

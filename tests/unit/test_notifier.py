@@ -62,13 +62,13 @@ async def test_send_alert_never_raises(side_effect: Exception) -> None:
     bot = AsyncMock()
     bot.send_message.side_effect = side_effect
 
-    # The point of the test: no `pytest.raises` needed — falling through to
+    # the point of the test: no `pytest.raises` needed — falling through to
     # this line at all is the assertion.
     await send_alert(bot, chat_id=123, text="hello")
 
 
 async def test_an_alert_can_answer_a_message_and_survives_its_deletion() -> None:
-    """A notice sits under the preview it explains; a preview deleted meanwhile
+    """a notice sits under the preview it explains; a preview deleted meanwhile
     must not cost the notice."""
     bot = AsyncMock()
 

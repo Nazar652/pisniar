@@ -30,7 +30,7 @@ def parameters(subtitles_path: Path | None = None) -> video_render.RenderParamet
 
 
 def test_the_scale_filter_converts_the_range_instead_of_only_naming_the_format() -> None:
-    """Measured: the cover arrives from the Spotify CDN as full-range JPEG, and a
+    """measured: the cover arrives from the Spotify CDN as full-range JPEG, and a
     naive `format=yuv420p` yields `yuvj420p` every time."""
     graph = video_render.build_filter_complex()
 
@@ -48,7 +48,7 @@ def test_the_frame_is_seven_twenty_by_twelve_eighty_with_square_pixels() -> None
 
 
 def test_the_cover_is_lifted_instead_of_centred_so_the_text_band_is_black() -> None:
-    """Centred, the cover sits under the side lines; lifted, the bottom band stays
+    """centred, the cover sits under the side lines; lifted, the bottom band stays
     empty frame, at a constant offset rather than `(oh-ih)/2`."""
     graph = video_render.build_filter_complex()
 
@@ -61,7 +61,7 @@ def test_no_subtitle_filter_exists_in_4a() -> None:
 
 
 def test_a_subtitle_path_handed_in_from_outside_is_appended() -> None:
-    """Subtitles come in as a path, not a flag flipped inside, so text is an
+    """subtitles come in as a path, not a flag flipped inside, so text is an
     addition to a verified filtergraph."""
     graph = video_render.build_filter_complex(Path("/data/tmp/7/lyrics.ass"))
 
@@ -274,7 +274,7 @@ def test_an_oversized_render_gets_exactly_one_lower_bitrate_attempt(
 def test_still_oversized_after_the_retry_fails_and_sends_nothing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The size is checked before Telegram ever sees the file, and there is no
+    """the size is checked before Telegram ever sees the file, and there is no
     branch here that sends one."""
     calls = stub_ffmpeg(monkeypatch, [make_probe(60 * 1024 * 1024), make_probe(55 * 1024 * 1024)])
 
@@ -342,7 +342,7 @@ async def test_a_failed_cover_request_propagates_rather_than_being_isolated(
 
 
 def test_the_thumbnail_is_taken_from_the_rendered_file_itself(tmp_path: Path) -> None:
-    """From the video, not the raw cover: the frame it shows is the padded
+    """from the video, not the raw cover: the frame it shows is the padded
     720x1280 one the subscriber sees, letterboxing included."""
     arguments = video_render.build_thumbnail_arguments(tmp_path / "a.mp4", tmp_path / "a.jpg")
 
@@ -364,7 +364,7 @@ def test_the_thumbnail_stays_inside_telegrams_320_pixel_cap(tmp_path: Path) -> N
 def test_a_failing_thumbnail_returns_none_instead_of_raising(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Cosmetic: Telegram builds its own preview, and losing the custom one is
+    """cosmetic: Telegram builds its own preview, and losing the custom one is
     never a reason to fail a post whose video is already verified."""
 
     def refuse(*args: object, **kwargs: object) -> object:
@@ -378,7 +378,7 @@ def test_a_failing_thumbnail_returns_none_instead_of_raising(
 def test_a_thumbnail_that_came_out_empty_is_reported_as_missing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The exit code is never the verdict here either — a zero-byte JPEG
+    """the exit code is never the verdict here either — a zero-byte JPEG
     attached to `send_video` is a 400 from Telegram, not a preview."""
     output_path = tmp_path / "a.jpg"
 

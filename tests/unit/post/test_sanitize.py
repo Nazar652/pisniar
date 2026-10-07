@@ -68,7 +68,7 @@ def test_sanitize_metadata_text_drops_bidi_and_zero_width_controls(raw: str, exp
 
 @pytest.mark.parametrize("break_character", ["\n", "\r", "\t", "\u2028", "\u2029"])
 def test_sanitize_metadata_text_folds_line_breaks_into_spaces(break_character: str) -> None:
-    """A newline inside a title lets it forge its own hashtag block."""
+    """a newline inside a title lets it forge its own hashtag block."""
     assert sanitize_metadata_text(f"Track{break_character}#Fake") == "Track #Fake"
 
 

@@ -23,7 +23,7 @@ OTHER_CLIP_URL = "https://youtu.be/9bZkp7q19f0"
 
 
 async def capture_rejection(text: str, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
-    """Same shape as `test_handler_link_rejections`: the module logger is
+    """same shape as `test_handler_link_rejections`: the module logger is
     replaced, because `capture_logs()` loses an already-bound logger."""
     fake_logger = MagicMock()
     monkeypatch.setattr(handlers, "logger", fake_logger)
@@ -39,37 +39,37 @@ async def capture_rejection(text: str, monkeypatch: pytest.MonkeyPatch) -> dict[
     session_factory.assert_not_called()
     celery_client.send_task.assert_not_called()
     rejections = [
-        info_call
-        for info_call in fake_logger.info.call_args_list
-        if info_call.args[:1] == ("link_rejected",)
+        log_call
+        for log_call in fake_logger.info.call_args_list
+        if log_call.args[:1] == ("link_rejected",)
     ]
     assert len(rejections) == 1
     return {"answer": message.answer.await_args.args[0], **rejections[0].kwargs}
 
 
 def test_two_whitespace_separated_links_split_into_a_pair() -> None:
-    assert handlers._split_links(f"{SPOTIFY_URL}  {CLIP_URL}") == [SPOTIFY_URL, CLIP_URL]
+    assert handlers.split_links(f"{SPOTIFY_URL}  {CLIP_URL}") == [SPOTIFY_URL, CLIP_URL]
 
 
 def test_a_newline_separates_links_as_well_as_a_space() -> None:
-    assert handlers._split_links(f"{CLIP_URL}\n{SPOTIFY_URL}") == [CLIP_URL, SPOTIFY_URL]
+    assert handlers.split_links(f"{CLIP_URL}\n{SPOTIFY_URL}") == [CLIP_URL, SPOTIFY_URL]
 
 
 def test_prose_around_a_link_stays_one_unrecognized_submission() -> None:
     text = f"дивись {SPOTIFY_URL}"
 
-    assert handlers._split_links(text) == [text]
+    assert handlers.split_links(text) == [text]
 
 
 def test_a_single_link_is_returned_stripped() -> None:
-    assert handlers._split_links(f"  {SPOTIFY_URL} ") == [SPOTIFY_URL]
+    assert handlers.split_links(f"  {SPOTIFY_URL} ") == [SPOTIFY_URL]
 
 
 def test_a_pair_resolves_from_the_platform_half() -> None:
     submitted = [SPOTIFY_URL, CLIP_URL]
     classified = [classify_url(url) for url in submitted]
 
-    raw_url, source, clip = handlers._select_track_source(submitted, classified)
+    raw_url, source, clip = handlers.select_track_source(submitted, classified)
 
     assert raw_url == SPOTIFY_URL
     assert source.platform == "spotify"
@@ -81,7 +81,7 @@ def test_the_order_of_the_pair_does_not_matter() -> None:
     submitted = [CLIP_URL, SPOTIFY_URL]
     classified = [classify_url(url) for url in submitted]
 
-    raw_url, source, clip = handlers._select_track_source(submitted, classified)
+    raw_url, source, clip = handlers.select_track_source(submitted, classified)
 
     assert raw_url == SPOTIFY_URL
     assert source.platform == "spotify"
@@ -95,7 +95,7 @@ def test_youtube_music_counts_as_the_platform_half_not_as_a_clip() -> None:
     submitted = [YOUTUBE_MUSIC_URL, CLIP_URL]
     classified = [classify_url(url) for url in submitted]
 
-    raw_url, source, clip = handlers._select_track_source(submitted, classified)
+    raw_url, source, clip = handlers.select_track_source(submitted, classified)
 
     assert raw_url == YOUTUBE_MUSIC_URL
     assert source.platform == "youtubeMusic"
@@ -105,7 +105,7 @@ def test_youtube_music_counts_as_the_platform_half_not_as_a_clip() -> None:
 def test_a_lone_clip_is_both_the_source_and_the_seeded_clip() -> None:
     classified = [classify_url(CLIP_URL)]
 
-    raw_url, source, clip = handlers._select_track_source([CLIP_URL], classified)
+    raw_url, source, clip = handlers.select_track_source([CLIP_URL], classified)
 
     assert raw_url == CLIP_URL
     assert clip is source
@@ -114,7 +114,7 @@ def test_a_lone_clip_is_both_the_source_and_the_seeded_clip() -> None:
 def test_a_lone_platform_link_seeds_no_clip() -> None:
     classified = [classify_url(SPOTIFY_URL)]
 
-    raw_url, source, clip = handlers._select_track_source([SPOTIFY_URL], classified)
+    raw_url, source, clip = handlers.select_track_source([SPOTIFY_URL], classified)
 
     assert raw_url == SPOTIFY_URL
     assert source.platform == "spotify"
@@ -124,7 +124,7 @@ def test_a_lone_platform_link_seeds_no_clip() -> None:
 def test_the_clip_is_seeded_as_user_input_at_the_manual_tier() -> None:
     track = Track(source_url=SPOTIFY_URL, source_url_normalized=SPOTIFY_URL)
 
-    handlers._seed_user_input_clip(track, classify_url(CLIP_URL))
+    handlers.seed_user_input_clip(track, classify_url(CLIP_URL))
 
     assert track.platform_links == {
         "youtube": {
@@ -136,7 +136,7 @@ def test_the_clip_is_seeded_as_user_input_at_the_manual_tier() -> None:
 
 
 def test_seeding_replaces_an_automatically_found_youtube_link() -> None:
-    """The admin's word outranks anything resolved: `manual` is the top tier
+    """the admin's word outranks anything resolved: `manual` is the top tier
     of the four, and this is the only place the admin can reach it today."""
     track = Track(source_url=SPOTIFY_URL, source_url_normalized=SPOTIFY_URL)
     track.platform_links = {
@@ -144,7 +144,7 @@ def test_seeding_replaces_an_automatically_found_youtube_link() -> None:
         "spotify": {"url": SPOTIFY_URL, "source": "spotify", "match": "exact_isrc"},
     }
 
-    handlers._seed_user_input_clip(track, classify_url(CLIP_URL))
+    handlers.seed_user_input_clip(track, classify_url(CLIP_URL))
 
     youtube_link = track.platform_links["youtube"]
     assert isinstance(youtube_link, dict)
@@ -153,13 +153,13 @@ def test_seeding_replaces_an_automatically_found_youtube_link() -> None:
 
 
 def test_reseeding_the_same_clip_leaves_the_row_untouched() -> None:
-    """A resubmitted clip must not dirty `track.platform_links` — the UPDATE
+    """a resubmitted clip must not dirty `track.platform_links` — the UPDATE
     would contend with the worker's own lock on that row for nothing."""
     track = Track(source_url=CLIP_URL, source_url_normalized=CLIP_URL)
-    handlers._seed_user_input_clip(track, classify_url(CLIP_URL))
+    handlers.seed_user_input_clip(track, classify_url(CLIP_URL))
     before = track.platform_links
 
-    handlers._seed_user_input_clip(track, classify_url(CLIP_URL))
+    handlers.seed_user_input_clip(track, classify_url(CLIP_URL))
 
     assert track.platform_links is before
 
@@ -167,7 +167,7 @@ def test_reseeding_the_same_clip_leaves_the_row_untouched() -> None:
 def test_no_clip_means_no_write_at_all() -> None:
     track = Track(source_url=SPOTIFY_URL, source_url_normalized=SPOTIFY_URL)
 
-    handlers._seed_user_input_clip(track, None)
+    handlers.seed_user_input_clip(track, None)
 
     assert track.platform_links is None
 
@@ -204,7 +204,7 @@ async def test_three_links_are_refused_before_anything_is_classified(
 async def test_a_bad_half_of_a_pair_is_named_on_its_own(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Each link is validated separately, so an album sent alongside a clip is
+    """each link is validated separately, so an album sent alongside a clip is
     answered as an album — not as a malformed pair."""
     album_url = "https://open.spotify.com/album/4yYXqedvSKuJlgI2IWsB0j"
 

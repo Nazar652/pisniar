@@ -39,7 +39,7 @@ async def test_deliver_draft_sends_html_and_sets_draft_reference() -> None:
 
 
 async def test_deliver_draft_attaches_both_triggers() -> None:
-    """Without these buttons a delivered draft goes nowhere by any route."""
+    """without these buttons a delivered draft goes nowhere by any route."""
     bot = AsyncMock()
     bot.send_message.return_value.message_id = 42
     post = make_post()

@@ -15,11 +15,11 @@ MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 
 
 class ResponseTooLargeError(httpx.HTTPError):
-    """An advertised body larger than `MAX_RESPONSE_BYTES` — refused before
+    """an advertised body larger than `MAX_RESPONSE_BYTES` — refused before
     it is read, so a hostile or broken source can't exhaust worker memory."""
 
 
-async def _reject_oversized_response(response: httpx.Response) -> None:
+async def reject_oversized_response(response: httpx.Response) -> None:
     content_length = response.headers.get("content-length")
     if (
         content_length is not None
@@ -32,16 +32,16 @@ async def _reject_oversized_response(response: httpx.Response) -> None:
 
 
 def build_http_client() -> httpx.AsyncClient:
-    """The one client every source adapter shares for a single resolve."""
+    """the one client every source adapter shares for a single resolve."""
     return httpx.AsyncClient(
         timeout=TIMEOUT_SECONDS,
         max_redirects=MAX_REDIRECTS,
-        event_hooks={"response": [_reject_oversized_response]},
+        event_hooks={"response": [reject_oversized_response]},
     )
 
 
 class Throttler:
-    """A cache hit never calls `wait()`, so this only limits genuinely new requests."""
+    """a cache hit never calls `wait()`, so this only limits genuinely new requests."""
 
     def __init__(self, min_interval_seconds: float) -> None:
         self.min_interval_seconds = min_interval_seconds

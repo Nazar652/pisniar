@@ -7,7 +7,7 @@ dependency; `tests/integration/test_ass_font.py` pins the table to the font.
 from __future__ import annotations
 
 import argparse
-import datetime as dt
+import datetime
 from pathlib import Path
 
 from fontTools.ttLib import TTFont
@@ -15,7 +15,7 @@ from fontTools.ttLib import TTFont
 REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 OUTPUT_PATH = REPOSITORY_ROOT / "src" / "pisniar" / "worker" / "noto_sans_widths.py"
 
-# Song text is Ukrainian first, but artist names and inserts are not, so Latin
+# song text is Ukrainian first, but artist names and inserts are not, so Latin
 # and the European diacritics travel with it.
 CODEPOINT_RANGES: tuple[tuple[int, int, str], ...] = (
     (
@@ -74,7 +74,7 @@ def render_module(font: TTFont, font_path: Path) -> str:
 
         blocks.append(f"    # {description}\n" + "\n".join(rows))
 
-    header = _header(font, font_path, covered)
+    header = build_header(font, font_path, covered)
     table = "\n".join(blocks)
 
     # `# fmt: off` keeps `ruff format` from exploding 648 entries into 648
@@ -82,10 +82,10 @@ def render_module(font: TTFont, font_path: Path) -> str:
     return f"{header}\n# fmt: off\nADVANCE_WIDTHS: dict[int, int] = {{\n{table}\n}}\n# fmt: on\n"
 
 
-def _header(font: TTFont, font_path: Path, covered: int) -> str:
+def build_header(font: TTFont, font_path: Path, covered: int) -> str:
     head = font["head"]
     horizontal_header = font["hhea"]
-    generated_on = dt.datetime.now(tz=dt.UTC).date().isoformat()
+    generated_on = datetime.datetime.now(tz=datetime.UTC).date().isoformat()
 
     return f'''"""Advance widths of `{font_path.name}` in font units, baked by
 `scripts/generate_glyph_widths.py` on {generated_on}. **Generated — do not edit

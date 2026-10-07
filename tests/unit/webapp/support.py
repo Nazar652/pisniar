@@ -15,7 +15,7 @@ NOW = 1_800_000_000
 
 
 def sign_fields(fields: dict[str, str], bot_token: str) -> str:
-    """The documented algorithm: HMAC-SHA256 over the sorted `key=value` lines."""
+    """the documented algorithm: HMAC-SHA256 over the sorted `key=value` lines."""
     check_string = "\n".join(f"{key}={fields[key]}" for key in sorted(fields))
     secret = hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
     digest = hmac.new(secret, check_string.encode(), hashlib.sha256).hexdigest()

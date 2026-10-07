@@ -58,7 +58,7 @@ async def test_the_preview_is_a_new_message_with_its_own_reference(tmp_path: Pat
 
 
 async def test_the_preview_carries_the_publish_button(tmp_path: Path) -> None:
-    """Without it the whole chain dead-ends: the draft's keyboard is removed
+    """without it the whole chain dead-ends: the draft's keyboard is removed
     on the render tap, so the preview is the only way left to publish."""
     bot = make_bot()
     post = make_post()
@@ -74,7 +74,7 @@ async def test_the_preview_carries_the_publish_button(tmp_path: Path) -> None:
 async def test_a_post_that_already_has_a_preview_is_never_sent_a_second_one(
     tmp_path: Path,
 ) -> None:
-    """A second preview would leave two publish buttons in the chat, each able to
+    """a second preview would leave two publish buttons in the chat, each able to
     reach the channel."""
     bot = make_bot()
     post = make_post(preview_message_id=42)
@@ -97,8 +97,8 @@ async def test_previewing_without_a_caption_raises_instead_of_sending(tmp_path: 
 async def test_a_telegram_failure_propagates_and_leaves_the_reference_null(
     tmp_path: Path,
 ) -> None:
-    """The opposite of `send_alert`: the preview is the product of this step,
-    so its failure must reach the task and turn the post `failed`."""
+    """the opposite of `send_alert`: the preview is the product, so its failure
+    must reach the task and turn the post `failed`."""
     bot = make_bot()
     bot.send_video.side_effect = TelegramAPIError(
         method=SendVideo(chat_id=999, video="x"), message="boom"
@@ -113,7 +113,7 @@ async def test_a_telegram_failure_propagates_and_leaves_the_reference_null(
 
 
 async def test_the_old_draft_loses_its_keyboard() -> None:
-    """Its publish button would send the cover photo instead of the video."""
+    """its publish button would send the cover photo instead of the video."""
     bot = AsyncMock()
 
     await remove_draft_keyboard(bot, make_post())
@@ -134,7 +134,7 @@ async def test_a_post_without_a_draft_has_no_keyboard_to_remove() -> None:
 
 
 async def test_a_failed_keyboard_removal_never_raises() -> None:
-    """Cosmetic on its own — the status transition is the real guard — so it
+    """cosmetic on its own — the status transition is the real guard — so it
     must not undo a render that already succeeded."""
     bot = AsyncMock()
     bot.edit_message_reply_markup.side_effect = TelegramAPIError(

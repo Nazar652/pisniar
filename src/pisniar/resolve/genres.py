@@ -39,7 +39,7 @@ DEEZER_GENRE_NAMES: dict[int, tuple[str, str]] = {
 
 
 def deezer_genre_name(genre_id: int, fallback_english_name: str) -> str | None:
-    """Never falls back to `fallback_english_name` (may be IP-localized); that
+    """never falls back to `fallback_english_name` (may be IP-localized); that
     value is for the WARN log only."""
     if genre_id == DEEZER_UNCLASSIFIED_GENRE_ID:
         return None

@@ -9,13 +9,13 @@ from __future__ import annotations
 from pisniar.worker import noto_sans_widths, text_metrics
 
 GATE_CALIBRATION_LINE = "Цей рядок навмисно довгий,"
-# Measured on the worker image: 456 px of ink against the 454.8 px this table
+# measured on the worker image: 456 px of ink against the 454.8 px this table
 # predicts (antialiasing); the em-square reading of `Fontsize` predicts 619.4.
 MEASURED_ADVANCE_PX_AT_44 = 460.4
 
 
 def test_the_font_size_is_the_cell_height_and_not_the_em_square() -> None:
-    """An average of 0.52 em cuts a line a third short, because libass renders
+    """an average of 0.52 em cuts a line a third short, because libass renders
     the em at `Fontsize * unitsPerEm / (ascender - descender)`."""
     expected = noto_sans_widths.UNITS_PER_EM / (
         noto_sans_widths.HHEA_ASCENDER - noto_sans_widths.HHEA_DESCENDER
@@ -45,7 +45,7 @@ def test_a_known_codepoint_is_read_from_the_table_and_not_from_the_fallback() ->
 
 
 def test_an_unknown_codepoint_falls_back_to_one_full_em() -> None:
-    """Over-estimating is the safe direction: the line wraps early instead
+    """over-estimating is the safe direction: the line wraps early instead
     of running off the frame."""
     emoji = "\U0001f525"
 
@@ -92,7 +92,7 @@ def test_the_longest_prefix_of_a_string_that_fits_is_the_whole_string() -> None:
 
 
 def test_the_longest_prefix_is_never_empty_when_even_one_glyph_is_too_wide() -> None:
-    """The wrapper loops on this answer, so an empty one would hang it."""
+    """the wrapper loops on this answer, so an empty one would hang it."""
     assert text_metrics.longest_prefix_within("щщщ", font_size_px=44, available_px=1) == "щ"
 
 

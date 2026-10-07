@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import pytest
 
-from pisniar.resolve.urls import UrlKind, classify_url, normalize_url
+from pisniar.resolve.urls import UrlKind, classify_url, normalize_url, youtube_watch_url
 
 
 @pytest.mark.parametrize(
@@ -153,3 +153,8 @@ def test_youtube_and_youtube_music_normalize_to_different_urls() -> None:
     youtube_music = normalize_url("https://music.youtube.com/watch?v=dQw4w9WgXcQ")
 
     assert youtube != youtube_music
+
+
+def test_the_watch_url_is_the_form_a_youtube_clip_normalises_to() -> None:
+    assert youtube_watch_url("n4bPzdIs_nc") == "https://www.youtube.com/watch?v=n4bPzdIs_nc"
+    assert normalize_url("https://youtu.be/n4bPzdIs_nc") == youtube_watch_url("n4bPzdIs_nc")

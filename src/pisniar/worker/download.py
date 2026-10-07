@@ -6,12 +6,11 @@ validated id, never taken as a string out of the database.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 
 from pisniar.logging import get_logger
 from pisniar.resolve.matching import DURATION_TOLERANCE_MS, is_valid_youtube_video_id
-from pisniar.resolve.urls import UrlKind, classify_url
+from pisniar.resolve.urls import UrlKind, classify_url, youtube_watch_url
 from pisniar.worker.ffmpeg import (
     MediaProbe,
     run_media_tool,
@@ -33,33 +32,33 @@ AUDIO_FORMAT_SELECTOR = "bestaudio/best"
 
 
 class AudioDownloadError(RuntimeError):
-    """Never isolated like a metadata source: without the audio there is no product."""
+    """never isolated like a metadata source: without the audio there is no product."""
 
 
 class MissingYouTubeMusicLinkError(AudioDownloadError):
-    """Raised before any network call; there is deliberately no `["youtube"]` fallback."""
+    """raised before any network call; there is deliberately no `["youtube"]` fallback."""
 
 
 class InvalidYouTubeVideoIdError(AudioDownloadError):
-    """The stored link did not yield an id `is_valid_youtube_video_id()` accepts."""
+    """the stored link did not yield an id `is_valid_youtube_video_id()` accepts."""
 
 
 class YtdlpExtractorBrokenError(AudioDownloadError):
-    """The extraction path is deprecated upstream. When it breaks, every track
+    """the extraction path is deprecated upstream. When it breaks, every track
     fails at once — and that must not read as "this song is missing"."""
 
 
 class YtdlpVideoUnavailableError(AudioDownloadError):
-    """This one recording is gone, private, geo-blocked or taken down."""
+    """this one recording is gone, private, geo-blocked or taken down."""
 
 
 class DownloadedAudioMismatchError(AudioDownloadError):
     """`ffprobe` says the file is not the track the resolve measured."""
 
 
-# Checked first, on purpose: the expensive misdiagnosis is a mass extractor
+# checked first, on purpose: the expensive misdiagnosis is a mass extractor
 # failure read as a per-track problem, never the other way round.
-_EXTRACTOR_BROKEN_MARKERS = (
+EXTRACTOR_BROKEN_MARKERS = (
     "unable to extract",
     "failed to extract any player response",
     "nsig extraction failed",
@@ -73,7 +72,7 @@ _EXTRACTOR_BROKEN_MARKERS = (
     "http error 403",
 )
 
-_VIDEO_UNAVAILABLE_MARKERS = (
+VIDEO_UNAVAILABLE_MARKERS = (
     "video unavailable",
     "this video is not available",
     "private video",
@@ -83,14 +82,6 @@ _VIDEO_UNAVAILABLE_MARKERS = (
     "is not available in your country",
     "does not exist",
 )
-
-
-@dataclass(frozen=True)
-class DownloadedAudio:
-    path: Path
-    video_id: str
-    probe: MediaProbe
-    ytdlp_version: str
 
 
 def youtube_music_video_id(platform_links: dict[str, object]) -> str:
@@ -121,11 +112,11 @@ def youtube_music_video_id(platform_links: dict[str, object]) -> str:
 def build_watch_url(video_id: str) -> str:
     if not is_valid_youtube_video_id(video_id):
         raise InvalidYouTubeVideoIdError(f"videoId не пройшов валідацію: {video_id!r}")
-    return f"https://www.youtube.com/watch?v={video_id}"
+    return youtube_watch_url(video_id)
 
 
 def read_ytdlp_version(*, timeout_seconds: float = VERSION_TIMEOUT_SECONDS) -> str:
-    """Stored on `audio_asset`: a broken extractor is diagnosed by the version that ran."""
+    """stored on `audio_asset`: a broken extractor is diagnosed by the version that ran."""
     completed = run_media_tool_checked(YTDLP_BINARY, ["--version"], timeout_seconds=timeout_seconds)
     return completed.stdout.strip() or "unknown"
 
@@ -154,18 +145,18 @@ def build_ytdlp_arguments(url: str, output_template: str) -> list[str]:
 
 
 def classify_ytdlp_failure(exit_code: int, stderr: str) -> AudioDownloadError:
-    """Turns yt-dlp's stderr into the one distinction that matters: the
+    """turns yt-dlp's stderr into the one distinction that matters: the
     extractor broke (every track fails) vs this track is gone (one does)."""
     tail = stderr_tail(stderr)
     lowered = tail.lower()
 
-    if any(marker in lowered for marker in _EXTRACTOR_BROKEN_MARKERS):
+    if any(marker in lowered for marker in EXTRACTOR_BROKEN_MARKERS):
         return YtdlpExtractorBrokenError(
             "yt-dlp не зміг витягти трек — схоже, зламався екстрактор YouTube, "
             "а не зник конкретний запис. Перевірте, чи падають ІНШІ треки теж: "
             f"якщо так, потрібне оновлення yt-dlp. Код {exit_code}: {tail}"
         )
-    if any(marker in lowered for marker in _VIDEO_UNAVAILABLE_MARKERS):
+    if any(marker in lowered for marker in VIDEO_UNAVAILABLE_MARKERS):
         return YtdlpVideoUnavailableError(
             f"запис на YouTube недоступний (видалений, приватний або заблокований "
             f"за регіоном). Код {exit_code}: {tail}"
@@ -176,7 +167,7 @@ def classify_ytdlp_failure(exit_code: int, stderr: str) -> AudioDownloadError:
 def download_audio(
     video_id: str, destination_directory: Path, *, timeout_seconds: float
 ) -> tuple[Path, str]:
-    """Only downloads into the tmp dir; publishing the file is the caller's job."""
+    """only downloads into the tmp dir; publishing the file is the caller's job."""
     url = build_watch_url(video_id)
     ytdlp_version = read_ytdlp_version()
 
@@ -201,7 +192,7 @@ def download_audio(
         )
         raise error
 
-    downloaded = _locate_downloaded_file(destination_directory)
+    downloaded = locate_downloaded_file(destination_directory)
     logger.info(
         "audio_download_finished",
         video_id=video_id,
@@ -212,7 +203,7 @@ def download_audio(
 
 
 def verify_downloaded_audio(path: Path, track_duration_ms: int | None) -> MediaProbe:
-    """Catches a stub or a different recording. A track without `duration_ms` is
+    """catches a stub or a different recording. A track without `duration_ms` is
     still probed; only the comparison is skipped."""
     probe = verify_media(path, require_audio=True)
 
@@ -242,7 +233,7 @@ def verify_downloaded_audio(path: Path, track_duration_ms: int | None) -> MediaP
     return probe
 
 
-def _locate_downloaded_file(destination_directory: Path) -> Path:
+def locate_downloaded_file(destination_directory: Path) -> Path:
     candidates = sorted(
         path
         for path in destination_directory.glob(f"{DOWNLOAD_STEM}.*")

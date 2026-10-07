@@ -20,7 +20,7 @@ def test_internal_whitespace_is_collapsed_not_only_trimmed() -> None:
 
 
 def test_separator_inside_a_value_cannot_forge_another_field() -> None:
-    """Without escaping, artist `"A|B"` + title `"C"` and artist `"A"` +
+    """without escaping, artist `"A|B"` + title `"C"` and artist `"A"` +
     title `"B|C"` collapse onto the same row."""
     first = build_request_key("deezer:search:", "A|B", "C")
     second = build_request_key("deezer:search:", "A", "B|C")
@@ -33,7 +33,7 @@ def test_backslash_is_escaped_so_the_escaping_itself_is_unambiguous() -> None:
 
 
 def test_identifiers_keep_their_case() -> None:
-    """Spotify ids are base62 — folding case would merge two tracks."""
+    """spotify ids are base62 — folding case would merge two tracks."""
     lower = build_request_key("spotify:track:", "aBcD", casefold=False)
     upper = build_request_key("spotify:track:", "AbCd", casefold=False)
 

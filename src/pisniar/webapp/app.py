@@ -58,18 +58,18 @@ def create_webapp(settings: Settings, clock: Callable[[], float] = time.time) ->
         response.headers.setdefault("Cache-Control", "no-store")
         return response
 
-    static_dir = settings.webapp_static_dir
+    static_directory = settings.webapp_static_dir
 
     @app.get("/", include_in_schema=False)
     async def index() -> Response:
-        index_file = static_dir / "index.html"
+        index_file = static_directory / "index.html"
         if not index_file.is_file():
             return error_response(503, "frontend_missing", "Інтерфейс ще не зібрано.")
         return FileResponse(index_file, media_type="text/html; charset=utf-8")
 
     @app.get("/assets/{asset_path:path}", include_in_schema=False)
     async def asset(asset_path: str) -> Response:
-        asset_file = resolve_asset_file(static_dir / "assets", asset_path)
+        asset_file = resolve_asset_file(static_directory / "assets", asset_path)
         if asset_file is None:
             raise ApiProblem(404, "not_found", "Не знайдено.")
         return FileResponse(asset_file, headers={"Cache-Control": IMMUTABLE_CACHE})
@@ -79,7 +79,7 @@ def create_webapp(settings: Settings, clock: Callable[[], float] = time.time) ->
 
 
 def reject_oversized_body(request: Request) -> Response | None:
-    """A body is accepted only with an honest `Content-Length`: chunked uploads get no room."""
+    """a body is accepted only with an honest `Content-Length`: chunked uploads get no room."""
     if request.method not in BODY_METHODS:
         return None
     declared = request.headers.get("Content-Length")
@@ -91,7 +91,7 @@ def reject_oversized_body(request: Request) -> Response | None:
 
 
 def resolve_asset_file(assets_root: Path, asset_path: str) -> Path | None:
-    """The file under `assets_root` or `None`: `..` and symlinks must not leave the directory."""
+    """the file under `assets_root` or `None`: `..` and symlinks must not leave the directory."""
     try:
         root = assets_root.resolve()
         candidate = (root / asset_path).resolve()

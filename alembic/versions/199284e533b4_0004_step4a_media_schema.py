@@ -1,4 +1,4 @@
-"""0004_step4a_media_schema
+"""0004 media schema
 
 The media schema: `track.duration_ms`, `post.failed_from_status` and the two
 artifact tables, `audio_asset` per **track** and `render` per **post**. Every
@@ -23,7 +23,7 @@ down_revision: str | Sequence[str] | None = "4f5a52e4998d"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
-_VALID_STATUSES_SQL = (
+VALID_STATUSES_SQL = (
     "'draft', 'resolving', 'resolved', 'downloading', 'downloaded', "
     "'editing', 'rendering', 'rendered', 'publishing', 'published', 'failed', "
     "'archived'"
@@ -31,7 +31,7 @@ _VALID_STATUSES_SQL = (
 
 
 def upgrade() -> None:
-    """Upgrade schema."""
+    """upgrade schema."""
     # CASCADE, unlike `post.track_id`'s RESTRICT: an artifact is not a reason
     # to refuse deleting its track, and the file is cleaned up after the commit.
     op.create_table(
@@ -55,7 +55,7 @@ def upgrade() -> None:
         sa.Column("size_bytes", sa.BigInteger(), nullable=False),
         sa.Column("duration_ms", sa.BigInteger(), nullable=False),
         sa.Column("ytdlp_version", sa.Text(), nullable=False),
-        # A zero-byte or zero-length artifact is the shape a silent ffmpeg or
+        # a zero-byte or zero-length artifact is the shape a silent ffmpeg or
         # yt-dlp failure takes; the row for one must not be insertable at all.
         sa.CheckConstraint("duration_ms > 0", name=op.f("ck_audio_asset_duration_positive")),
         sa.CheckConstraint("size_bytes > 0", name=op.f("ck_audio_asset_size_positive")),
@@ -66,7 +66,7 @@ def upgrade() -> None:
             ondelete="CASCADE",
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_audio_asset")),
-        # The database half of the download idempotency guard — the atomic
+        # the database half of the download idempotency guard — the atomic
         # `os.replace` on the volume is the other half.
         sa.UniqueConstraint("track_id", "video_id", name=op.f("uq_audio_asset_track_id_video_id")),
     )
@@ -105,13 +105,13 @@ def upgrade() -> None:
     op.create_check_constraint(
         op.f("ck_post_failed_from_status_valid"),
         "post",
-        f"failed_from_status IS NULL OR failed_from_status IN ({_VALID_STATUSES_SQL})",
+        f"failed_from_status IS NULL OR failed_from_status IN ({VALID_STATUSES_SQL})",
     )
     op.add_column("track", sa.Column("duration_ms", sa.BigInteger(), nullable=True))
 
 
 def downgrade() -> None:
-    """Downgrade schema."""
+    """downgrade schema."""
     op.drop_column("track", "duration_ms")
     op.drop_constraint(op.f("ck_post_failed_from_status_valid"), "post", type_="check")
     op.drop_column("post", "failed_from_status")

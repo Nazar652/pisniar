@@ -56,7 +56,7 @@ def test_metadata_tags_are_ignored_without_counting_as_damage() -> None:
 
 
 def test_an_offset_tag_is_ignored_rather_than_applied() -> None:
-    """Applying it would shift every timecode silently; metatags are ignored,
+    """applying it would shift every timecode silently; metatags are ignored,
     and `offset` is one."""
     parsed = lrc.parse_lrc("[offset:+5000]\n[00:01.00]рядок")
 
@@ -76,7 +76,7 @@ def test_ties_keep_the_order_of_the_source() -> None:
 
 
 def test_an_empty_text_under_a_timecode_is_a_pause_and_is_kept() -> None:
-    """It draws nothing, and it is what ends the line before it — dropping
+    """it draws nothing, and it is what ends the line before it — dropping
     it would leave a verse's last line hanging until the next verse."""
     parsed = lrc.parse_lrc("[00:01.00]рядок\n[00:05.00]\n[00:09.00]наступний")
 
@@ -105,7 +105,7 @@ def test_one_crooked_line_among_many_is_dropped_with_a_warning() -> None:
 
 
 def test_plain_lyrics_are_refused_loudly_instead_of_coming_back_empty() -> None:
-    """Everything dropped is not "a few crooked lines", it is a different
+    """everything dropped is not "a few crooked lines", it is a different
     format — and an empty list would read as "this track has no text"."""
     with pytest.raises(lrc.LrcParseError, match="не LRC"):
         lrc.parse_lrc("перший рядок\nдругий рядок\nтретій рядок")
@@ -119,7 +119,7 @@ def test_crossing_the_drop_threshold_raises_even_when_most_lines_parsed() -> Non
 
 
 def test_an_empty_payload_is_an_empty_result_not_an_error() -> None:
-    """Nothing was dropped, so nothing is loud here; classifying an empty
+    """nothing was dropped, so nothing is loud here; classifying an empty
     answer is the adapter's job, not the parser's."""
     assert lrc.parse_lrc("") == []
     assert lrc.parse_lrc("\n  \n\n") == []
@@ -137,7 +137,7 @@ def test_an_out_of_range_seconds_field_is_not_taken_as_a_timecode() -> None:
 def test_the_warning_carries_the_shape_of_the_dropped_line_not_its_text(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A song's words do not belong in the structured log."""
+    """a song's words do not belong in the structured log."""
     fake_logger = MagicMock()
     monkeypatch.setattr(lrc, "logger", fake_logger)
     content = "\n".join(f"[00:{second:02d}.00]рядок" for second in range(10))

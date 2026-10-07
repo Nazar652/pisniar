@@ -29,7 +29,7 @@ def register_error_handlers(app: FastAPI) -> None:
         return error_response(error.status_code, error.code, error.message)
 
     async def on_invalid_request(request: Request, error: Exception) -> JSONResponse:
-        # The default 422 body echoes the offending input back, `initData` included.
+        # the default 422 body echoes the offending input back, `initData` included.
         return error_response(422, "invalid_request", "Некоректний запит.")
 
     async def on_http_error(request: Request, error: Exception) -> JSONResponse:

@@ -14,7 +14,7 @@ from pisniar.worker.noto_sans_widths import (
 
 FONT_SIZE_TO_EM_SCALE = UNITS_PER_EM / (HHEA_ASCENDER - HHEA_DESCENDER)
 
-# An unknown codepoint renders in a substitute font; one full em errs wide, so
+# an unknown codepoint renders in a substitute font; one full em errs wide, so
 # the line wraps early instead of leaving the frame. Never lower to an average.
 FALLBACK_ADVANCE_UNITS = UNITS_PER_EM
 
@@ -24,7 +24,7 @@ def advance_units(character: str) -> int:
 
 
 def text_width_px(text: str, font_size_px: int) -> float:
-    """Kerning is ignored: that errs wide, the one direction that cannot overflow."""
+    """kerning is ignored: that errs wide, the one direction that cannot overflow."""
     units = sum(advance_units(character) for character in text)
     return units * font_size_px * FONT_SIZE_TO_EM_SCALE / UNITS_PER_EM
 
@@ -34,7 +34,7 @@ def fits_within(text: str, *, font_size_px: int, available_px: float) -> bool:
 
 
 def longest_prefix_within(text: str, *, font_size_px: int, available_px: float) -> str:
-    """Never empty: a glyph wider than the band must still be drawn, or the wrapper
+    """never empty: a glyph wider than the band must still be drawn, or the wrapper
     loops forever. The formula matches `fits_within()` so the two agree exactly."""
     if not text:
         return ""

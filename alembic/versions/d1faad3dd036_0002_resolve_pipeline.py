@@ -1,4 +1,4 @@
-"""0002_resolve_pipeline
+"""0002 resolve pipeline
 
 Irreversible by data: `downgrade()` drops the whole `source_fetch` cache, and
 `odesli_raw`/`odesli_fetched_at` come back empty. A database stamped at this
@@ -25,7 +25,7 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    """Upgrade schema."""
+    """upgrade schema."""
     op.create_table(
         "source_fetch",
         sa.Column("id", sa.BigInteger(), sa.Identity(always=False), nullable=False),
@@ -55,13 +55,13 @@ def upgrade() -> None:
             "source", "request_key", name=op.f("uq_source_fetch_source_request_key")
         ),
     )
-    # Read on every TTL check.
+    # read on every TTL check.
     op.create_index(
         op.f("ix_source_fetch_fetched_at"), "source_fetch", ["fetched_at"], unique=False
     )
     op.add_column("post", sa.Column("draft_chat_id", sa.BigInteger(), nullable=True))
     op.add_column("post", sa.Column("draft_message_id", sa.BigInteger(), nullable=True))
-    # Same one-sided-pair CHECK as `channel_ref_complete`.
+    # same one-sided-pair CHECK as `channel_ref_complete`.
     op.create_check_constraint(
         op.f("ck_post_draft_ref_complete"),
         "post",
@@ -77,7 +77,7 @@ def upgrade() -> None:
     op.add_column(
         "track", sa.Column("resolved_at", postgresql.TIMESTAMP(timezone=True), nullable=True)
     )
-    # Non-unique: a repost a year later is a legitimate second row; the
+    # non-unique: a repost a year later is a legitimate second row; the
     # index only serves the ISRC duplicate warning.
     op.create_index(op.f("ix_track_isrc"), "track", ["isrc"], unique=False)
     op.drop_column("track", "odesli_raw")
@@ -85,7 +85,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """Downgrade schema."""
+    """downgrade schema."""
     op.add_column(
         "track",
         sa.Column(

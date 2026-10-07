@@ -11,7 +11,7 @@ from sqlalchemy import Table
 
 from pisniar.db.models import AudioAsset, Lyric, Post, Render, SourceFetch, Track
 
-# Typed as FromClause by the stubs, but always a real Table at runtime.
+# typed as FromClause by the stubs, but always a real Table at runtime.
 TRACK_TABLE = cast(Table, Track.__table__)
 POST_TABLE = cast(Table, Post.__table__)
 SOURCE_FETCH_TABLE = cast(Table, SourceFetch.__table__)
@@ -70,8 +70,8 @@ def test_post_constraint_and_index_names_are_unchanged() -> None:
     assert "ck_post_channel_message_kind_valid" in check_names
     assert "ck_post_channel_message_kind_matches_ref" in check_names
 
-    fk_names = {fk.name for fk in POST_TABLE.foreign_key_constraints}
-    assert fk_names == {"fk_post_track_id_track"}
+    foreign_key_names = {foreign_key.name for foreign_key in POST_TABLE.foreign_key_constraints}
+    assert foreign_key_names == {"fk_post_track_id_track"}
 
 
 def test_media_artifact_constraint_names_are_unchanged() -> None:
@@ -99,12 +99,12 @@ def test_media_artifact_constraint_names_are_unchanged() -> None:
         "ck_render_duration_positive",
     }
 
-    fk_names = {
-        fk.name
+    foreign_key_names = {
+        foreign_key.name
         for table in (AUDIO_ASSET_TABLE, RENDER_TABLE)
-        for fk in table.foreign_key_constraints
+        for foreign_key in table.foreign_key_constraints
     }
-    assert fk_names == {"fk_audio_asset_track_id_track", "fk_render_post_id_post"}
+    assert foreign_key_names == {"fk_audio_asset_track_id_track", "fk_render_post_id_post"}
 
 
 def test_source_fetch_constraint_names_are_unchanged() -> None:
@@ -134,8 +134,8 @@ def test_lyric_constraint_names_are_unchanged() -> None:
     }
     assert check_names == {"ck_lyric_start_ms_non_negative", "ck_lyric_text_length_bounded"}
 
-    fk_names = {fk.name for fk in LYRIC_TABLE.foreign_key_constraints}
-    assert fk_names == {"fk_lyric_track_id_track"}
+    foreign_key_names = {foreign_key.name for foreign_key in LYRIC_TABLE.foreign_key_constraints}
+    assert foreign_key_names == {"fk_lyric_track_id_track"}
 
 
 def test_a_lyric_follows_its_track_out_of_the_database() -> None:

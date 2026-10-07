@@ -44,7 +44,7 @@ def test_the_duration_reaches_telegram_in_whole_seconds(
 
 
 async def test_the_send_carries_the_dimensions_and_streaming_flag(tmp_path: Path) -> None:
-    """Without `supports_streaming` Telegram may hand the file over as a
+    """without `supports_streaming` Telegram may hand the file over as a
     download; without the dimensions it guesses the aspect ratio."""
     bot = AsyncMock()
 
@@ -59,7 +59,7 @@ async def test_the_send_carries_the_dimensions_and_streaming_flag(tmp_path: Path
 
 
 async def test_the_caption_goes_out_byte_for_byte_as_html(tmp_path: Path) -> None:
-    """The caption is already rendered, escaped HTML under the same 1024 media
+    """the caption is already rendered, escaped HTML under the same 1024 media
     limit a photo caption fits, so it is never rebuilt."""
     bot = AsyncMock()
 
@@ -79,7 +79,7 @@ async def test_a_present_thumbnail_is_attached(tmp_path: Path) -> None:
 
 
 async def test_a_missing_thumbnail_file_is_not_a_send_failure(tmp_path: Path) -> None:
-    """Cosmetic: Telegram builds its own preview, and a thumbnail that failed
+    """cosmetic: Telegram builds its own preview, and a thumbnail that failed
     to render must never stop a verified video from going out."""
     bot = AsyncMock()
     video = make_video(tmp_path, with_thumbnail=True)

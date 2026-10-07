@@ -21,7 +21,7 @@ def make_post(
     last_error: str | None = None,
     failed_from_status: PostStatus | None = None,
 ) -> Post:
-    """Unmapped: `set_post_status()` only mutates attributes in Python, so no
+    """unmapped: `set_post_status()` only mutates attributes in Python, so no
     session is needed."""
     return Post(
         track_id=1,
@@ -60,7 +60,7 @@ def test_archived_is_terminal() -> None:
 
 
 def test_every_status_can_reach_archived_directly_or_not() -> None:
-    # Documents which statuses have a direct edge to ARCHIVED (DOWNLOADED does
+    # documents which statuses have a direct edge to ARCHIVED (DOWNLOADED does
     # not) so a change to the table is a conscious edit here too.
     statuses_with_direct_archive_edge = {
         status for status, allowed in ALLOWED_TRANSITIONS.items() if PostStatus.ARCHIVED in allowed
@@ -167,7 +167,7 @@ def test_leaving_failed_clears_the_stage() -> None:
 
 
 def test_failed_to_archived_preserves_the_stage() -> None:
-    """Same reason `last_error` survives archiving: with no
+    """same reason `last_error` survives archiving: with no
     `post_status_history` table, these two columns are the whole record."""
     post = make_post(PostStatus.FAILED, failed_from_status=PostStatus.DOWNLOADING)
 
@@ -189,7 +189,7 @@ def test_a_non_failed_transition_never_sets_the_stage() -> None:
     [PostStatus.RESOLVING, PostStatus.DOWNLOADING, PostStatus.RENDERING, PostStatus.PUBLISHING],
 )
 def test_self_edge_allows_an_at_least_once_redelivery(status: PostStatus) -> None:
-    """A Celery redelivery (`task_acks_late`, a worker killed mid-task) sets the
+    """a Celery redelivery (`task_acks_late`, a worker killed mid-task) sets the
     status the post is already in, and that must not raise."""
     post = make_post(status)
 

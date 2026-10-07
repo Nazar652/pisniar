@@ -22,7 +22,7 @@ UNRECOGNIZED_TEXT = "hello there, not a link"
 async def capture_rejection_fields(
     text: str, monkeypatch: pytest.MonkeyPatch
 ) -> list[dict[str, Any]]:
-    """The module logger is replaced rather than captured through structlog:
+    """the module logger is replaced rather than captured through structlog:
     `capture_logs()` is defeated by an already-cached bound logger."""
     fake_logger = MagicMock()
     monkeypatch.setattr(handlers, "logger", fake_logger)
@@ -41,9 +41,9 @@ async def capture_rejection_fields(
     fake_logger.warning.assert_not_called()
     fake_logger.error.assert_not_called()
     return [
-        info_call.kwargs
-        for info_call in fake_logger.info.call_args_list
-        if info_call.args[:1] == ("link_rejected",)
+        log_call.kwargs
+        for log_call in fake_logger.info.call_args_list
+        if log_call.args[:1] == ("link_rejected",)
     ]
 
 
@@ -77,5 +77,5 @@ async def test_unrecognized_text_is_logged_by_length_only(
     assert len(fields) == 1
     assert fields[0]["reason"] == "unknown"
     assert fields[0]["raw_text_length"] == len(UNRECOGNIZED_TEXT)
-    # The admin's message body is not a URL and must not reach the logs.
+    # the admin's message body is not a URL and must not reach the logs.
     assert not any(UNRECOGNIZED_TEXT in str(value) for value in fields[0].values())

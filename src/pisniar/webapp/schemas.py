@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
-# Real `initData` is under 2 KiB; the bound keeps a hostile body cheap to reject.
+# real `initData` is under 2 KiB; the bound keeps a hostile body cheap to reject.
 INIT_DATA_MAX_LENGTH = 8192
 
 

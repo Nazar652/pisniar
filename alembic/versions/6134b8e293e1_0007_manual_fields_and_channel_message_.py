@@ -28,7 +28,7 @@ MANUAL_FIELD_NAMES_JSON = (
 
 
 def upgrade() -> None:
-    """Upgrade schema."""
+    """upgrade schema."""
     op.add_column(
         "track",
         sa.Column(
@@ -63,7 +63,7 @@ def upgrade() -> None:
     )
 
     op.add_column("post", sa.Column("channel_message_kind", sa.Text(), nullable=True))
-    # The same choice `publish_to_channel` makes: a preview means the video went out, else a
+    # the same choice `publish_to_channel` makes: a preview means the video went out, else a
     # cover means a photo, else text. `updated_at` is set by hand: a raw UPDATE skips the ORM.
     op.execute(
         sa.text(
@@ -87,7 +87,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """Downgrade schema."""
+    """downgrade schema."""
     op.drop_constraint(op.f("ck_post_channel_message_kind_matches_ref"), "post", type_="check")
     op.drop_constraint(op.f("ck_post_channel_message_kind_valid"), "post", type_="check")
     op.drop_column("post", "channel_message_kind")

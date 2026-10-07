@@ -7,7 +7,7 @@ from sqlalchemy import pool, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-# Import models so they register on Base.metadata before autogenerate runs.
+# import models so they register on Base.metadata before autogenerate runs.
 from pisniar.db.base import Base
 from pisniar.db.models import Post, SourceFetch, Track  # noqa: F401
 
@@ -18,7 +18,7 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
-# Not pisniar.config.Settings: migrations only need a DSN. Required, not
+# not pisniar.config.Settings: migrations only need a DSN. Required, not
 # optional — fail fast instead of a confusing NoSuchModuleError.
 database_url = os.environ.get("DATABASE_URL")
 if not database_url:

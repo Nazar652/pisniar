@@ -1,6 +1,6 @@
 name: pisniar
 
-# Service DNS names are fixed here, not in `.env`. Redis needs a password: the override publishes
+# service DNS names are fixed here, not in `.env`. Redis needs a password: the override publishes
 # it on a host port, and an open broker is a write path around `AdminAllowlistMiddleware`.
 x-database-url: &database-url postgresql+asyncpg://pisniar:pisniar@postgres:5432/pisniar
 
@@ -28,7 +28,7 @@ services:
     command:
       ["redis-server", "--requirepass", "${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}"]
     environment:
-      # Not `redis-cli -a <password>`: that leaks the password into the
+      # not `redis-cli -a <password>`: that leaks the password into the
       # container's process list and warns about it on stderr every probe.
       REDISCLI_AUTH: ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
     healthcheck:
@@ -37,14 +37,14 @@ services:
       timeout: 3s
       retries: 10
 
-  # One-shot: applies migrations and exits. Not part of an image entrypoint,
+  # one-shot: applies migrations and exits. Not part of an image entrypoint,
   # so there is no race between several containers trying to migrate at once.
   migrate:
     build:
       context: .
       target: bot
     command: ["alembic", "upgrade", "head"]
-    # No `env_file: .env`: `alembic/env.py` only needs `DATABASE_URL`, which
+    # no `env_file: .env`: `alembic/env.py` only needs `DATABASE_URL`, which
     # the anchor above already provides — no business seeing the rest.
     environment:
       <<: *app-environment
@@ -89,7 +89,7 @@ services:
       - .env
     environment:
       <<: *app-environment
-    # Named, not a bind mount: heavy media stays off the Windows host filesystem.
+    # named, not a bind mount: heavy media stays off the Windows host filesystem.
     # Worker-only: no other service reads or writes media.
     volumes:
       - media-data:/data
@@ -109,7 +109,7 @@ services:
       retries: 10
       start_period: 10s
 
-  # No `ports:`: the only way in is the Funnel below. The healthcheck accepts any HTTP answer, so a
+  # no `ports:`: the only way in is the Funnel below. The healthcheck accepts any HTTP answer, so a
   # frontend that is not built yet (503 on `/`) does not hold `up --wait` or the Funnel back.
   webapp:
     build:
@@ -117,7 +117,7 @@ services:
       target: webapp
     env_file:
       - .env
-    # Only the database: nothing here talks to Redis or dispatches a task.
+    # only the database: nothing here talks to Redis or dispatches a task.
     environment:
       DATABASE_URL: *database-url
     depends_on:
@@ -138,7 +138,7 @@ services:
       retries: 10
       start_period: 5s
 
-  # Public entry: `make funnel-init` once, then `make funnel-up`. The auth key lives in
+  # public entry: `make funnel-init` once, then `make funnel-up`. The auth key lives in
   # `.env.tailscale`, which no other service reads, and only the first registration needs it.
   tailscale:
     image: tailscale/tailscale:v1.102.5@sha256:c507f3a2a6ab1cabd8d809b98edeb41edbd5c3fb6ad9632ffd098b4c7d0b4065
@@ -152,7 +152,7 @@ services:
       TS_SERVE_CONFIG: /config/serve.json
     volumes:
       - tailscale-state:/var/lib/tailscale
-      # A directory, not the file: Docker Desktop refuses a single-file bind mount.
+      # a directory, not the file: Docker Desktop refuses a single-file bind mount.
       - ./deploy/tailscale:/config:ro
     depends_on:
       webapp:
@@ -162,7 +162,7 @@ services:
 volumes:
   postgres-data:
   media-data:
-  # External, so `down -v` cannot delete the node identity: a fresh state would register a
+  # external, so `down -v` cannot delete the node identity: a fresh state would register a
   # second node under another URL and kill every button already sent.
   tailscale-state:
     external: true

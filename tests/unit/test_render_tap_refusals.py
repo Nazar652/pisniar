@@ -25,11 +25,11 @@ def post_in(status: PostStatus, *, preview_message_id: int | None) -> Post:
 def test_a_tap_on_a_previewed_post_is_refused_before_the_status_moves(
     status: PostStatus,
 ) -> None:
-    """A surviving draft button must not start a second render: the channel gets
+    """a surviving draft button must not start a second render: the channel gets
     the newest `render` row, and the admin has only seen the first."""
     post = post_in(status, preview_message_id=99)
 
-    refusal, reference = handlers._claim_post_for_media(post, 7, 111)
+    refusal, reference = handlers.claim_post_for_media(post, 7, 111)
 
     assert refusal == handlers.PREVIEW_ALREADY_SHOWN_ANSWER.format(post_id=7)
     assert reference is None
@@ -45,7 +45,7 @@ def test_the_refusal_names_no_state() -> None:
 def test_a_failed_post_without_a_preview_can_still_be_rendered() -> None:
     post = post_in(PostStatus.FAILED, preview_message_id=None)
 
-    refusal, reference = handlers._claim_post_for_media(post, 7, 111)
+    refusal, reference = handlers.claim_post_for_media(post, 7, 111)
 
     assert refusal is None
     assert reference == (555, 41)

@@ -41,12 +41,12 @@ CANNOT_POST_ERROR = (
 
 
 class PublishPreflightError(RuntimeError):
-    """Carries a Ukrainian, admin-readable reason. The Telegram error it was
+    """carries a Ukrainian, admin-readable reason. The Telegram error it was
     raised from stays in the logs and never reaches the admin's chat."""
 
 
 async def preflight_channel(bot: Bot, channel_id: int) -> ChatFullInfo:
-    """Turns a raw `400`/`403` into an actionable sentence before anything is sent;
+    """turns a raw `400`/`403` into an actionable sentence before anything is sent;
     the returned chat is the only honest source for the post's link afterwards."""
     try:
         chat = await bot.get_chat(channel_id)
@@ -66,7 +66,7 @@ async def preflight_channel(bot: Bot, channel_id: int) -> ChatFullInfo:
 
 
 def warn_if_channel_identity_diverges(chat: ChatFullInfo) -> bool:
-    """A post can link to one channel and land in another. A warning,
+    """a post can link to one channel and land in another. A warning,
     not a refusal: a test channel is exactly this divergence, on purpose."""
     if chat.username == CHANNEL_USERNAME:
         return False
@@ -87,7 +87,7 @@ async def publish_to_channel(
     cover_url: str | None,
     video: RenderedVideo | None = None,
 ) -> None:
-    """Idempotent on `channel_message_id`. The caller picks the video branch from
+    """idempotent on `channel_message_id`. The caller picks the video branch from
     the status plus a `render` row, never from a leftover file."""
     if post.channel_message_id is not None:
         return
@@ -95,12 +95,12 @@ async def publish_to_channel(
         raise ValueError(f"post {post.id} has no caption to publish")
 
     if video is not None:
-        # The video caption limit is the same 1024 the photo caption already
+        # the video caption limit is the same 1024 the photo caption already
         # fits, so nothing is rebuilt: the admin approved these exact bytes.
         sent_message = await send_rendered_video(bot, chat_id, post.caption, video)
         message_kind = "video"
     elif cover_url:
-        # Telegram fetches the cover by URL itself and can fail on it; that
+        # telegram fetches the cover by URL itself and can fail on it; that
         # is a delivery failure to report, not one to work around here.
         sent_message = await bot.send_photo(
             chat_id=chat_id,
@@ -110,7 +110,7 @@ async def publish_to_channel(
         )
         message_kind = "photo"
     else:
-        # No cover, so the caption is a plain message again — and a message
+        # no cover, so the caption is a plain message again — and a message
         # full of platform links needs the preview card suppressed.
         sent_message = await bot.send_message(
             chat_id=chat_id,
@@ -126,20 +126,20 @@ async def publish_to_channel(
 
 
 def channel_post_url(chat: ChatFullInfo, message_id: int) -> str:
-    """Built from the chat the post actually went to, never from
+    """built from the chat the post actually went to, never from
     `CHANNEL_LINK_URL` — the two are allowed to differ."""
     if chat.username:
         return f"https://t.me/{chat.username}/{message_id}"
-    return f"https://t.me/c/{_private_chat_path(chat.id)}/{message_id}"
+    return f"https://t.me/c/{private_chat_path(chat.id)}/{message_id}"
 
 
-def _private_chat_path(chat_id: int) -> str:
+def private_chat_path(chat_id: int) -> str:
     """`t.me/c/` links use the id without the `-100` supergroup prefix."""
     return str(chat_id).removeprefix("-100").lstrip("-")
 
 
 def describe_publish_error(error: Exception) -> str:
-    """Ukrainian and distinct per class: 403, 429 and 400 ask the admin for
+    """ukrainian and distinct per class: 403, 429 and 400 ask the admin for
     three different next actions, and a raw traceback asks for none."""
     if isinstance(error, PublishPreflightError):
         return str(error)

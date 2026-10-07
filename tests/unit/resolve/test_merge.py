@@ -216,7 +216,7 @@ def test_stored_manual_link_survives_a_fresh_exact_isrc_resolve() -> None:
 
 
 def test_stored_platform_missing_from_the_fresh_resolve_is_kept() -> None:
-    """Transport errors are deliberately not cached, so a source that was
+    """transport errors are deliberately not cached, so a source that was
     merely unreachable this time must not shrink `platform_links`."""
     track = ResolvedTrack()
 
@@ -299,7 +299,7 @@ def test_stored_artists_are_kept_when_the_resolve_returned_none_at_all() -> None
 
 
 def test_stored_artist_entry_for_a_different_name_is_ignored_when_it_holds_no_override() -> None:
-    """Nothing irreplaceable to lose, so the fresh name wins outright and the
+    """nothing irreplaceable to lose, so the fresh name wins outright and the
     name-shape fallback below does not fire."""
     track = ResolvedTrack(artists=[ArtistInfo(name="New Name")])
 
@@ -339,7 +339,7 @@ def test_stored_artists_with_a_hashtag_survive_a_change_of_name_shape() -> None:
 
 
 def test_merge_stored_scalars_keeps_a_value_the_fresh_resolve_lost() -> None:
-    """After the TTL a re-resolve really goes to the network, and one transient
+    """after the TTL a re-resolve really goes to the network, and one transient
     failure must not null a good `isrc` and with it the duplicate warning."""
     track = ResolvedTrack(title="Creep")
 
@@ -351,7 +351,7 @@ def test_merge_stored_scalars_keeps_a_value_the_fresh_resolve_lost() -> None:
 
 
 def test_merge_stored_scalars_keeps_the_stored_album_id() -> None:
-    """The album link is built from this column, so a re-resolve without song.link
+    """the album link is built from this column, so a re-resolve without song.link
     must not null it."""
     track = ResolvedTrack(title="Сумніви")
 
@@ -361,7 +361,7 @@ def test_merge_stored_scalars_keeps_the_stored_album_id() -> None:
 
 
 def test_merge_stored_scalars_keeps_the_stored_duration() -> None:
-    """The download is checked against `track.duration_ms`, so one failed source
+    """the download is checked against `track.duration_ms`, so one failed source
     on a `/retry` must not null the yardstick."""
     track = ResolvedTrack(title="Creep")
 
@@ -379,7 +379,7 @@ def test_merge_stored_scalars_never_overwrites_a_fresh_value() -> None:
 
 
 def test_a_degraded_resolve_keeps_the_stored_title_and_artists() -> None:
-    """The fresh title is the raw `songlink:youtube` clip name: lower priority, but
+    """the fresh title is the raw `songlink:youtube` clip name: lower priority, but
     not `None`, so only this guard keeps the stored one."""
     track = ResolvedTrack(
         title="Bruise Pristine",
@@ -398,7 +398,7 @@ def test_a_degraded_resolve_keeps_the_stored_title_and_artists() -> None:
 
 
 def test_a_degraded_resolve_keeps_the_stored_title_when_only_youtube_answered() -> None:
-    """The fresh title is the raw clip name `songlink:youtube` gave, so the stored
+    """the fresh title is the raw clip name `songlink:youtube` gave, so the stored
     clean one still wins."""
     track = ResolvedTrack(source_failures=["spotify:isrc: HTTP 503"])
     merge_title(track, "vesnavoseny - ніч минала", "songlink:youtube")
@@ -413,7 +413,7 @@ def test_a_degraded_resolve_keeps_the_stored_title_when_only_youtube_answered() 
 
 
 def test_a_degraded_resolve_takes_the_fresh_title_from_a_strong_source() -> None:
-    """Spotify answered this time, so its clean values must replace the stored
+    """spotify answered this time, so its clean values must replace the stored
     clip-derived ones even while iTunes fails."""
     track = ResolvedTrack(source_failures=["itunes: timeout"])
     merge_title(track, "Bruise Pristine", "spotify")
@@ -428,7 +428,7 @@ def test_a_degraded_resolve_takes_the_fresh_title_from_a_strong_source() -> None
 
 
 def test_a_complete_resolve_still_overwrites_the_stored_title_and_artists() -> None:
-    """The guard is scoped to `source_failures`: with every source answering, the
+    """the guard is scoped to `source_failures`: with every source answering, the
     fresh result is the authority and must win."""
     track = ResolvedTrack(title="Creep", artists=[ArtistInfo(name="Radiohead")])
 
@@ -441,7 +441,7 @@ def test_a_complete_resolve_still_overwrites_the_stored_title_and_artists() -> N
 
 
 def test_a_degraded_resolve_keeps_its_own_values_when_nothing_is_stored() -> None:
-    """First resolve of a track: an empty stored row must not blank the only
+    """first resolve of a track: an empty stored row must not blank the only
     metadata there is."""
     track = ResolvedTrack(
         title="Creep", artists=[ArtistInfo(name="Radiohead")], source_failures=["itunes: timeout"]

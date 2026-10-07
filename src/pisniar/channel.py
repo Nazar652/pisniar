@@ -16,7 +16,7 @@ CHANNEL_USERNAME = CHANNEL_LINK_URL.rsplit("/", 1)[-1]
 
 
 def warn_if_alerts_share_the_channel(channel_id: int, alert_chat_id: int) -> bool:
-    """A warning, not a refusal: a test channel *is* the alert chat on purpose,
+    """a warning, not a refusal: a test channel *is* the alert chat on purpose,
     while on the real one this leaks error texts into a public feed."""
     if channel_id != alert_chat_id:
         return False

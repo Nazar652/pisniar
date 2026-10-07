@@ -12,9 +12,9 @@ from typing import Any
 import pytest
 import yaml
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-COMPOSE_FILE = REPO_ROOT / "compose.yaml"
-SERVE_FILE = REPO_ROOT / "deploy" / "tailscale" / "serve.json"
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+COMPOSE_FILE = REPOSITORY_ROOT / "compose.yaml"
+SERVE_FILE = REPOSITORY_ROOT / "deploy" / "tailscale" / "serve.json"
 
 pytestmark = pytest.mark.skipif(
     not COMPOSE_FILE.is_file(), reason="compose.yaml is not available in this container"
@@ -26,13 +26,13 @@ def compose() -> dict[str, Any]:
     return yaml.safe_load(COMPOSE_FILE.read_text(encoding="utf-8"))
 
 
-def env_files(service: dict[str, Any]) -> list[str]:
+def environment_files(service: dict[str, Any]) -> list[str]:
     return [str(entry) for entry in service.get("env_file", [])]
 
 
 def test_tailscale_runs_only_under_the_funnel_profile(compose: dict[str, Any]) -> None:
     assert compose["services"]["tailscale"]["profiles"] == ["funnel"]
-    others = {name: s for name, s in compose["services"].items() if name != "tailscale"}
+    others = {name: service for name, service in compose["services"].items() if name != "tailscale"}
     assert all("profiles" not in service for service in others.values())
 
 
@@ -40,7 +40,7 @@ def test_only_tailscale_reads_the_tailscale_env_file(compose: dict[str, Any]) ->
     readers = [
         name
         for name, service in compose["services"].items()
-        if any(".env.tailscale" in entry for entry in env_files(service))
+        if any(".env.tailscale" in entry for entry in environment_files(service))
     ]
     assert readers == ["tailscale"]
 

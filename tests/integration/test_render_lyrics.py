@@ -55,7 +55,7 @@ OTHER_LOCKS_SQL = """
 
 
 class DatabaseProbe:
-    """A raw connection outside every engine the task builds, so it can see them all."""
+    """a raw connection outside every engine the task builds, so it can see them all."""
 
     def __init__(self, connection: asyncpg.Connection) -> None:
         self.connection = connection
@@ -96,7 +96,7 @@ async def session_factory(
 def alerts(
     monkeypatch: pytest.MonkeyPatch, migrated_test_database_url: str, tmp_path: Path
 ) -> AsyncMock:
-    """Nothing here may reach Telegram: `.env` carries the real token in Docker."""
+    """nothing here may reach Telegram: `.env` carries the real token in Docker."""
     monkeypatch.setattr(worker_tasks.settings, "database_url", migrated_test_database_url)
     monkeypatch.setattr(worker_tasks.settings, "media_root", tmp_path)
     monkeypatch.setattr(worker_tasks.settings, "media_min_free_bytes", 1)
@@ -140,7 +140,7 @@ class StubRenderer:
 
 
 class PreviewSpy:
-    """Replaces the Telegram upload and records what reached it."""
+    """replaces the Telegram upload and records what reached it."""
 
     def __init__(self) -> None:
         self.lyrics_reasons: list[str] = []
@@ -174,14 +174,14 @@ def install_pipeline(
     )
     monkeypatch.setattr(worker_tasks.video_render, "render_fragment_within_size_limit", renderer)
     monkeypatch.setattr(worker_tasks.video_render, "render_thumbnail", lambda *a, **k: None)
-    monkeypatch.setattr(worker_tasks, "_deliver_preview_for", preview)
+    monkeypatch.setattr(worker_tasks, "deliver_preview_for", preview)
     return renderer, preview
 
 
 async def make_downloaded_post(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> tuple[int, int, str, str]:
-    """A unique artist and title per test: the LRCLIB cache row lives for an hour."""
+    """a unique artist and title per test: the LRCLIB cache row lives for an hour."""
     marker = uuid.uuid4().hex
     artist = f"Виконавець {marker}"
     title = f"Покаяння {marker}"
@@ -269,7 +269,7 @@ async def lyric_count(session_factory: async_sessionmaker[AsyncSession], track_i
 async def test_the_probe_sees_a_held_row_lock(
     session_factory: async_sessionmaker[AsyncSession], probe: DatabaseProbe
 ) -> None:
-    """The assertion below is only as good as the probe: without this, "no
+    """the assertion below is only as good as the probe: without this, "no
     transaction seen" could just as well mean "nothing can be seen"."""
     post_id, _, _, _ = await make_downloaded_post(session_factory)
 
@@ -297,7 +297,7 @@ async def test_no_transaction_and_no_lock_is_open_while_lrclib_is_asked(
 
     renderer, preview = install_pipeline(monkeypatch, answer)
 
-    await worker_tasks._render_post_video(post_id)
+    await worker_tasks.perform_render_post_video(post_id)
 
     assert snapshots, "LRCLIB was never asked"
     assert snapshots == [{"transactions": [], "locks": []}] * len(snapshots)
@@ -328,7 +328,7 @@ async def test_stored_lines_are_rendered_without_asking_lrclib(
 
     renderer, preview = install_pipeline(monkeypatch, refuse)
 
-    await worker_tasks._render_post_video(post_id)
+    await worker_tasks.perform_render_post_video(post_id)
 
     alerts.assert_not_awaited()
     post, render = await render_row_of(session_factory, post_id)
@@ -351,7 +351,7 @@ async def test_an_unavailable_lrclib_still_yields_a_video_without_text(
 
     renderer, preview = install_pipeline(monkeypatch, overloaded)
 
-    await worker_tasks._render_post_video(post_id)
+    await worker_tasks.perform_render_post_video(post_id)
 
     post, render = await render_row_of(session_factory, post_id)
     assert post.status is PostStatus.RENDERED
@@ -360,7 +360,7 @@ async def test_an_unavailable_lrclib_still_yields_a_video_without_text(
     assert await lyric_count(session_factory, track_id) == 0
     assert preview.lyrics_reasons == ["lyrics_source_unavailable"]
 
-    # The only alert is the notice under the preview, not a failure.
+    # the only alert is the notice under the preview, not a failure.
     alerts.assert_awaited_once_with(
         ANY,
         111,
@@ -374,7 +374,7 @@ async def test_a_redelivered_render_explains_the_missing_text_only_once(
     alerts: AsyncMock,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Celery redelivers after the `RENDERED` commit when the worker dies before
+    """celery redelivers after the `RENDERED` commit when the worker dies before
     the ack; the second run must stop at the claim, before any notice."""
     post_id, _, _, _ = await make_downloaded_post(session_factory)
 
@@ -388,8 +388,8 @@ async def test_a_redelivered_render_explains_the_missing_text_only_once(
 
     install_pipeline(monkeypatch, not_found)
 
-    await worker_tasks._render_post_video(post_id)
-    await worker_tasks._render_post_video(post_id)
+    await worker_tasks.perform_render_post_video(post_id)
+    await worker_tasks.perform_render_post_video(post_id)
 
     alerts.assert_awaited_once_with(
         ANY,

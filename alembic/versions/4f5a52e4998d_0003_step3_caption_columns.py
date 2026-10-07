@@ -1,4 +1,4 @@
-"""0003_step3_caption_columns
+"""0003 caption columns
 
 Three columns the caption needs: `track.album_id_spotify`, `track.languages`
 and `post.published_by_user_id`. `languages` fills existing rows through its
@@ -25,9 +25,9 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    """Upgrade schema."""
-    # Who approved and published, next to `created_by_user_id` (who
-    # submitted the link). Written by the next sub-step, not by this one.
+    """upgrade schema."""
+    # who approved and published, next to `created_by_user_id` (who
+    # submitted the link)
     op.add_column("post", sa.Column("published_by_user_id", sa.BigInteger(), nullable=True))
     op.add_column("track", sa.Column("album_id_spotify", sa.Text(), nullable=True))
     op.add_column(
@@ -39,7 +39,7 @@ def upgrade() -> None:
             nullable=False,
         ),
     )
-    # Autogenerate never emits CHECK constraints; same guard the other two
+    # autogenerate never emits CHECK constraints; same guard the other two
     # JSONB columns on this table already carry.
     op.create_check_constraint(
         op.f("ck_track_languages_is_array"), "track", "jsonb_typeof(languages) = 'array'"
@@ -47,7 +47,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """Downgrade schema."""
+    """downgrade schema."""
     op.drop_constraint(op.f("ck_track_languages_is_array"), "track", type_="check")
     op.drop_column("track", "languages")
     op.drop_column("track", "album_id_spotify")

@@ -117,7 +117,7 @@ def test_every_protected_route_answers_403_to_a_valid_non_admin(
 def test_an_admin_removed_after_the_token_was_issued_is_refused_at_once(
     settings: Settings, clock: Callable[[], float]
 ) -> None:
-    # The token is valid; only the admin list differs, and it is read on every request.
+    # the token is valid; only the admin list differs, and it is read on every request.
     narrowed = settings.model_copy(update={"admin_ids": [222]})
     narrowed_client = TestClient(create_webapp(narrowed, clock=clock))
     assert narrowed_client.get("/api/me", headers=bearer(ADMIN_ID)).status_code == 403

@@ -1,4 +1,4 @@
-"""song.link: parses `__NEXT_DATA__` from the landing page, which Odesli's docs
+"""The song.link source: parses `__NEXT_DATA__` from the landing page, which Odesli's docs
 recommend for personal use without an API key (their `v1-alpha.1` API answers 401).
 """
 
@@ -26,26 +26,26 @@ from pisniar.resolve.urls import normalize_url
 logger = get_logger(__name__)
 
 THROTTLE = Throttler(min_interval_seconds=1.0)
-MAX_RETRIES = 3
+MAX_ATTEMPTS = 3
 DEFAULT_RETRY_DELAY_SECONDS = 2.0
 
-# The only adapter that follows redirects: `song.link` answers 308/302 to its
+# the only adapter that follows redirects: `song.link` answers 308/302 to its
 # own relative paths, and the `?url=` form lands on `odesli.co`.
 ODESLI_HOST_SUFFIXES = ("song.link", "odesli.co")
 
 REQUEST_HEADERS = {"User-Agent": "pisniar-v2 (personal Telegram bot)"}
 
-NEXT_DATA_RE = re.compile(
+NEXT_DATA_PATTERN = re.compile(
     r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', re.DOTALL
 )
 
 
 class SonglinkParseError(RuntimeError):
-    """A 200 page that does not parse: structure drift, not a miss, so the
+    """a 200 page that does not parse: structure drift, not a miss, so the
     caller alerts instead of caching it."""
 
 
-class _RateLimited(RuntimeError):
+class RateLimited(RuntimeError):
     """429 from a single attempt — carries the `Retry-After` delay up to the
     retry loop, which owns the sleeping."""
 
@@ -69,65 +69,65 @@ class SonglinkResult:
 
 
 async def fetch(client: httpx.AsyncClient, cache: SourceCache, external_url: str) -> SonglinkResult:
-    # Through the normalizer, not the raw string: otherwise the same track
+    # through the normalizer, not the raw string: otherwise the same track
     # submitted with a tracking suffix becomes a second cache row.
     cache_key = build_request_key("songlink:url:", normalize_url(external_url), casefold=False)
 
     async def do_fetch() -> dict[str, object]:
-        return await _fetch_and_parse(client, external_url)
+        return await fetch_and_parse(client, external_url)
 
     payload = await cache.get_or_fetch("songlink", cache_key, do_fetch)
-    return _result_from_payload(payload)
+    return result_from_payload(payload)
 
 
-async def _fetch_and_parse(client: httpx.AsyncClient, external_url: str) -> dict[str, object]:
+async def fetch_and_parse(client: httpx.AsyncClient, external_url: str) -> dict[str, object]:
     request_url = httpx.URL(f"https://song.link/{external_url}")
 
-    for attempt in range(MAX_RETRIES):
-        # One wait per attempt, not per hop: the hops of a redirect chain are
+    for attempt in range(MAX_ATTEMPTS):
+        # one wait per attempt, not per hop: the hops of a redirect chain are
         # the continuation of one logical request, exactly as httpx sent them.
         await THROTTLE.wait()
         try:
-            return await _fetch_one_attempt(client, request_url)
-        except _RateLimited as rate_limit:
+            return await fetch_one_attempt(client, request_url)
+        except RateLimited as rate_limit:
             delay = (
                 rate_limit.delay if rate_limit.delay is not None else DEFAULT_RETRY_DELAY_SECONDS
             )
             logger.warning("songlink_rate_limited", attempt=attempt, delay=delay)
             await asyncio.sleep(delay)
 
-    raise SonglinkParseError(f"song.link kept rate-limiting after {MAX_RETRIES} attempts")
+    raise SonglinkParseError(f"song.link kept rate-limiting after {MAX_ATTEMPTS} attempts")
 
 
-async def _fetch_one_attempt(client: httpx.AsyncClient, start_url: httpx.URL) -> dict[str, object]:
-    """Redirects are walked by hand: `follow_redirects=True` contacts every hop
+async def fetch_one_attempt(client: httpx.AsyncClient, start_url: httpx.URL) -> dict[str, object]:
+    """redirects are walked by hand: `follow_redirects=True` contacts every hop
     inside `send()`, before any check could refuse it."""
     current_url = start_url
 
-    for _hop in range(MAX_REDIRECTS + 1):
+    for _ in range(MAX_REDIRECTS + 1):
         async with client.stream(
             "GET", current_url, follow_redirects=False, headers=REQUEST_HEADERS
         ) as response:
             if response.has_redirect_location:
-                current_url = _validated_redirect_target(response)
+                current_url = validated_redirect_target(response)
                 continue
 
             if response.status_code == 429:
-                raise _RateLimited(parse_retry_after_seconds(response.headers.get("Retry-After")))
+                raise RateLimited(parse_retry_after_seconds(response.headers.get("Retry-After")))
 
             if response.status_code == 404:
                 return {"found": False}
 
             response.raise_for_status()
-            html = await _read_limited(response)
+            html = await read_limited(response)
 
-        return _parse_page(html)
+        return parse_page(html)
 
     raise SonglinkParseError(f"song.link redirected more than {MAX_REDIRECTS} times")
 
 
-async def _read_limited(response: httpx.Response) -> str:
-    """Counts decoded chunks: song.link's chunked CDN response sends no
+async def read_limited(response: httpx.Response) -> str:
+    """counts decoded chunks: song.link's chunked CDN response sends no
     `Content-Length`, and where one is sent it counts compressed bytes."""
     chunks: list[bytes] = []
     total_bytes = 0
@@ -142,8 +142,8 @@ async def _read_limited(response: httpx.Response) -> str:
     return b"".join(chunks).decode(response.charset_encoding or "utf-8", errors="replace")
 
 
-def _validated_redirect_target(response: httpx.Response) -> httpx.URL:
-    """Validated before it is requested, so a refused hop is never contacted.
+def validated_redirect_target(response: httpx.Response) -> httpx.URL:
+    """validated before it is requested, so a refused hop is never contacted.
     Fail-closed: answering "not found" instead would cache the refusal."""
     next_request = response.next_request
     if next_request is None:
@@ -162,8 +162,8 @@ def _validated_redirect_target(response: httpx.Response) -> httpx.URL:
     return target
 
 
-def _parse_page(html: str) -> dict[str, object]:
-    match = NEXT_DATA_RE.search(html)
+def parse_page(html: str) -> dict[str, object]:
+    match = NEXT_DATA_PATTERN.search(html)
     if match is None:
         raise SonglinkParseError("__NEXT_DATA__ script tag not found on song.link page")
 
@@ -173,7 +173,7 @@ def _parse_page(html: str) -> dict[str, object]:
     except (json.JSONDecodeError, KeyError, TypeError) as error:
         raise SonglinkParseError(f"unexpected song.link page structure: {error}") from error
 
-    # A quota refusal arrives as HTTP 200 carrying `pageProps.error` beside a
+    # a quota refusal arrives as HTTP 200 carrying `pageProps.error` beside a
     # stub `pageData`: transport, never a miss, so it must not be cached.
     embedded_error = page_props.get("error")
     if embedded_error is not None:
@@ -181,13 +181,13 @@ def _parse_page(html: str) -> dict[str, object]:
         raise SonglinkParseError(f"song.link answered with an in-page error: {status_code}")
 
     page_data = as_dict(page_props.get("pageData"))
-    _require_entity_data(page_data)
+    require_entity_data(page_data)
 
     return {"found": True, "page_data": page_data}
 
 
-def _require_entity_data(page_data: dict[str, object]) -> dict[str, object]:
-    """Only HTTP 404 is a verified miss. A 200 page with no entity is an
+def require_entity_data(page_data: dict[str, object]) -> dict[str, object]:
+    """only HTTP 404 is a verified miss. A 200 page with no entity is an
     unconfirmed shape, so it raises instead of being kept as an empty hit."""
     entity_data = as_dict(page_data.get("entityData"))
     if not entity_data:
@@ -196,14 +196,14 @@ def _require_entity_data(page_data: dict[str, object]) -> dict[str, object]:
     return entity_data
 
 
-def _result_from_payload(payload: dict[str, object]) -> SonglinkResult:
+def result_from_payload(payload: dict[str, object]) -> SonglinkResult:
     if not payload.get("found"):
         return SonglinkResult(found=False)
 
-    # Guards the read path too: a cached row without an entity must not be
+    # guards the read path too: a cached row without an entity must not be
     # served as a valid, completely empty answer.
     page_data = as_dict(payload.get("page_data"))
-    entity_data = _require_entity_data(page_data)
+    entity_data = require_entity_data(page_data)
     release_date = as_dict(entity_data.get("releaseDate"))
     provider = as_str(entity_data.get("provider"))
 
@@ -217,13 +217,14 @@ def _result_from_payload(payload: dict[str, object]) -> SonglinkResult:
         cover_url=as_str(entity_data.get("thumbnailUrl")),
         album_id_spotify=as_str(entity_data.get("albumId")) if provider == "spotify" else None,
         year=as_int(release_date.get("year")),
-        platform_links=_extract_platform_links(as_list(page_data.get("sections"))),
+        platform_links=extract_platform_links(as_list(page_data.get("sections"))),
     )
 
 
-def _extract_platform_links(sections: list[object]) -> dict[str, str]:
+def extract_platform_links(sections: list[object]) -> dict[str, str]:
     wanted_section_ids = {"section|auto|links|listen", "section|auto|links|buy"}
     links: dict[str, str] = {}
+
     for raw_section in sections:
         section = as_dict(raw_section)
         if section.get("sectionId") not in wanted_section_ids:
@@ -234,4 +235,5 @@ def _extract_platform_links(sections: list[object]) -> dict[str, str]:
             platform = as_str(link.get("platform"))
             if url and platform:
                 links[platform] = url
+
     return links

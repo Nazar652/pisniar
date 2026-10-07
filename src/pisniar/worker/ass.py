@@ -14,16 +14,16 @@ from pisniar.worker.text_metrics import fits_within, longest_prefix_within
 
 logger = get_logger(__name__)
 
-# Without these libass assumes a 384x288 script and scales every coordinate by
+# without these libass assumes a 384x288 script and scales every coordinate by
 # the wrong factor. The subtitles are drawn onto the finished frame.
 PLAY_RES_X = 720
 PLAY_RES_Y = 1280
 
-# The only family verified to carry Ukrainian in the worker image. A missing name
+# the only family verified to carry Ukrainian in the worker image. A missing name
 # falls back silently, which is why `tests/integration/test_ass_font.py` exists.
 FONT_FAMILY = "Noto Sans"
 
-# The lyric band starts under the raised cover (`render.COVER_TOP_OFFSET_PX`);
+# the lyric band starts under the raised cover (`render.COVER_TOP_OFFSET_PX`);
 # `tests/unit/worker/test_ass.py` pins the two against each other.
 TEXT_BAND_TOP_PX = 820
 
@@ -31,7 +31,7 @@ TEXT_BAND_TOP_PX = 820
 # construction rather than by `MarginV`, which `\an5` ignores anyway.
 SLOT_CENTER_X = PLAY_RES_X // 2
 CURRENT_SLOT_Y = 1050
-# The tightest case is a current line wrapped to two; `test_ass.py` measures that
+# the tightest case is a current line wrapped to two; `test_ass.py` measures that
 # block against its neighbours rather than trusting the number.
 SLOT_SPACING_PX = 95
 PREVIOUS_SLOT_Y = CURRENT_SLOT_Y - SLOT_SPACING_PX
@@ -45,25 +45,25 @@ HORIZONTAL_MARGIN_PX = 40
 # measured against the font's real advance widths (`text_metrics`).
 USABLE_TEXT_WIDTH_PX = PLAY_RES_X - 2 * HORIZONTAL_MARGIN_PX
 MAX_CURRENT_WRAPPED_LINES = 2
-# One, not two: a second wrapped line in a side slot is exactly how a long
+# one, not two: a second wrapped line in a side slot is exactly how a long
 # line climbs into the neighbouring one.
 MAX_ADJACENT_WRAPPED_LINES = 1
 ELLIPSIS = "…"
 
-# Without a ceiling the last line of a fragment hangs for the rest of it, and a
+# without a ceiling the last line of a fragment hangs for the rest of it, and a
 # 60-second gap in the source hangs for a minute.
 MAX_LINE_MS = 8_000
-# A 45-second fragment with more than this many lines is a broken LRC or an
+# a 45-second fragment with more than this many lines is a broken LRC or an
 # attempt to spend ffmpeg's CPU, not a song.
 MAX_RENDERED_LINES = 120
-# Mirrors `models.MAX_LYRIC_TEXT_LENGTH`: past it the wrapper would be
+# mirrors `models.MAX_LYRIC_TEXT_LENGTH`: past it the wrapper would be
 # word-splitting a payload, not a lyric.
 MAX_SOURCE_TEXT_CHARACTERS = 500
 
 STYLE_CURRENT = "current"
 STYLE_ADJACENT = "adjacent"
 
-# The `Format:` line each `Style:` row is positional against; rows look every
+# the `Format:` line each `Style:` row is positional against; rows look every
 # field up in this order, so they cannot drift out of step with the header.
 STYLE_FORMAT_FIELDS = (
     "Name",
@@ -108,11 +108,11 @@ EVENT_FORMAT_FIELDS = (
 # so the vertical margin is honestly zero here.
 ALIGNMENT_MIDDLE_CENTER = 5
 
-_ASS_SUBSTITUTIONS = str.maketrans({"{": "(", "}": ")", "\\": None})
+ASS_SUBSTITUTIONS = str.maketrans({"{": "(", "}": ")", "\\": None})
 
 
 class AssGenerationError(ValueError):
-    """Our own failure, never the source's — it fails a post loudly."""
+    """our own failure, never the source's — it fails a post loudly."""
 
 
 @dataclass(frozen=True)
@@ -126,28 +126,28 @@ class LyricLine:
 
 
 @dataclass(frozen=True)
-class _PlacedLine:
-    """A line already shifted into fragment time and already escaped."""
+class PlacedLine:
+    """a line already shifted into fragment time and already escaped."""
 
     start_ms: int
     text: str
 
 
 def escape_ass_text(value: str) -> str:
-    """Substitution, not escaping: `sanitize_metadata_text` folds line breaks and
+    """substitution, not escaping: `sanitize_metadata_text` folds line breaks and
     drops Cc/Cf (U+202E, U+200B), then the table removes the override characters."""
-    substituted = sanitize_metadata_text(value).translate(_ASS_SUBSTITUTIONS)
+    substituted = sanitize_metadata_text(value).translate(ASS_SUBSTITUTIONS)
     return " ".join(substituted.split())
 
 
 def wrap_for_slot(text: str, *, font_size_px: int, max_lines: int) -> str:
-    """The literal `\\N` is safe only because `escape_ass_text` already removed
+    """the literal `\\N` is safe only because `escape_ass_text` already removed
     every backslash the source could contribute."""
-    wrapped = _wrap_words(text[:MAX_SOURCE_TEXT_CHARACTERS], font_size_px)
+    wrapped = wrap_words(text[:MAX_SOURCE_TEXT_CHARACTERS], font_size_px)
 
     if len(wrapped) > max_lines:
         wrapped = wrapped[:max_lines]
-        wrapped[-1] = _with_ellipsis(wrapped[-1], font_size_px)
+        wrapped[-1] = with_ellipsis(wrapped[-1], font_size_px)
 
     return "\\N".join(wrapped)
 
@@ -163,40 +163,43 @@ def build_ass_subtitles(
         )
 
     fragment_length_ms = fragment_end_ms - fragment_start_ms
-    placed = _place_lines(lines, fragment_start_ms)
-    events = _build_events(placed, fragment_length_ms)
+    placed = place_lines(lines, fragment_start_ms)
+    events = build_events(placed, fragment_length_ms)
 
     if not events:
         logger.info("ass_nothing_to_render", line_count=len(lines))
         return None
 
     logger.info("ass_generated", line_count=len(lines), event_count=len(events))
-    return "\n".join([*_script_info(), "", *_styles(), "", *_events(events)]) + "\n"
+    return (
+        "\n".join([*script_info_section(), "", *styles_section(), "", *events_section(events)])
+        + "\n"
+    )
 
 
-def _place_lines(lines: Sequence[LyricLine], fragment_start_ms: int) -> list[_PlacedLine]:
-    """Ordered by `line_index`, never by `start_ms`: sorting by time would leave
+def place_lines(lines: Sequence[LyricLine], fragment_start_ms: int) -> list[PlacedLine]:
+    """ordered by `line_index`, never by `start_ms`: sorting by time would leave
     untimed lines nowhere to stand."""
     timed = [line for line in lines if line.start_ms is not None]
     ordered = sorted(timed, key=lambda line: line.line_index)
 
     return [
-        _PlacedLine(
-            # The one place absolute milliseconds become fragment-local ones.
-            start_ms=_absolute_start_ms(line) - fragment_start_ms,
+        PlacedLine(
+            # the one place absolute milliseconds become fragment-local ones.
+            start_ms=absolute_start_ms(line) - fragment_start_ms,
             text=escape_ass_text(line.text),
         )
         for line in ordered
     ]
 
 
-def _absolute_start_ms(line: LyricLine) -> int:
+def absolute_start_ms(line: LyricLine) -> int:
     if line.start_ms is None:  # pragma: no cover - filtered out one frame up
         raise AssGenerationError("рядок без таймкоду не доходить сюди")
     return line.start_ms
 
 
-def _build_events(placed: Sequence[_PlacedLine], fragment_length_ms: int) -> list[dict[str, str]]:
+def build_events(placed: Sequence[PlacedLine], fragment_length_ms: int) -> list[dict[str, str]]:
     events: list[dict[str, str]] = []
     rendered_count = 0
 
@@ -204,7 +207,7 @@ def _build_events(placed: Sequence[_PlacedLine], fragment_length_ms: int) -> lis
         if not line.text:
             continue
 
-        window = _window(placed, index, fragment_length_ms)
+        window = display_window(placed, index, fragment_length_ms)
         if window is None:
             continue
 
@@ -217,16 +220,16 @@ def _build_events(placed: Sequence[_PlacedLine], fragment_length_ms: int) -> lis
             break
 
         start_ms, end_ms = window
-        events.extend(_slot_events(placed, index, start_ms, end_ms))
+        events.extend(slot_events(placed, index, start_ms, end_ms))
         rendered_count += 1
 
     return events
 
 
-def _window(
-    placed: Sequence[_PlacedLine], index: int, fragment_length_ms: int
+def display_window(
+    placed: Sequence[PlacedLine], index: int, fragment_length_ms: int
 ) -> tuple[int, int] | None:
-    """A pause entry counts as the next line, which is exactly what ends a verse."""
+    """a pause entry counts as the next line, which is exactly what ends a verse."""
     start_ms = placed[index].start_ms
     end_ms = min(start_ms + MAX_LINE_MS, fragment_length_ms)
 
@@ -239,13 +242,13 @@ def _window(
     return start_ms, end_ms
 
 
-def _slot_events(
-    placed: Sequence[_PlacedLine], index: int, start_ms: int, end_ms: int
+def slot_events(
+    placed: Sequence[PlacedLine], index: int, start_ms: int, end_ms: int
 ) -> list[dict[str, str]]:
-    """The neighbours are the nearest lines that draw something, so a pause
+    """the neighbours are the nearest lines that draw something, so a pause
     between verses never leaves a blank slot."""
-    previous = _neighbour_text(placed, index, step=-1)
-    following = _neighbour_text(placed, index, step=1)
+    previous = neighbour_text(placed, index, step=-1)
+    following = neighbour_text(placed, index, step=1)
 
     slots = [
         (previous, PREVIOUS_SLOT_Y, STYLE_ADJACENT, FONT_SIZE_ADJACENT_PX),
@@ -279,7 +282,7 @@ def _slot_events(
     return events
 
 
-def _neighbour_text(placed: Sequence[_PlacedLine], index: int, *, step: int) -> str:
+def neighbour_text(placed: Sequence[PlacedLine], index: int, *, step: int) -> str:
     position = index + step
     while 0 <= position < len(placed):
         if placed[position].text:
@@ -298,7 +301,7 @@ def ass_timestamp(milliseconds: int) -> str:
     return f"{hours}:{minutes:02d}:{seconds:02d}.{centiseconds:02d}"
 
 
-def _script_info() -> list[str]:
+def script_info_section() -> list[str]:
     return [
         "[Script Info]",
         "; Generated by pisniar — regenerated on every render, never edited.",
@@ -310,17 +313,17 @@ def _script_info() -> list[str]:
     ]
 
 
-def _styles() -> list[str]:
+def styles_section() -> list[str]:
     return [
         "[V4+ Styles]",
         "Format: " + ", ".join(STYLE_FORMAT_FIELDS),
-        _style_row(STYLE_CURRENT, FONT_SIZE_CURRENT_PX, "&H00FFFFFF", "&H00101010"),
-        _style_row(STYLE_ADJACENT, FONT_SIZE_ADJACENT_PX, "&H80FFFFFF", "&H80101010"),
+        style_row(STYLE_CURRENT, FONT_SIZE_CURRENT_PX, "&H00FFFFFF", "&H00101010"),
+        style_row(STYLE_ADJACENT, FONT_SIZE_ADJACENT_PX, "&H80FFFFFF", "&H80101010"),
     ]
 
 
-def _style_row(name: str, font_size_px: int, primary_colour: str, outline_colour: str) -> str:
-    """A forgotten field is a `KeyError` here, not a style libass silently ignores."""
+def style_row(name: str, font_size_px: int, primary_colour: str, outline_colour: str) -> str:
+    """a forgotten field is a `KeyError` here, not a style libass silently ignores."""
     values: dict[str, object] = {
         "Name": name,
         "Fontname": FONT_FAMILY,
@@ -349,27 +352,27 @@ def _style_row(name: str, font_size_px: int, primary_colour: str, outline_colour
     return "Style: " + ",".join(str(values[field]) for field in STYLE_FORMAT_FIELDS)
 
 
-def _events(events: Sequence[dict[str, str]]) -> list[str]:
+def events_section(events: Sequence[dict[str, str]]) -> list[str]:
     return [
         "[Events]",
         "Format: " + ", ".join(EVENT_FORMAT_FIELDS),
-        *(_event_row(event) for event in events),
+        *(event_row(event) for event in events),
     ]
 
 
-def _event_row(event: dict[str, str]) -> str:
+def event_row(event: dict[str, str]) -> str:
     """`Text` is the last field, the only reason a comma inside the lyrics is
     harmless; a test pins it."""
     return "Dialogue: " + ",".join(event[field] for field in EVENT_FORMAT_FIELDS)
 
 
-def _wrap_words(text: str, font_size_px: int) -> list[str]:
+def wrap_words(text: str, font_size_px: int) -> list[str]:
     wrapped: list[str] = []
     current = ""
 
     for word in text.split():
         remainder = word
-        while not _fits(remainder, font_size_px):
+        while not fits_text_width(remainder, font_size_px):
             head = longest_prefix_within(
                 remainder, font_size_px=font_size_px, available_px=USABLE_TEXT_WIDTH_PX
             )
@@ -381,7 +384,7 @@ def _wrap_words(text: str, font_size_px: int) -> list[str]:
             remainder = remainder[len(head) :]
 
         candidate = f"{current} {remainder}".strip()
-        if _fits(candidate, font_size_px):
+        if fits_text_width(candidate, font_size_px):
             current = candidate
             continue
 
@@ -394,11 +397,11 @@ def _wrap_words(text: str, font_size_px: int) -> list[str]:
     return wrapped or [""]
 
 
-def _fits(text: str, font_size_px: int) -> bool:
+def fits_text_width(text: str, font_size_px: int) -> bool:
     return fits_within(text, font_size_px=font_size_px, available_px=USABLE_TEXT_WIDTH_PX)
 
 
-def _with_ellipsis(line: str, font_size_px: int) -> str:
-    while line and not _fits(line + ELLIPSIS, font_size_px):
+def with_ellipsis(line: str, font_size_px: int) -> str:
+    while line and not fits_text_width(line + ELLIPSIS, font_size_px):
         line = line[:-1].rstrip()
     return line + ELLIPSIS

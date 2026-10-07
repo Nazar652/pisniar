@@ -31,24 +31,24 @@ async def resolve_track(context: ResolveContext, classified_input: ClassifiedUrl
     track = ResolvedTrack()
 
     if classified_input.platform == "youtube":
-        # The clip the admin sent stays exactly as given, never overwritten
+        # the clip the admin sent stays exactly as given, never overwritten
         # by an automatically found `videoId`.
         link = PlatformLink(
             url=classified_input.normalized_url, source=USER_INPUT_SOURCE, match=MatchClass.MANUAL
         )
         merge.merge_platform_link(track, "youtube", link)
 
-    # Deliberately not isolated: this is the resolve's entry entity, and
+    # deliberately not isolated: this is the resolve's entry entity, and
     # without it there is nothing for the other sources to be keyed on.
     songlink_result = await songlink.fetch(
         context.http_client, context.cache, classified_input.normalized_url
     )
-    _apply_songlink_result(track, songlink_result)
+    apply_songlink_result(track, songlink_result)
 
     if songlink_result.isrc:
         await resolve_by_isrc(context, songlink_result.isrc, track)
     elif songlink_result.provider == "youtube" and track.title and track.artists:
-        await _bridge_youtube_to_spotify(context, track)
+        await bridge_youtube_to_spotify(context, track)
 
     if track.title and track.artists:
         reference_artist = ", ".join(artist.name for artist in track.artists)
@@ -65,7 +65,7 @@ async def resolve_track(context: ResolveContext, classified_input: ClassifiedUrl
 
 
 async def resolve_genres(context: ResolveContext, track: ResolvedTrack) -> list[GenreInfo]:
-    """Only the ISRC-exact path sets `deezer_album_id`; without it the genre
+    """only the ISRC-exact path sets `deezer_album_id`; without it the genre
     line stays out of the caption rather than guessing."""
     if track.deezer_album_id is None:
         return []
@@ -88,8 +88,8 @@ async def resolve_genres(context: ResolveContext, track: ResolvedTrack) -> list[
     return genres
 
 
-async def _bridge_youtube_to_spotify(context: ResolveContext, track: ResolvedTrack) -> None:
-    """From a YouTube entity (dirty title, no ISRC), search Spotify by
+async def bridge_youtube_to_spotify(context: ResolveContext, track: ResolvedTrack) -> None:
+    """from a YouTube entity (dirty title, no ISRC), search Spotify by
     name; once matched, its own ISRC drives the exact-ISRC fan-out."""
     reference_artist = ", ".join(artist.name for artist in track.artists)
     assert track.title is not None
@@ -107,37 +107,33 @@ async def _bridge_youtube_to_spotify(context: ResolveContext, track: ResolvedTra
         [],
     )
 
-    for candidate in candidates:
-        if matching.is_match(
-            reference_artist=reference_artist,
-            reference_title=track.title,
-            reference_duration_ms=track.duration_ms,
-            candidate_artist=candidate.artist_name,
-            candidate_title=candidate.title,
-            candidate_duration_ms=candidate.duration_ms,
-        ):
-            if candidate.isrc:
-                await resolve_by_isrc(context, candidate.isrc, track)
-            if candidate.url:
-                # song.link on the bridged Spotify URL gives a Spotify input's cluster.
-                # Isolated, unlike the primary fetch: the ISRC fan-out filled the track.
-                bridged_result = await isolated_source_call(
-                    track,
-                    "songlink:bridge",
-                    songlink.fetch(context.http_client, context.cache, candidate.url),
-                    songlink.SonglinkResult(found=False),
-                )
-                _apply_songlink_result(track, bridged_result)
-            return
+    matched = matching.find_matching_candidate(
+        candidates, artist=reference_artist, title=track.title, duration_ms=track.duration_ms
+    )
+    if matched is not None:
+        if matched.isrc:
+            await resolve_by_isrc(context, matched.isrc, track)
+        if matched.url:
+            # song.link on the bridged Spotify URL gives a Spotify input's cluster.
+            # Isolated, unlike the primary fetch: the ISRC fan-out filled the track.
+            bridged_result = await isolated_source_call(
+                track,
+                "songlink:bridge",
+                songlink.fetch(context.http_client, context.cache, matched.url),
+                songlink.SonglinkResult(found=False),
+            )
+            apply_songlink_result(track, bridged_result)
+        return
 
     if candidates:
         track.warnings.append(
-            f"spotify: {len(candidates)} кандидат(и) відхилено звіркою "
-            f"для «{reference_artist} — {track.title}»"
+            matching.rejected_candidates_warning(
+                "spotify", len(candidates), reference_artist, track.title
+            )
         )
 
 
-def _apply_songlink_result(track: ResolvedTrack, result: songlink.SonglinkResult) -> None:
+def apply_songlink_result(track: ResolvedTrack, result: songlink.SonglinkResult) -> None:
     if not result.found:
         return
 

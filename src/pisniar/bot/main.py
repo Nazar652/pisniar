@@ -25,7 +25,7 @@ logger = get_logger(__name__)
 
 
 def build_dispatcher(admin_ids: frozenset[int]) -> Dispatcher:
-    """Own function so a test can assert the allowlist landed as an *outer*
+    """own function so a test can assert the allowlist landed as an *outer*
     middleware on `dispatcher.update`, not e.g. on `dispatcher.message`."""
     # disable_fsm: the bot keeps no FSM state; otherwise FSMContextMiddleware
     # runs before the allowlist and touches storage per non-admin update.
@@ -45,7 +45,7 @@ async def run() -> None:
     warn_if_alerts_share_the_channel(settings.channel_id, settings.alert_chat_id)
 
     bot = build_bot(settings)
-    # The bot needs `lock_timeout` too: a handler blocked on a row lock
+    # the bot needs `lock_timeout` too: a handler blocked on a row lock
     # otherwise holds its QueuePool slot indefinitely.
     engine = build_engine(settings.database_url, lock_timeout_ms=LOCK_TIMEOUT_MS)
     session_factory = build_session_factory(engine)

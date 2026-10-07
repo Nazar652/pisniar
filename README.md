@@ -87,7 +87,7 @@ environment the containers were created with.
 ```
 make build   # docker compose build
 make up      # docker compose up -d --wait — brings up postgres, redis,
-              # runs the one-shot `migrate` service, then starts bot + worker
+              # runs the one-shot `migrate` service, then starts bot, worker and webapp
 make ps      # confirm everything is healthy
 ```
 

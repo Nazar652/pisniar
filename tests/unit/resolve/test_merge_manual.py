@@ -99,7 +99,7 @@ def test_a_removed_platform_is_dropped_with_its_priority() -> None:
     assert "tidal" not in resolved.platform_link_priorities
 
 
-def test_a_dropped_platform_can_be_found_again_once_it_is_no_longer_listed() -> None:
+def test_a_dropped_platform_can_be_found_again_once_it_is_unlisted() -> None:
     resolved = ResolvedTrack()
     merge.merge_platform_link(resolved, "tidal", make_link())
     merge.drop_removed_platforms(resolved, ["tidal"])

@@ -32,7 +32,7 @@ def test_celery_logging_bootstrap_does_not_wipe_our_handler(
     our_handler = root_logger.handlers[0]
 
     app = build_celery_app("redis://localhost:6379/0")
-    # Reset Celery's class-level bootstrap flag; setattr (not `Logging.
+    # reset Celery's class-level bootstrap flag; setattr (not `Logging.
     # _setup = `) since it's an unstubbed internal, unresolved under ty.
     setattr(Logging, "_setup", False)  # noqa: B010
     try:

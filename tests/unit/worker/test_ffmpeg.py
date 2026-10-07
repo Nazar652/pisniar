@@ -44,7 +44,7 @@ VIDEO_STREAM = {
 def test_the_command_is_a_list_and_the_shell_is_never_used(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A shell string is how a value out of the database becomes a command.
+    """a shell string is how a value out of the database becomes a command.
     There is no code path here that builds one."""
     recorded: dict[str, Any] = {}
 
@@ -175,7 +175,7 @@ def test_a_probe_reports_size_duration_and_streams(
 def test_a_duration_only_on_the_stream_is_still_found(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """What yt-dlp's raw audio containers actually look like."""
+    """what yt-dlp's raw audio containers actually look like."""
     path = write_file(tmp_path, "audio.webm")
     stub_probe(
         monkeypatch,

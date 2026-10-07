@@ -14,14 +14,14 @@ from aiogram.types import FSInputFile, InlineKeyboardMarkup, Message
 
 @dataclass(frozen=True)
 class RenderedVideo:
-    """Plain values read out of the `render` row and the render constants —
+    """plain values read out of the `render` row and the render constants —
     `telegram/` never imports `worker/`, so the dimensions come in as data."""
 
     path: Path
     width: int
     height: int
     duration_ms: int
-    # Telegram builds its own preview from the first frame when this is
+    # telegram builds its own preview from the first frame when this is
     # missing, so a thumbnail that failed to render is never a send failure.
     thumbnail_path: Path | None = None
 
@@ -38,7 +38,7 @@ async def send_rendered_video(
     *,
     reply_markup: InlineKeyboardMarkup | None = None,
 ) -> Message:
-    """The caption goes out verbatim: the video caption limit is the same 1024
+    """the caption goes out verbatim: the video caption limit is the same 1024
     the photo caption already fits."""
     thumbnail = (
         FSInputFile(video.thumbnail_path)
@@ -51,7 +51,7 @@ async def send_rendered_video(
         video=FSInputFile(video.path),
         caption=caption,
         parse_mode="HTML",
-        # Without it Telegram may hand the file over as a download instead of
+        # without it Telegram may hand the file over as a download instead of
         # playing it inline, which is the whole product here.
         supports_streaming=True,
         width=video.width,

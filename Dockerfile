@@ -17,7 +17,7 @@ RUN groupadd --system app && useradd --system --gid app --home-dir /app --create
 WORKDIR /app
 
 
-# ---- shared dependency layers (no application source yet) ----------------
+# shared dependency layers, with no application source yet
 
 FROM base AS deps-prod
 
@@ -30,7 +30,7 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --locked --no-install-project
 
 
-# ---- prod: source baked into the image, no bind mount needed at runtime --
+# prod: source baked into the image, no bind mount needed at runtime
 
 FROM base AS source-prod
 
@@ -44,7 +44,7 @@ RUN uv sync --locked --no-dev \
 USER app
 
 
-# ---- dev: only dependencies baked in; source is bind-mounted at runtime --
+# dev: only dependencies baked in; source is bind-mounted at runtime
 
 # `pisniar` itself isn't installed (only third-party deps); PYTHONPATH stands
 # in until compose.override.yml's bind mount populates /app/src at runtime.
@@ -58,9 +58,6 @@ COPY pyproject.toml uv.lock ./
 RUN chown -R app:app /app /opt/venv
 USER app
 
-
-# ---- bot -------------------------------------------------------------
-
 FROM source-prod AS bot
 EXPOSE 8080
 CMD ["python", "-m", "pisniar.bot.main"]
@@ -69,9 +66,7 @@ FROM source-dev AS bot-dev
 EXPOSE 8080
 CMD ["watchfiles", "--filter", "python", "python -m pisniar.bot.main", "/app/src"]
 
-
-# ---- webapp (no ffmpeg, no node) -----------------------------------------
-
+# webapp: no ffmpeg, no node
 FROM source-prod AS webapp
 EXPOSE 8081
 CMD ["python", "-m", "pisniar.webapp.main"]
@@ -81,14 +76,12 @@ EXPOSE 8081
 CMD ["watchfiles", "--filter", "python", "python -m pisniar.webapp.main", "/app/src"]
 
 
-# ---- worker ------------------------------------------------------------
-
 FROM source-prod AS worker
 # apt-get needs root back; hand it off again after, or runtime stays root.
 USER root
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg fonts-noto-core && rm -rf /var/lib/apt/lists/*
-# Docker seeds an empty named volume from the image path, ownership included —
+# docker seeds an empty named volume from the image path, ownership included —
 # this chown is the only thing that lets non-root `app` write to /data.
 RUN mkdir -p /data/audio /data/render /data/tmp && chown -R app:app /data
 USER app

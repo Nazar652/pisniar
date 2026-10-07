@@ -13,13 +13,14 @@ import hmac
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TypeGuard, cast
+from typing import cast
 from urllib.parse import parse_qsl
 
 from aiogram.utils.web_app import check_webapp_signature
 from fastapi import Request
 
 from pisniar.logging import get_logger
+from pisniar.resolve.json_utils import as_int
 from pisniar.webapp.errors import ApiProblem
 from pisniar.webapp.schemas import INIT_DATA_MAX_LENGTH
 
@@ -27,7 +28,7 @@ logger = get_logger(__name__)
 
 SESSION_KEY_CONTEXT = b"pisniar-webapp-session-v1"
 BEARER_PREFIX = "Bearer "
-# Room before `iat` for clock drift between the process that issued a token and this one.
+# room before `iat` for clock drift between the process that issued a token and this one.
 TOKEN_IAT_SKEW_SECONDS = 60
 
 
@@ -47,7 +48,7 @@ class AuthWindow:
 
 @dataclass(frozen=True)
 class WebappContext:
-    """What the auth layer needs per process; stored on `app.state.context`."""
+    """what the auth layer needs per process; stored on `app.state.context`."""
 
     bot_token: str
     admin_ids: frozenset[int]
@@ -62,7 +63,7 @@ class AdminUser:
 
 
 def validate_init_data(init_data: str, bot_token: str, now: int, window: AuthWindow) -> int:
-    """Return the Telegram user id of a genuine, fresh `initData`, else raise `InitDataError`."""
+    """return the Telegram user id of a genuine, fresh `initData`, else raise `InitDataError`."""
     if len(init_data) > INIT_DATA_MAX_LENGTH:
         raise InitDataError("too_long")
 
@@ -108,7 +109,7 @@ def issue_session_token(user_id: int, bot_token: str, now: int, ttl_seconds: int
 
 
 def verify_session_token(token: str, bot_token: str, now: int) -> int:
-    """Return the user id of an unexpired, correctly signed token, else raise `InitDataError`."""
+    """return the user id of an unexpired, correctly signed token, else raise `InitDataError`."""
     parts = token.split(".")
     if len(parts) != 2:
         raise InitDataError("token_malformed")
@@ -129,10 +130,10 @@ def verify_session_token(token: str, bot_token: str, now: int) -> int:
     if not isinstance(claims, dict):
         raise InitDataError("token_malformed")
 
-    user_id = claims.get("uid")
-    issued_at = claims.get("iat")
-    expires_at = claims.get("exp")
-    if not (is_integer(user_id) and is_integer(issued_at) and is_integer(expires_at)):
+    user_id = as_int(claims.get("uid"))
+    issued_at = as_int(claims.get("iat"))
+    expires_at = as_int(claims.get("exp"))
+    if user_id is None or issued_at is None or expires_at is None:
         raise InitDataError("token_malformed")
     if expires_at <= now:
         raise InitDataError("token_expired")
@@ -142,7 +143,7 @@ def verify_session_token(token: str, bot_token: str, now: int) -> int:
 
 
 def require_admin(request: Request) -> AdminUser:
-    """Dependency of every non-public route: a valid token, and an admin right now."""
+    """dependency of every non-public route: a valid token, and an admin right now."""
     context = cast(WebappContext, request.app.state.context)
 
     authorization = request.headers.get("Authorization", "")
@@ -171,14 +172,16 @@ def require_admin(request: Request) -> AdminUser:
 def read_user_id(raw_user: str | None) -> int:
     if raw_user is None:
         raise InitDataError("missing_user")
+
     try:
         user = json.loads(raw_user)
     except ValueError:
         raise InitDataError("bad_user") from None
     if not isinstance(user, dict):
         raise InitDataError("bad_user")
-    user_id = user.get("id")
-    if not is_integer(user_id):
+
+    user_id = as_int(user.get("id"))
+    if user_id is None:
         raise InitDataError("bad_user")
     return user_id
 
@@ -190,10 +193,6 @@ def parse_integer(value: str | None) -> int | None:
         return int(value)
     except ValueError:
         return None
-
-
-def is_integer(value: object) -> TypeGuard[int]:
-    return isinstance(value, int) and not isinstance(value, bool)
 
 
 def encode_base64url(data: bytes) -> str:

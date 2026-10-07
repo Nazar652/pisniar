@@ -34,7 +34,7 @@ def test_the_draft_carries_publish_and_render_in_that_order() -> None:
 
 
 def test_the_preview_carries_publication_alone() -> None:
-    """There is nothing left to render under a preview, and a second render
+    """there is nothing left to render under a preview, and a second render
     button there would re-download a track that is already on the volume."""
     assert buttons(preview_keyboard(42)) == [(PUBLISH_BUTTON_TEXT, "publish:42")]
 
@@ -43,13 +43,13 @@ def test_the_preview_carries_publication_alone() -> None:
 def test_callback_data_fits_telegram_s_64_byte_cap(
     build_keyboard: Callable[[int], InlineKeyboardMarkup],
 ) -> None:
-    for _text, callback_data in buttons(build_keyboard(9_223_372_036_854_775_807)):
+    for _, callback_data in buttons(build_keyboard(9_223_372_036_854_775_807)):
         assert callback_data is not None
         assert len(callback_data.encode("utf-8")) <= 64
 
 
 def test_every_button_s_own_payload_round_trips() -> None:
-    parsed = [parse_callback(callback_data) for _text, callback_data in buttons(draft_keyboard(7))]
+    parsed = [parse_callback(callback_data) for _, callback_data in buttons(draft_keyboard(7))]
 
     assert parsed == [
         ParsedCallback(action=CallbackAction.PUBLISH, post_id=7),
@@ -58,7 +58,7 @@ def test_every_button_s_own_payload_round_trips() -> None:
 
 
 def test_the_render_prefix_is_parsed_as_render_and_not_as_publish() -> None:
-    """A render tap must never be routed into the publication path, which
+    """a render tap must never be routed into the publication path, which
     cannot be undone."""
     parsed = parse_callback("render:7")
 

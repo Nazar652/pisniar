@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from pisniar.bot.handlers import (
     DISPATCH_FAILED_ERROR,
-    _get_or_create_track,
+    get_or_create_track,
     handle_link,
     handle_retry,
     handle_start,
@@ -128,7 +128,7 @@ async def test_handle_link_seeds_user_input_for_youtube_clip(
 async def test_a_pair_resolves_from_the_platform_link_and_seeds_the_clip(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """A clip alone resolves to a raw YouTube title and half the platforms; the
+    """a clip alone resolves to a raw YouTube title and half the platforms; the
     platform link is also the track's canonical identity."""
     platform_url = f"https://open.spotify.com/track/{uuid.uuid4().hex}"
     clip_url = f"https://www.youtube.com/watch?v={uuid.uuid4().hex}"
@@ -165,7 +165,7 @@ async def test_a_pair_resolves_from_the_platform_link_and_seeds_the_clip(
 async def test_a_reversed_pair_lands_on_the_same_row(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """The order of the two links carries no meaning — only which of them is
+    """the order of the two links carries no meaning — only which of them is
     a clip does."""
     platform_url = f"https://www.deezer.com/track/{uuid.uuid4().hex}"
     clip_url = f"https://www.youtube.com/watch?v={uuid.uuid4().hex}"
@@ -189,7 +189,7 @@ async def test_a_reversed_pair_lands_on_the_same_row(
 async def test_a_pair_attaches_the_clip_to_an_already_known_track(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """The motivating case is a song already posted from its platform link:
+    """the motivating case is a song already posted from its platform link:
     without this the pair would be a silent no-op on the second submission."""
     platform_url = f"https://open.spotify.com/track/{uuid.uuid4().hex}"
     clip_url = f"https://www.youtube.com/watch?v={uuid.uuid4().hex}"
@@ -273,7 +273,7 @@ async def test_get_or_create_track_handles_concurrent_insert_race(
 
     async def run_winner() -> Track:
         async with session_factory() as session:
-            track, _existed = await _get_or_create_track(session, marker_url, classified)
+            track, _ = await get_or_create_track(session, marker_url, classified)
             await session.commit()
             winner_committed.set()
             return track
@@ -281,7 +281,7 @@ async def test_get_or_create_track_handles_concurrent_insert_race(
     async def run_loser() -> tuple[Track, bool]:
         async with session_factory() as session:
             await winner_committed.wait()
-            return await _get_or_create_track(session, marker_url, classified)
+            return await get_or_create_track(session, marker_url, classified)
 
     winner_track, (loser_track, loser_existed) = await asyncio.gather(run_winner(), run_loser())
 
@@ -371,7 +371,7 @@ async def test_handle_retry_rejects_illegal_transition_from_resolved(
 async def test_handle_retry_refuses_a_post_that_is_still_resolving(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """The self-edge exists for Celery redelivery only; as a button it would let two
+    """the self-edge exists for Celery redelivery only; as a button it would let two
     tasks both see `draft_message_id IS NULL` and send two drafts."""
     marker_url = f"https://open.spotify.com/track/{uuid.uuid4().hex}"
     async with session_factory() as session:
@@ -397,7 +397,7 @@ async def test_handle_retry_refuses_a_post_that_is_still_resolving(
 async def test_handle_link_refuses_an_over_long_url(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """A btree entry past ~2704 bytes raises ProgramLimitExceededError, not an
+    """a btree entry past ~2704 bytes raises ProgramLimitExceededError, not an
     IntegrityError, so the race fallback would never catch it."""
     over_long_url = "https://open.spotify.com/track/" + "a" * MAX_NORMALIZED_URL_BYTES
     message = make_message(over_long_url)
@@ -420,7 +420,7 @@ async def test_handle_link_refuses_an_over_long_url(
 async def test_handle_retry_reopens_a_resolving_post_whose_worker_died(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """A post whose worker died would otherwise stay RESOLVING, with no exit but a
+    """a post whose worker died would otherwise stay RESOLVING, with no exit but a
     manual `UPDATE` in psql."""
     marker_url = f"https://open.spotify.com/track/{uuid.uuid4().hex}"
     async with session_factory() as session:
@@ -434,7 +434,7 @@ async def test_handle_retry_reopens_a_resolving_post_whose_worker_died(
         post_id = post.id
         await session.commit()
 
-        # Straight SQL: `updated_at` is an ORM `onupdate`, so an attribute
+        # straight SQL: `updated_at` is an ORM `onupdate`, so an attribute
         # write here would just stamp it with `now()` again.
         await session.execute(
             text("UPDATE post SET updated_at = now() - make_interval(secs => :age) WHERE id = :id"),
@@ -456,7 +456,7 @@ async def test_handle_retry_reopens_a_resolving_post_whose_worker_died(
 async def test_handle_retry_answers_instead_of_blocking_when_the_row_is_locked(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """An unlocked status read would let two near-simultaneous `/retry` both
+    """an unlocked status read would let two near-simultaneous `/retry` both
     dispatch; `nowait` also keeps the handler off a live resolve's `FOR UPDATE`."""
     marker_url = f"https://open.spotify.com/track/{uuid.uuid4().hex}"
     async with session_factory() as session:
@@ -489,7 +489,7 @@ async def test_handle_retry_answers_instead_of_blocking_when_the_row_is_locked(
 async def test_a_stale_retry_twice_in_a_row_dispatches_only_once(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """The RESOLVING self-edge changes no column, so `onupdate` never fires; without
+    """the RESOLVING self-edge changes no column, so `onupdate` never fires; without
     the manual restamp every later /retry would pass the guard and queue another task."""
     marker_url = f"https://open.spotify.com/track/{uuid.uuid4().hex}"
     async with session_factory() as session:
@@ -526,7 +526,7 @@ async def test_a_stale_retry_twice_in_a_row_dispatches_only_once(
 async def test_a_dispatch_failure_leaves_the_post_retryable(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """The post is committed as RESOLVING before the dispatch; left there, /retry
+    """the post is committed as RESOLVING before the dispatch; left there, /retry
     would refuse the very advice («спробуйте /retry») the bot just gave."""
     marker_url = f"https://open.spotify.com/track/{uuid.uuid4().hex}"
     message = make_message(marker_url)
@@ -560,7 +560,7 @@ async def test_a_dispatch_failure_leaves_the_post_retryable(
 async def test_a_failed_retry_dispatch_does_not_strand_the_post_in_resolving(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """The /retry side of the same commit-then-dispatch order: the advice to try
+    """the /retry side of the same commit-then-dispatch order: the advice to try
     again must be one that /retry then accepts."""
     marker_url = f"https://open.spotify.com/track/{uuid.uuid4().hex}"
     async with session_factory() as session:

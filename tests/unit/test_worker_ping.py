@@ -59,9 +59,9 @@ def test_ping_task_executes_synchronously_checks_db_and_sends_alert(
     send_alert_mock.assert_awaited_once()
     call_args = send_alert_mock.await_args
     assert call_args is not None
-    _bot_arg, chat_id_arg, message_arg = call_args.args
-    assert chat_id_arg == worker_tasks.settings.alert_chat_id
-    assert "123" in message_arg
+    alert_chat_id, alert_message = call_args.args[1:]
+    assert alert_chat_id == worker_tasks.settings.alert_chat_id
+    assert "123" in alert_message
 
 
 def test_ping_task_succeeds_even_when_the_alert_fails_to_deliver(

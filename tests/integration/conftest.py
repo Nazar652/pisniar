@@ -21,19 +21,19 @@ from pisniar.config import get_settings
 from pisniar.db.session import build_engine, build_session_factory
 from pisniar.resolve.cache import SourceCache
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 TEST_DATABASE_NAME = "pisniar_test"
 
 
 def migrations_test_database_name() -> str:
-    # Latent (no xdist dep today): a constant name would race under
+    # latent (no xdist dep today): a constant name would race under
     # `pytest -n`. "gw0" stands in for "no xdist" when unset.
     worker_id = os.environ.get("PYTEST_XDIST_WORKER", "gw0")
     return f"pisniar_test_migrations_{worker_id}"
 
 
 def with_database_name(database_url: str, database_name: str) -> str:
-    """Via `make_url()`: string splitting would drop the query params."""
+    """via `make_url()`: string splitting would drop the query params."""
     return make_url(database_url).set(database=database_name).render_as_string(hide_password=False)
 
 
@@ -93,7 +93,7 @@ def run_alembic() -> Callable[..., subprocess.CompletedProcess[str]]:
     def run(*args: str, database_url: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             ["alembic", *args],
-            cwd=REPO_ROOT,
+            cwd=REPOSITORY_ROOT,
             env={**os.environ, "DATABASE_URL": database_url},
             capture_output=True,
             text=True,
@@ -114,7 +114,7 @@ def migrated_test_database_url(
 
 @pytest_asyncio.fixture
 async def db_session(migrated_test_database_url: str) -> AsyncIterator[AsyncSession]:
-    """One session per test, rolled back after — even on an expected
+    """one session per test, rolled back after — even on an expected
     `IntegrityError`, which only aborts the statement."""
     engine = build_engine(migrated_test_database_url)
     session_factory: async_sessionmaker[AsyncSession] = build_session_factory(engine)
@@ -128,7 +128,7 @@ async def db_session(migrated_test_database_url: str) -> AsyncIterator[AsyncSess
 
 @pytest_asyncio.fixture
 async def source_cache(migrated_test_database_url: str) -> AsyncIterator[SourceCache]:
-    """A real `SourceCache` on the test database — it opens and commits its
+    """a real `SourceCache` on the test database — it opens and commits its
     own sessions, so it deliberately shares nothing with `db_session`."""
     engine = build_engine(migrated_test_database_url)
     yield SourceCache(session_factory=build_session_factory(engine))

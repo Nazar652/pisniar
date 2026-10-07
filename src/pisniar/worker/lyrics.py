@@ -16,6 +16,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from pisniar.db.models import MAX_LYRIC_TEXT_LENGTH, Lyric, Track, renderable_lyrics_statement
+from pisniar.db.session import session_scope
 from pisniar.logging import get_logger
 from pisniar.resolve.cache import SourceCache
 from pisniar.resolve.sources.lrclib import LyricsOutcome, LyricsResult, fetch_lyrics
@@ -25,13 +26,13 @@ logger = get_logger(__name__)
 
 LRCLIB_SOURCE = "lrclib"
 
-# The reason class beside the adapter's own: the lines were already stored, so
+# the reason class beside the adapter's own: the lines were already stored, so
 # LRCLIB was never asked.
 LYRICS_ALREADY_STORED = "lyrics_already_stored"
-# Timed lines exist, yet the fragment has none of them, so the `.ass` is empty.
+# timed lines exist, yet the fragment has none of them, so the `.ass` is empty.
 LYRICS_OUTSIDE_FRAGMENT = "lyrics_outside_fragment"
 
-# One sentence per class: "LRCLIB did not answer" and "LRCLIB has no text" call
+# one sentence per class: "LRCLIB did not answer" and "LRCLIB has no text" call
 # for different things from the admin.
 NO_TEXT_NOTICES = {
     LyricsOutcome.ABSENT.value: "Тексту цього треку в LRCLIB немає — відео без тексту.",
@@ -53,7 +54,7 @@ class LyricsPersistOutcome(StrEnum):
 
 
 class LyricsPersistError(RuntimeError):
-    """The write did not land as a whole — never a partial set of lines."""
+    """the write did not land as a whole — never a partial set of lines."""
 
 
 @dataclass(frozen=True)
@@ -75,7 +76,7 @@ class LyricRow:
 
 
 def rows_to_write(track_id: int, result: LyricsResult) -> tuple[list[LyricRow], int]:
-    """A line past the CHECK is cut, not dropped: a `line_index` gap would read
+    """a line past the CHECK is cut, not dropped: a `line_index` gap would read
     like a line deleted by hand."""
     if result.outcome is not LyricsOutcome.SYNCED:
         return [], 0
@@ -89,7 +90,7 @@ def rows_to_write(track_id: int, result: LyricsResult) -> tuple[list[LyricRow], 
         text = line.text
 
         if len(text) > MAX_LYRIC_TEXT_LENGTH:
-            # The length, never the text: a song line does not go to the log.
+            # the length, never the text: a song line does not go to the log.
             logger.warning(
                 "lyric_line_truncated",
                 track_id=track_id,
@@ -109,7 +110,7 @@ async def persist_lyrics_in_own_transaction(
     track_id: int,
     result: LyricsResult,
 ) -> LyricsPersistResult:
-    """The track lock makes the count guard atomic: the unique pair stops a
+    """the track lock makes the count guard atomic: the unique pair stops a
     duplicate index, not a mix of two writers' lines (or `lrclib` beside `manual`)."""
     rows, truncated_count = rows_to_write(track_id, result)
 
@@ -119,27 +120,22 @@ async def persist_lyrics_in_own_transaction(
             outcome=LyricsPersistOutcome.NOTHING_TO_WRITE, source_outcome=result.outcome
         )
 
-    async with session_factory() as session:
-        try:
-            persisted = await _persist_under_track_lock(
-                session, track_id, rows, result.outcome, truncated_count
-            )
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
+    async with session_scope(session_factory) as session:
+        persisted = await persist_under_track_lock(
+            session, track_id, rows, result.outcome, truncated_count
+        )
 
     return persisted
 
 
-async def _persist_under_track_lock(
+async def persist_under_track_lock(
     session: AsyncSession,
     track_id: int,
     rows: list[LyricRow],
     source_outcome: LyricsOutcome,
     truncated_count: int,
 ) -> LyricsPersistResult:
-    # FOR NO KEY UPDATE, the lock `_persist_track_in_own_transaction` takes:
+    # FOR NO KEY UPDATE, the lock `persist_track_in_own_transaction` takes:
     # `INSERT INTO post` (FOR KEY SHARE) still passes. Any other lyric writer must take it too.
     track = await session.get(Track, track_id, with_for_update={"key_share": True})
     if track is None:
@@ -173,7 +169,7 @@ async def _persist_under_track_lock(
     )
     inserted_count = len((await session.execute(statement)).all())
 
-    # Under the lock this cannot fall short; if it does, a writer skipped the
+    # under the lock this cannot fall short; if it does, a writer skipped the
     # lock, and a partial set must roll back rather than commit quietly.
     if inserted_count != len(rows):
         raise LyricsPersistError(
@@ -208,7 +204,7 @@ class PreparedLyrics:
 async def load_renderable_lines(
     session_factory: async_sessionmaker[AsyncSession], track_id: int
 ) -> tuple[LyricLine, ...]:
-    """Plain values out of a session closed on return, so nothing lazily
+    """plain values out of a session closed on return, so nothing lazily
     reloads once the long phase starts."""
     async with session_factory() as session:
         rows = (await session.scalars(renderable_lyrics_statement(track_id))).all()
@@ -224,11 +220,11 @@ async def prepare_lyrics(
     cache: SourceCache,
     query: LyricsQuery,
 ) -> PreparedLyrics:
-    """A source that fails means a video without text. Our own failures (persist,
+    """a source that fails means a video without text. Our own failures (persist,
     read) raise, and so do timeouts and database errors raised under the fetch."""
     stored = await load_renderable_lines(session_factory, query.track_id)
     if stored:
-        return _prepared(query.track_id, stored, LYRICS_ALREADY_STORED)
+        return build_prepared_lyrics(query.track_id, stored, LYRICS_ALREADY_STORED)
 
     try:
         result = await fetch_lyrics(
@@ -247,20 +243,20 @@ async def prepare_lyrics(
             reason=LyricsOutcome.SOURCE_UNAVAILABLE.value,
             exc_info=True,
         )
-        return _prepared(query.track_id, (), LyricsOutcome.SOURCE_UNAVAILABLE.value)
+        return build_prepared_lyrics(query.track_id, (), LyricsOutcome.SOURCE_UNAVAILABLE.value)
 
     persisted = await persist_lyrics_in_own_transaction(session_factory, query.track_id, result)
     lines = await load_renderable_lines(session_factory, query.track_id)
 
     if persisted.outcome is LyricsPersistOutcome.KEPT_EXISTING:
-        return _prepared(query.track_id, lines, LYRICS_ALREADY_STORED)
-    return _prepared(query.track_id, lines, result.outcome.value)
+        return build_prepared_lyrics(query.track_id, lines, LYRICS_ALREADY_STORED)
+    return build_prepared_lyrics(query.track_id, lines, result.outcome.value)
 
 
 def reason_after_subtitles(
     track_id: int, prepared: PreparedLyrics, subtitles_text: str | None
 ) -> str:
-    """Decided where the `.ass` is built: only there is it known whether the
+    """decided where the `.ass` is built: only there is it known whether the
     fragment holds any of the lines."""
     if subtitles_text is not None or not prepared.lines:
         return prepared.reason
@@ -282,6 +278,8 @@ def no_text_notice(post_id: int, reason: str, text_version: str | None) -> str |
     return f"Пост {post_id}: {NO_TEXT_NOTICES.get(reason, UNEXPLAINED_NO_TEXT_NOTICE)}"
 
 
-def _prepared(track_id: int, lines: tuple[LyricLine, ...], reason: str) -> PreparedLyrics:
+def build_prepared_lyrics(
+    track_id: int, lines: tuple[LyricLine, ...], reason: str
+) -> PreparedLyrics:
     logger.info("lyrics_prepared", track_id=track_id, reason=reason, line_count=len(lines))
     return PreparedLyrics(lines=lines, reason=reason)

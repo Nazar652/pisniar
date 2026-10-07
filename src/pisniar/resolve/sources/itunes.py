@@ -1,4 +1,4 @@
-"""iTunes Search API: name-search only, no ISRC lookup.
+"""The iTunes Search API: name-search only, no ISRC lookup.
 Requires an explicit `country` (default storefront is US) and a slower
 throttle (~20 req/min unofficial community limit -> >=3s between calls).
 """
@@ -45,12 +45,12 @@ async def search_by_name(
     results = payload.get("results")
     if not isinstance(results, list):
         return []
-    candidates = [_candidate_from_result(item) for item in results[:SEARCH_LIMIT]]
+    candidates = [candidate_from_result(item) for item in results[:SEARCH_LIMIT]]
     return [candidate for candidate in candidates if candidate.url]
 
 
-def _candidate_from_result(raw_item: object) -> TrackCandidate:
-    """Every field through `json_utils`, so a `null` `trackViewUrl` never becomes
+def candidate_from_result(raw_item: object) -> TrackCandidate:
+    """every field through `json_utils`, so a `null` `trackViewUrl` never becomes
     the string `"None"` and survives the emptiness filter."""
     item = as_dict(raw_item)
     return TrackCandidate(

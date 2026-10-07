@@ -85,14 +85,14 @@ def test_a_regional_amazon_host_is_allowed() -> None:
 def test_a_manual_track_link_is_stored_normalised() -> None:
     check = link_policy.check_manual_link("youtube", f"  https://youtu.be/{VIDEO_ID}  ")
 
-    assert check.ok
+    assert check.is_accepted
     assert check.url == f"https://www.youtube.com/watch?v={VIDEO_ID}"
 
 
 def test_a_manual_link_to_an_album_is_refused_for_a_track_platform() -> None:
     check = link_policy.check_manual_link("spotify", f"https://open.spotify.com/album/{SPOTIFY_ID}")
 
-    assert not check.ok
+    assert not check.is_accepted
     assert check.url is None
 
 
@@ -101,7 +101,7 @@ def test_a_manual_link_must_belong_to_the_platform_it_is_filed_under() -> None:
         "youtube", f"https://music.youtube.com/watch?v={VIDEO_ID}"
     )
 
-    assert not check.ok
+    assert not check.is_accepted
 
 
 @pytest.mark.parametrize("platform", ["youtube", "youtubeMusic"])
@@ -110,13 +110,13 @@ def test_a_manual_video_link_needs_a_valid_video_id(platform: str) -> None:
 
     check = link_policy.check_manual_link(platform, f"https://{host}/watch?v=short")
 
-    assert not check.ok
+    assert not check.is_accepted
 
 
 def test_a_manual_link_on_a_host_outside_the_list_is_refused() -> None:
     check = link_policy.check_manual_link("spotify", "https://evil.example/track/abc")
 
-    assert not check.ok
+    assert not check.is_accepted
 
 
 def test_a_manual_link_on_an_unclassified_platform_needs_only_the_host_check() -> None:
@@ -136,7 +136,7 @@ def test_a_manual_link_on_an_unclassified_platform_needs_only_the_host_check() -
 def test_an_album_link_gives_its_id(url: str) -> None:
     check = link_policy.parse_spotify_album_link(url)
 
-    assert check.ok
+    assert check.is_accepted
     assert check.album_id == SPOTIFY_ID
 
 
@@ -156,5 +156,5 @@ def test_an_album_link_gives_its_id(url: str) -> None:
 def test_anything_but_a_spotify_album_link_is_refused(url: str) -> None:
     check = link_policy.parse_spotify_album_link(url)
 
-    assert not check.ok
+    assert not check.is_accepted
     assert check.album_id is None

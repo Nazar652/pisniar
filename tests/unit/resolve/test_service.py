@@ -69,7 +69,7 @@ async def test_spotify_input_with_isrc_triggers_isrc_fan_out(
 async def test_spotify_input_still_runs_name_search_fallback_for_youtube(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Even from a Spotify input, YouTube never arrives from song.link, so the
+    """even from a Spotify input, YouTube never arrives from song.link, so the
     trailing name-search fan-out must still run."""
     songlink_result = SonglinkResult(
         found=True, provider="spotify", isrc="X", title="T", artist_name="A", duration_ms=1000
@@ -91,7 +91,7 @@ async def test_spotify_input_still_runs_name_search_fallback_for_youtube(
 async def test_youtube_input_without_isrc_bridges_to_spotify_by_name(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Re-resolving song.link on the bridged Spotify URL gives a YouTube input the
+    """re-resolving song.link on the bridged Spotify URL gives a YouTube input the
     same streaming cluster a Spotify input gets, not just the ISRC-exact sources."""
     youtube_entity_result = SonglinkResult(
         found=True,
@@ -197,7 +197,7 @@ def test_apply_songlink_result_sets_duration_only_once() -> None:
     track = ResolvedTrack(duration_ms=111)
     result = SonglinkResult(found=True, provider="spotify", duration_ms=222)
 
-    service._apply_songlink_result(track, result)
+    service.apply_songlink_result(track, result)
 
     assert track.duration_ms == 111
 
@@ -210,7 +210,7 @@ def test_apply_songlink_result_populates_platform_links_as_songlink_source() -> 
         platform_links={"tidal": "https://listen.tidal.com/track/1"},
     )
 
-    service._apply_songlink_result(track, result)
+    service.apply_songlink_result(track, result)
 
     assert track.platform_links["tidal"].source == "songlink"
     assert track.platform_links["tidal"].match is MatchClass.AGGREGATOR
@@ -220,7 +220,7 @@ def test_apply_songlink_result_does_not_set_isrc_from_youtube_entity() -> None:
     track = ResolvedTrack()
     result = SonglinkResult(found=True, provider="youtube", isrc="SHOULD-NOT-APPLY", title="T")
 
-    service._apply_songlink_result(track, result)
+    service.apply_songlink_result(track, result)
 
     assert track.isrc is None
 
@@ -269,7 +269,7 @@ def test_apply_songlink_result_replaces_a_zero_duration() -> None:
     track = ResolvedTrack(duration_ms=0)
     result = SonglinkResult(found=True, provider="spotify", duration_ms=293133)
 
-    service._apply_songlink_result(track, result)
+    service.apply_songlink_result(track, result)
 
     assert track.duration_ms == 293133
 
@@ -278,7 +278,7 @@ def test_apply_songlink_result_never_writes_a_zero_duration() -> None:
     track = ResolvedTrack()
     result = SonglinkResult(found=True, provider="youtube", duration_ms=0)
 
-    service._apply_songlink_result(track, result)
+    service.apply_songlink_result(track, result)
 
     assert track.duration_ms is None
 
@@ -286,7 +286,7 @@ def test_apply_songlink_result_never_writes_a_zero_duration() -> None:
 async def test_a_failing_bridged_songlink_keeps_what_the_isrc_fan_out_found(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """By then the ISRC fan-out has filled the track, so raising here would throw it
+    """by then the ISRC fan-out has filled the track, so raising here would throw it
     all away. The primary fetch stays loud on purpose."""
     youtube_entity_result = SonglinkResult(
         found=True,
@@ -334,8 +334,8 @@ async def test_a_failing_bridged_songlink_keeps_what_the_isrc_fan_out_found(
 async def test_a_failing_spotify_bridge_leaves_the_raw_youtube_title(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The isolated bridge lets the resolve survive this failure, so the uploader's
-    name and clip title are what reaches `_persist_track`."""
+    """the isolated bridge lets the resolve survive this failure, so the uploader's
+    name and clip title are what reaches `persist_track`."""
     monkeypatch.setattr(
         service.songlink,
         "fetch",

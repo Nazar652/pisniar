@@ -19,18 +19,18 @@ THROTTLE = Throttler(min_interval_seconds=1.0)
 SEARCH_LIMIT = 5
 SOURCE_NAME = "ytmusic"
 
-_client: YTMusic | None = None
+cached_client: YTMusic | None = None
 
 
-def _get_client() -> YTMusic:
-    global _client
-    if _client is None:
-        _client = YTMusic()
-    return _client
+def get_client() -> YTMusic:
+    global cached_client
+    if cached_client is None:
+        cached_client = YTMusic()
+    return cached_client
 
 
-def _search_sync(query: str) -> list[dict[str, object]]:
-    return _get_client().search(query, filter="songs", limit=SEARCH_LIMIT)
+def search_sync(query: str) -> list[dict[str, object]]:
+    return get_client().search(query, filter="songs", limit=SEARCH_LIMIT)
 
 
 async def search_by_name(cache: SourceCache, artist: str, title: str) -> list[TrackCandidate]:
@@ -41,7 +41,7 @@ async def search_by_name(cache: SourceCache, artist: str, title: str) -> list[Tr
         # `wait_for` frees this task, not the thread — but a hung socket
         # then costs one thread, not the worker's only concurrency slot.
         results = await asyncio.wait_for(
-            asyncio.to_thread(_search_sync, f"{artist} {title}"), timeout=TIMEOUT_SECONDS
+            asyncio.to_thread(search_sync, f"{artist} {title}"), timeout=TIMEOUT_SECONDS
         )
         return {"results": results}
 
@@ -49,11 +49,11 @@ async def search_by_name(cache: SourceCache, artist: str, title: str) -> list[Tr
     results = payload.get("results")
     if not isinstance(results, list):
         return []
-    candidates = [_candidate_from_result(as_dict(item)) for item in results[:SEARCH_LIMIT]]
+    candidates = [candidate_from_result(as_dict(item)) for item in results[:SEARCH_LIMIT]]
     return [candidate for candidate in candidates if candidate.url]
 
 
-def _candidate_from_result(item: dict[str, object]) -> TrackCandidate:
+def candidate_from_result(item: dict[str, object]) -> TrackCandidate:
     artists = [as_dict(artist) for artist in as_list(item.get("artists"))]
     artist_name = ", ".join(name for artist in artists if (name := as_str(artist.get("name"))))
     video_id = as_str(item.get("videoId")) or ""
@@ -61,7 +61,7 @@ def _candidate_from_result(item: dict[str, object]) -> TrackCandidate:
 
     return TrackCandidate(
         platform="youtubeMusic",
-        # Empty `videoId` would yield a `?v=` URL that passes every scheme
+        # empty `videoId` would yield a `?v=` URL that passes every scheme
         # check and permanently fails the post on download.
         url=f"https://music.youtube.com/watch?v={video_id}" if video_id else "",
         source=SOURCE_NAME,

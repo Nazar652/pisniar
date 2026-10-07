@@ -5,6 +5,7 @@ from the tail (Spotify/YT Music last), then the release title. Nothing else.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import NamedTuple
 
@@ -14,11 +15,11 @@ from pisniar.post.render import CaptionDocument, visible_length
 from pisniar.resolve.matching import is_valid_spotify_id
 from pisniar.resolve.types import ArtistInfo, GenreInfo, MatchClass, PlatformLink
 
-# A cover drops the caption limit from 4096 to 1024. Applied while
+# a cover drops the caption limit from 4096 to 1024. Applied while
 # building, so the admin approves the exact text subscribers see.
 MEDIA_CAPTION_LIMIT = 1024
 
-# Only a hand-placed `youtube` link is a clip; an automatic hit is
+# only a hand-placed `youtube` link is a clip; an automatic hit is
 # usually the "— Topic" upload, audio over a still.
 CLIP_PLATFORM = "youtube"
 CLIP_LABEL_SUFFIX = " (кліп)"
@@ -52,7 +53,7 @@ PLATFORM_DISPLAY_NAMES = {
 
 @dataclass(frozen=True)
 class CaptionDegradation:
-    """What did not fit into the limit, in the order it was given up."""
+    """what did not fit into the limit, in the order it was given up."""
 
     dropped_genres: tuple[str, ...] = ()
     dropped_platforms: tuple[str, ...] = ()
@@ -79,7 +80,7 @@ def clip_platform(platform_links: dict[str, PlatformLink]) -> str | None:
     return CLIP_PLATFORM
 
 
-def _ordered_platforms(platform_links: dict[str, PlatformLink]) -> list[str]:
+def platforms_in_display_order(platform_links: dict[str, PlatformLink]) -> list[str]:
     clip = clip_platform(platform_links)
     ordered = [platform for platform in PLATFORM_DISPLAY_ORDER if platform in platform_links]
     rest = sorted(
@@ -92,40 +93,27 @@ def _ordered_platforms(platform_links: dict[str, PlatformLink]) -> list[str]:
     return head + ordered + rest
 
 
-def _artist_hashtags(artists: list[ArtistInfo], warnings: list[str]) -> list[str]:
+ARTIST_WITHOUT_HASHTAG_WARNING = "хештег для артиста «{name}» не згенеровано (лише цифри)"
+LANGUAGE_WITHOUT_HASHTAG_WARNING = "хештег для мови «{name}» не згенеровано"
+GENRE_WITHOUT_HASHTAG_WARNING = "хештег для жанру «{name}» не згенеровано (лише цифри)"
+
+
+def collect_hashtags(
+    entries: Iterable[tuple[str | None, str]], missing_warning: str, warnings: list[str]
+) -> list[str]:
+    """each entry is `(stored override, name)`; a name that yields no hashtag is
+    reported with `missing_warning` and skipped."""
     hashtags: list[str] = []
-    for artist in artists:
-        hashtag = artist.hashtag or default_hashtag(artist.name)
+    for override, name in entries:
+        hashtag = override or default_hashtag(name)
         if hashtag is None:
-            warnings.append(f"хештег для артиста «{artist.name}» не згенеровано (лише цифри)")
+            warnings.append(missing_warning.format(name=name))
             continue
         hashtags.append(f"#{hashtag}")
     return hashtags
 
 
-def _language_hashtags(languages: list[str], warnings: list[str]) -> list[str]:
-    hashtags: list[str] = []
-    for language in languages:
-        hashtag = default_hashtag(language)
-        if hashtag is None:
-            warnings.append(f"хештег для мови «{language}» не згенеровано")
-            continue
-        hashtags.append(f"#{hashtag}")
-    return hashtags
-
-
-def _genre_hashtags(genres: list[GenreInfo], warnings: list[str]) -> list[str]:
-    hashtags: list[str] = []
-    for genre in genres:
-        hashtag = genre.hashtag or default_hashtag(genre.name)
-        if hashtag is None:
-            warnings.append(f"хештег для жанру «{genre.name}» не згенеровано (лише цифри)")
-            continue
-        hashtags.append(f"#{hashtag}")
-    return hashtags
-
-
-def _build_document(
+def build_document(
     *,
     artists: list[ArtistInfo],
     title: str,
@@ -146,7 +134,12 @@ def _build_document(
     document.append_line_break()
     document.append_line_break()
 
-    document.append_text(" ".join(_artist_hashtags(artists, warnings)))
+    artist_hashtags = collect_hashtags(
+        [(artist.hashtag, artist.name) for artist in artists],
+        ARTIST_WITHOUT_HASHTAG_WARNING,
+        warnings,
+    )
+    document.append_text(" ".join(artist_hashtags))
     if year is not None:
         document.append_text(f" · {year}")
     if release_type is not None:
@@ -160,22 +153,31 @@ def _build_document(
                 )
             else:
                 if album_id_spotify:
-                    # A stray space in the id is a Telegram 400 on the whole
+                    # a stray space in the id is a Telegram 400 on the whole
                     # post; plain text loses a link, not the post.
                     warnings.append(f"album_id_spotify «{album_id_spotify}» не base62, лінк знято")
                 document.append_text(release_title)
             document.append_text("»")
 
-    # Languages lead the line and are never dropped: they are always
+    # languages lead the line and are never dropped: they are always
     # present, while genres are the first thing degradation gives up.
-    groups = [_language_hashtags(languages, warnings), _genre_hashtags(genres, warnings)]
+    groups = [
+        collect_hashtags(
+            [(None, language) for language in languages], LANGUAGE_WITHOUT_HASHTAG_WARNING, warnings
+        ),
+        collect_hashtags(
+            [(genre.hashtag, genre.name) for genre in genres],
+            GENRE_WITHOUT_HASHTAG_WARNING,
+            warnings,
+        ),
+    ]
     hashtag_line = " · ".join(" ".join(group) for group in groups if group)
     if hashtag_line:
         document.append_line_break()
         document.append_text(hashtag_line)
 
     clip = clip_platform(platform_links)
-    ordered_platforms = _ordered_platforms(platform_links)
+    ordered_platforms = platforms_in_display_order(platform_links)
     if ordered_platforms:
         document.append_line_break()
         document.append_line_break()
@@ -216,7 +218,7 @@ def build_caption_with_report(
 
     def attempt() -> tuple[CaptionDocument, list[str]]:
         warnings: list[str] = []
-        document = _build_document(
+        document = build_document(
             artists=artists,
             title=title,
             year=year,
@@ -238,7 +240,7 @@ def build_caption_with_report(
         document, warnings = attempt()
 
     while remaining_platforms and visible_length(document) > limit:
-        ordered = _ordered_platforms(remaining_platforms)
+        ordered = platforms_in_display_order(remaining_platforms)
         droppable = [
             platform
             for platform in reversed(ordered)

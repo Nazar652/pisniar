@@ -34,6 +34,6 @@ def escape_attribute(value: str) -> str:
 
 
 def is_safe_href(url: str) -> bool:
-    """Delegates, so the check on a candidate's way in and on its way out
+    """delegates, so the check on a candidate's way in and on its way out
     can never drift apart."""
     return is_safe_url(url)

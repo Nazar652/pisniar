@@ -17,5 +17,10 @@ def as_str(value: object) -> str | None:
     return value if isinstance(value, str) else None
 
 
+def as_nonempty_str(value: object) -> str | None:
+    return value if isinstance(value, str) and value else None
+
+
 def as_int(value: object) -> int | None:
-    return value if isinstance(value, int) else None
+    """a `bool` is an `int` to Python but never a number in these payloads."""
+    return value if isinstance(value, int) and not isinstance(value, bool) else None

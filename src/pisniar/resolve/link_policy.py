@@ -67,7 +67,7 @@ class LinkCheck:
     problem: str | None = None
 
     @property
-    def ok(self) -> bool:
+    def is_accepted(self) -> bool:
         return self.problem is None
 
 
@@ -77,12 +77,12 @@ class AlbumLinkCheck:
     problem: str | None = None
 
     @property
-    def ok(self) -> bool:
+    def is_accepted(self) -> bool:
         return self.problem is None
 
 
 def host_of(url: str) -> str | None:
-    """Lowercase hostname, or `None` when the URL carries a port or credentials."""
+    """lowercase hostname, or `None` when the URL carries a port or credentials."""
     try:
         parts = urlsplit(url)
         port = parts.port
@@ -100,7 +100,7 @@ def host_is_allowed(platform: str, host: str) -> bool:
 
 
 def automatic_link_problem(platform: str, url: str) -> str | None:
-    """Why an automatically found link may not be stored, or `None`."""
+    """why an automatically found link may not be stored, or `None`."""
     if platform not in ALLOWED_HOSTS:
         return f"невідома платформа «{platform}»"
     try:
@@ -120,7 +120,7 @@ def automatic_link_problem(platform: str, url: str) -> str | None:
 
 
 def check_manual_link(platform: str, raw_url: str) -> LinkCheck:
-    """A hand-entered link: https, this platform's host, bounded, and a track link."""
+    """a hand-entered link: https, this platform's host, bounded, and a track link."""
     url = raw_url.strip()
     problem = automatic_link_problem(platform, url)
     if problem is not None:

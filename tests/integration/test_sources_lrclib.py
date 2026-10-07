@@ -32,7 +32,7 @@ SERVER_OVERLOADED_BODY = {
 
 
 def unique_artist_names() -> list[str]:
-    """A fresh pair per test: the cache row lives for an hour, so a constant name
+    """a fresh pair per test: the cache row lives for an hour, so a constant name
     would make the second run of the day a cache hit."""
     return [f"Виконавець {uuid.uuid4().hex}", "0%Mercury"]
 
@@ -76,7 +76,7 @@ async def test_a_documented_404_is_cached_as_a_miss(
 async def test_a_503_leaves_no_negative_row_behind(
     source_cache: SourceCache, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Mocked, since a live 503 cannot be reproduced on demand: the admin must hear
+    """mocked, since a live 503 cannot be reproduced on demand: the admin must hear
     «джерело не відповіло», and the next render must be free to ask again."""
     monkeypatch.setattr(lrclib.THROTTLE, "min_interval_seconds", 0.0)
     monkeypatch.setattr(lrclib, "RETRY_BASE_DELAY_SECONDS", 0.0)

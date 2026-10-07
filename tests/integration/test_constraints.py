@@ -37,7 +37,7 @@ async def make_track(session: AsyncSession) -> Track:
 async def test_a_new_track_gets_the_default_language_from_the_schema(
     db_session: AsyncSession,
 ) -> None:
-    """Nothing in the bot writes `languages`, so the schema default is what puts a
+    """nothing in the bot writes `languages`, so the schema default is what puts a
     language on every post."""
     track = await make_track(db_session)
 
@@ -165,7 +165,7 @@ async def test_a_channel_message_without_a_kind_is_rejected(db_session: AsyncSes
 async def test_a_post_keeps_the_submitter_and_the_publisher_apart(
     db_session: AsyncSession,
 ) -> None:
-    """With two admins the submitter and the publisher differ, and the publisher
+    """with two admins the submitter and the publisher differ, and the publisher
     stays unknown until publication."""
     track = await make_track(db_session)
     post = Post(track_id=track.id, created_by_user_id=111)
@@ -178,7 +178,7 @@ async def test_a_post_keeps_the_submitter_and_the_publisher_apart(
     post.published_by_user_id = 222
     await db_session.flush()
 
-    # Read before `expire_all()`: afterwards `post.id` is a lazy refresh.
+    # read before `expire_all()`: afterwards `post.id` is a lazy refresh.
     post_id = post.id
     db_session.expire_all()
 
@@ -286,7 +286,7 @@ async def test_partial_unique_index_allows_multiple_null_channel_message(
 
 
 async def test_channel_ref_check_rejects_a_one_sided_pair(db_session: AsyncSession) -> None:
-    """The partial unique index fires only once both columns are non-NULL, so
+    """the partial unique index fires only once both columns are non-NULL, so
     without this CHECK half a channel reference would pass silently."""
     track = await make_track(db_session)
     post = Post(track_id=track.id, created_by_user_id=1, channel_chat_id=1)
@@ -313,7 +313,7 @@ async def test_partial_unique_index_rejects_duplicate_draft_message(
 
 
 async def test_draft_ref_check_rejects_a_one_sided_pair(db_session: AsyncSession) -> None:
-    """Same one-sided-pair hazard as `channel_ref_complete`, on the draft columns
+    """same one-sided-pair hazard as `channel_ref_complete`, on the draft columns
     that guard redelivery."""
     track = await make_track(db_session)
     post = Post(track_id=track.id, created_by_user_id=1, draft_chat_id=1)
@@ -326,7 +326,7 @@ async def test_draft_ref_check_rejects_a_one_sided_pair(db_session: AsyncSession
 async def test_partial_unique_index_rejects_duplicate_preview_message(
     db_session: AsyncSession,
 ) -> None:
-    """Two posts claiming one preview message would put two publish buttons for
+    """two posts claiming one preview message would put two publish buttons for
     different rows into one chat."""
     track = await make_track(db_session)
     db_session.add(
@@ -342,7 +342,7 @@ async def test_partial_unique_index_rejects_duplicate_preview_message(
 
 
 async def test_preview_ref_check_rejects_a_one_sided_pair(db_session: AsyncSession) -> None:
-    """Half a reference is a message the bot can neither edit nor find, and
+    """half a reference is a message the bot can neither edit nor find, and
     `preview_message_id IS NULL` is the delivery idempotency guard."""
     track = await make_track(db_session)
     post = Post(track_id=track.id, created_by_user_id=1, preview_chat_id=1)
@@ -353,7 +353,7 @@ async def test_preview_ref_check_rejects_a_one_sided_pair(db_session: AsyncSessi
 
 
 async def test_two_posts_may_both_have_no_preview(db_session: AsyncSession) -> None:
-    """The index is partial for the same reason the draft one is: every post
+    """the index is partial for the same reason the draft one is: every post
     starts with both columns null, and NULLs must not collide."""
     track = await make_track(db_session)
     db_session.add(Post(track_id=track.id, created_by_user_id=1))
@@ -382,7 +382,7 @@ async def test_track_deletion_is_restricted_while_a_post_references_it(
     db_session.add(Post(track_id=track.id, created_by_user_id=1))
     await db_session.flush()
 
-    # Raw SQL, not `session.delete(track)`: asserts the database constraint
+    # raw SQL, not `session.delete(track)`: asserts the database constraint
     # directly, independent of the ORM's `passive_deletes` configuration.
     with pytest.raises(IntegrityError, match="fk_post_track_id_track"):
         await db_session.execute(text("DELETE FROM track WHERE id = :id"), {"id": track.id})
@@ -419,7 +419,7 @@ def make_render(post: Post, **overrides: object) -> Render:
 
 
 async def test_audio_asset_check_rejects_an_empty_file(db_session: AsyncSession) -> None:
-    """A zero-byte artifact is the shape a silent yt-dlp failure takes, so a row
+    """a zero-byte artifact is the shape a silent yt-dlp failure takes, so a row
     for one must not be insertable at all."""
     track = await make_track(db_session)
     db_session.add(make_audio_asset(track, size_bytes=0))
@@ -439,7 +439,7 @@ async def test_audio_asset_check_rejects_a_zero_length_recording(
 
 
 async def test_audio_asset_is_unique_per_track_and_video(db_session: AsyncSession) -> None:
-    """The database half of the download idempotency guard: a redelivered
+    """the database half of the download idempotency guard: a redelivered
     task must not be able to register the same file twice."""
     track = await make_track(db_session)
     db_session.add(make_audio_asset(track))
@@ -498,7 +498,7 @@ async def test_render_check_rejects_a_zero_length_video(db_session: AsyncSession
 
 
 async def test_render_is_unique_per_post_and_params_hash(db_session: AsyncSession) -> None:
-    """What lets a redelivered render task find the existing artifact instead of
+    """what lets a redelivered render task find the existing artifact instead of
     running ffmpeg a second time."""
     track = await make_track(db_session)
     post = await make_post(db_session, track)
@@ -513,7 +513,7 @@ async def test_render_is_unique_per_post_and_params_hash(db_session: AsyncSessio
 async def test_a_render_with_different_params_is_a_different_row(
     db_session: AsyncSession,
 ) -> None:
-    """A text version changes `params_hash`, so the same post gets a second render
+    """a text version changes `params_hash`, so the same post gets a second render
     instead of overwriting the approved one."""
     track = await make_track(db_session)
     post = await make_post(db_session, track)
@@ -542,7 +542,7 @@ async def test_deleting_a_post_cascades_to_its_renders(db_session: AsyncSession)
 async def test_failed_from_status_check_rejects_a_value_that_is_not_a_status(
     db_session: AsyncSession,
 ) -> None:
-    """The column is TEXT like `status` itself (no native enum), so the CHECK is
+    """the column is TEXT like `status` itself (no native enum), so the CHECK is
     the only thing keeping a typo out of `/retry`'s routing."""
     track = await make_track(db_session)
 

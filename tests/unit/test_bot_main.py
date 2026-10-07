@@ -19,7 +19,7 @@ ADMIN_ID = 111111111
 
 @pytest.fixture(scope="module")
 def dispatcher() -> Iterator[Dispatcher]:
-    # Module-scoped: the handlers router is a singleton aiogram only lets
+    # module-scoped: the handlers router is a singleton aiogram only lets
     # attach once. Tests only inspect the dispatcher, so sharing is safe.
     yield build_dispatcher(frozenset({ADMIN_ID}))
 
@@ -36,8 +36,8 @@ def test_admin_allowlist_is_registered_as_an_outer_update_middleware(
 def test_admin_allowlist_is_not_registered_on_a_single_observer_instead(
     dispatcher: Dispatcher,
 ) -> None:
-    """Guards the swap-to-per-observer regression: would leave
-    `callback_query`/etc. unchecked while `message` tests stay green."""
+    """a per-observer registration would leave `callback_query` and the rest
+    unchecked while the `message` tests stay green."""
     message_inner_middlewares = list(dispatcher.message.middleware)
     assert not any(
         isinstance(middleware, AdminAllowlistMiddleware) for middleware in message_inner_middlewares

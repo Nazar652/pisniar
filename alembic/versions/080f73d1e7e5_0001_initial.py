@@ -1,4 +1,4 @@
-"""0001_initial
+"""0001 initial
 
 Revision ID: 080f73d1e7e5
 Revises:
@@ -20,7 +20,7 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    """Upgrade schema."""
+    """upgrade schema."""
     op.create_table(
         "track",
         sa.Column("id", sa.BigInteger(), sa.Identity(always=False), nullable=False),
@@ -37,7 +37,7 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("source_url", sa.Text(), nullable=False),
-        # Cache key: the Odesli-normalized URL, so the same track is never
+        # cache key: the Odesli-normalized URL, so the same track is never
         # re-resolved twice.
         sa.Column("source_url_normalized", sa.Text(), nullable=False),
         sa.Column("isrc", sa.Text(), nullable=True),
@@ -95,7 +95,7 @@ def upgrade() -> None:
             server_default=sa.text("'[]'::jsonb"),
             nullable=False,
         ),
-        # Absolute ms from the start of the full track, so re-editing the
+        # absolute ms from the start of the full track, so re-editing the
         # fragment bounds does not invalidate a synced lyric.
         sa.Column("fragment_start_ms", sa.BigInteger(), nullable=True),
         sa.Column("fragment_end_ms", sa.BigInteger(), nullable=True),
@@ -119,7 +119,7 @@ def upgrade() -> None:
             name=op.f("ck_post_fragment_bounds_valid"),
         ),
         sa.CheckConstraint("jsonb_typeof(genres) = 'array'", name=op.f("ck_post_genres_is_array")),
-        # Same one-sided-pair problem as the fragment bounds: without this,
+        # same one-sided-pair problem as the fragment bounds: without this,
         # `(NULL, 42)` passes both the partial unique index below and any NOT NULL check.
         sa.CheckConstraint(
             "num_nonnulls(channel_chat_id, channel_message_id) <> 1",
@@ -132,7 +132,7 @@ def upgrade() -> None:
     )
     op.create_index(op.f("ix_post_status"), "post", ["status"], unique=False)
     op.create_index(op.f("ix_post_track_id"), "post", ["track_id"], unique=False)
-    # Partial: guards against a duplicate channel post once both id columns
+    # partial: guards against a duplicate channel post once both id columns
     # are set; posts with either still NULL (not yet published) don't conflict.
     op.create_index(
         "uq_post_channel_message",
@@ -144,7 +144,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """Downgrade schema."""
+    """downgrade schema."""
     op.drop_index(
         "uq_post_channel_message",
         table_name="post",
