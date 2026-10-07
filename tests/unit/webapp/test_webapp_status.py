@@ -1,0 +1,137 @@
+"""What the admin may do with a post in each state: the label, the verdict and the sentence.
+The transition table is pinned too, because the verdict is read off it, never changed by it.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from pisniar.db.states import ALLOWED_TRANSITIONS, PostStatus
+from pisniar.webapp import status
+from pisniar.webapp.status import STATUS_LABELS, editability_of
+
+# the table exactly as it stood before the Mini App: reading it must not move it
+TRANSITIONS_BEFORE_THE_MINI_APP = {
+    PostStatus.DRAFT: {PostStatus.RESOLVING, PostStatus.ARCHIVED},
+    PostStatus.RESOLVING: {
+        PostStatus.RESOLVED,
+        PostStatus.FAILED,
+        PostStatus.RESOLVING,
+        PostStatus.ARCHIVED,
+    },
+    PostStatus.RESOLVED: {
+        PostStatus.PUBLISHING,
+        PostStatus.EDITING,
+        PostStatus.DOWNLOADING,
+        PostStatus.ARCHIVED,
+    },
+    PostStatus.DOWNLOADING: {
+        PostStatus.DOWNLOADED,
+        PostStatus.FAILED,
+        PostStatus.DOWNLOADING,
+        PostStatus.ARCHIVED,
+    },
+    PostStatus.DOWNLOADED: {PostStatus.EDITING, PostStatus.RENDERING, PostStatus.FAILED},
+    PostStatus.EDITING: {PostStatus.RENDERING, PostStatus.RESOLVED, PostStatus.ARCHIVED},
+    PostStatus.RENDERING: {
+        PostStatus.RENDERED,
+        PostStatus.FAILED,
+        PostStatus.RENDERING,
+        PostStatus.ARCHIVED,
+    },
+    PostStatus.RENDERED: {PostStatus.PUBLISHING, PostStatus.EDITING, PostStatus.ARCHIVED},
+    PostStatus.PUBLISHING: {
+        PostStatus.PUBLISHED,
+        PostStatus.FAILED,
+        PostStatus.PUBLISHING,
+        PostStatus.ARCHIVED,
+    },
+    PostStatus.PUBLISHED: {PostStatus.ARCHIVED},
+    PostStatus.FAILED: {
+        PostStatus.RESOLVING,
+        PostStatus.PUBLISHING,
+        PostStatus.RENDERING,
+        PostStatus.DOWNLOADING,
+        PostStatus.ARCHIVED,
+    },
+    PostStatus.ARCHIVED: set(),
+}
+
+
+def test_the_transition_table_is_the_one_from_before_the_mini_app() -> None:
+    assert {key: set(value) for key, value in ALLOWED_TRANSITIONS.items()} == (
+        TRANSITIONS_BEFORE_THE_MINI_APP
+    )
+
+
+def test_every_status_has_a_ukrainian_label() -> None:
+    assert set(STATUS_LABELS) == set(PostStatus)
+    assert all(label and not label.isascii() for label in STATUS_LABELS.values())
+
+
+@pytest.mark.parametrize(
+    "current", [PostStatus.RESOLVED, PostStatus.RENDERED, PostStatus.PUBLISHED]
+)
+def test_a_ready_or_published_post_is_editable(current: PostStatus) -> None:
+    verdict = editability_of(current, None)
+
+    assert verdict.editable is True
+    assert verdict.reason is None
+
+
+@pytest.mark.parametrize(
+    "stage",
+    [
+        PostStatus.DOWNLOADING,
+        PostStatus.DOWNLOADED,
+        PostStatus.EDITING,
+        PostStatus.RENDERING,
+        PostStatus.PUBLISHING,
+    ],
+)
+def test_a_post_that_failed_after_the_draft_is_editable(stage: PostStatus) -> None:
+    assert editability_of(PostStatus.FAILED, stage) == status.Editability(True, None)
+
+
+@pytest.mark.parametrize("stage", [PostStatus.RESOLVING, None])
+def test_a_post_that_failed_while_resolving_or_at_an_unknown_stage_is_not(
+    stage: PostStatus | None,
+) -> None:
+    verdict = editability_of(PostStatus.FAILED, stage)
+
+    assert verdict.editable is False
+    assert verdict.reason is not None
+    assert "/retry" in verdict.reason
+
+
+@pytest.mark.parametrize(
+    "current",
+    [
+        PostStatus.DRAFT,
+        PostStatus.RESOLVING,
+        PostStatus.DOWNLOADING,
+        PostStatus.DOWNLOADED,
+        PostStatus.EDITING,
+        PostStatus.RENDERING,
+        PostStatus.PUBLISHING,
+        PostStatus.ARCHIVED,
+    ],
+)
+def test_every_other_state_is_read_only_with_a_sentence_that_names_no_state(
+    current: PostStatus,
+) -> None:
+    verdict = editability_of(current, None)
+
+    assert verdict.editable is False
+    assert verdict.reason
+    assert not any(state.value in verdict.reason.lower() for state in PostStatus)
+
+
+def test_an_archived_post_gets_its_own_sentence() -> None:
+    assert editability_of(PostStatus.ARCHIVED, None).reason == status.ARCHIVED_REASON
+
+
+def test_no_state_is_left_without_a_verdict() -> None:
+    for current in PostStatus:
+        verdict = editability_of(current, PostStatus.RENDERING)
+        assert verdict.editable == (verdict.reason is None)

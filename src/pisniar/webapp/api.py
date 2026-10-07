@@ -16,6 +16,7 @@ from pisniar.webapp.auth import (
     validate_init_data,
 )
 from pisniar.webapp.errors import ApiProblem
+from pisniar.webapp.posts import register_post_routes
 from pisniar.webapp.schemas import ApiError, MeResponse, SessionRequest, SessionResponse
 
 logger = get_logger(__name__)
@@ -65,3 +66,4 @@ def register_api_routes(app: FastAPI) -> None:
     app.add_api_route(
         "/api/me", read_me, methods=["GET"], response_model=MeResponse, responses=ERROR_RESPONSES
     )
+    register_post_routes(app)

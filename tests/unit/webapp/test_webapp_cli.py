@@ -48,7 +48,13 @@ def test_dev_token_is_not_reachable_over_http(webapp_routes: list[str]) -> None:
 def test_the_exported_schema_lists_the_api_and_hides_the_static_routes() -> None:
     schema = export_openapi.build_openapi_schema()
 
-    assert set(schema["paths"]) == {"/api/session", "/api/me"}
+    assert set(schema["paths"]) == {
+        "/api/session",
+        "/api/me",
+        "/api/posts",
+        "/api/posts/{post_id}",
+        "/api/meta",
+    }
     assert {"ApiError", "SessionRequest", "SessionResponse", "MeResponse"} <= set(
         schema["components"]["schemas"]
     )

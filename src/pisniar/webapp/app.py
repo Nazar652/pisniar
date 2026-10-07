@@ -12,6 +12,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import FileResponse
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from pisniar.config import Settings
 from pisniar.webapp.api import register_api_routes
@@ -33,7 +34,11 @@ MAX_BODY_BYTES = 16 * 1024
 BODY_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
 
-def create_webapp(settings: Settings, clock: Callable[[], float] = time.time) -> FastAPI:
+def create_webapp(
+    settings: Settings,
+    clock: Callable[[], float] = time.time,
+    session_factory: async_sessionmaker[AsyncSession] | None = None,
+) -> FastAPI:
     app = FastAPI(title="pisniar webapp", docs_url=None, redoc_url=None, openapi_url=None)
     app.state.context = WebappContext(
         bot_token=settings.bot_token.get_secret_value(),
@@ -45,6 +50,7 @@ def create_webapp(settings: Settings, clock: Callable[[], float] = time.time) ->
         session_ttl_seconds=settings.webapp_session_ttl_seconds,
         clock=clock,
     )
+    app.state.session_factory = session_factory
     register_error_handlers(app)
 
     @app.middleware("http")

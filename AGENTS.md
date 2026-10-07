@@ -182,6 +182,14 @@ suggest or introduce either.
   existence probe is `editMessageReplyMarkup(reply_markup=None)`: on a live message without a
   keyboard (a channel post) it answers «not modified», on a deleted one «not found»; it is only
   ever aimed at messages that carry no keyboard.
+- **The Mini App server (`pisniar/webapp/`) imports neither `bot/` nor `worker/`**, and every route
+  but the three public ones sits behind `require_admin` with a `response_model`. Its reads are
+  plain SELECTs through `database.read_from_database`: no lock, one session per call, and a
+  database failure is a Ukrainian 503, never a 401. The post list hides `archived` and `draft`,
+  pages by id with a cursor (`before_id`, at most 50) and costs one query. Whether a post can be
+  edited is `status.editability_of`, a sentence that never names the state; an id beyond BIGINT is
+  a 422 before the database sees it. The platform hosts in `/api/meta` are `link_policy`'s own
+  table, not a copy.
 
 ## Resolver conventions (`pisniar/resolve/`)
 
