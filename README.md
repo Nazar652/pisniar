@@ -30,6 +30,19 @@ text (none in LRCLIB, none with timecodes, an instrumental, no answer from
 LRCLIB, or no line inside the fragment), the video is rendered without it,
 and a short notice under the preview says why.
 
+A **Mini App** (Vue 3, served by the `webapp` container) edits a post after the
+fact. It opens from the **Редагувати** button under the draft, the preview and
+the publication confirmation in a private chat, from `/edit [post_id]` (one
+post, or a list without an id) and from the **Пости** menu button. It edits
+the title, the artists and their hashtags, the languages and genres, the year,
+the release type and title, the album link and the platform links, and shows
+the caption that results before anything is sent. **Зберегти** saves and
+applies the new caption to the draft or preview message; for a published post
+the save stops there and **Застосувати в каналі** is a separate step with a
+confirmation. A published post whose channel message was deleted by hand can be
+archived from the same screen. The buttons exist only when `WEBAPP_PUBLIC_URL`
+is set; without it the bot works exactly as before.
+
 ## Prerequisites
 
 - Docker Desktop, running.
@@ -39,6 +52,11 @@ and a short notice under the preview says why.
   On Windows, the Makefile hard-requires `sh` on PATH (`SHELL := sh`) —
   Git for Windows (Git Bash) already provides this if `uv`/Make themselves
   are usable from the same shell.
+- Node 24.16.0 on the host (`frontend/.node-version`), also for `make check`,
+  which runs the frontend checks. The Docker images build the frontend with
+  the same pinned version.
+- A Tailscale account, only if you want the Mini App: it is reached through a
+  Tailscale Funnel (see [Mini App and Tailscale Funnel](#mini-app-and-tailscale-funnel)).
 - A Telegram bot token, two admin `user_id`s, a chat id for alerts and the
   numeric chat id of the channel to publish into, plus a Spotify Web API
   client id/secret (Client Credentials flow) — see
@@ -82,6 +100,14 @@ changing any `.env` value, recreate the containers
 (`docker compose up -d --force-recreate`) — `restart` reuses the
 environment the containers were created with.
 
+`WEBAPP_PUBLIC_URL` is the public origin of the Mini App: a bare
+`https://host` with no path and no port, normally the Funnel URL. Unset (or
+empty) keeps every Mini App button off. Three optional windows can be set
+(`WEBAPP_AUTH_MAX_AGE_SECONDS`, `WEBAPP_AUTH_MAX_FUTURE_SECONDS`,
+`WEBAPP_SESSION_TTL_SECONDS`); `.env.example` lists their defaults.
+`.env.tailscale` (copy `.env.tailscale.example`) holds the one-time Tailscale
+auth key; only the `tailscale` service reads it, and it is git-ignored too.
+
 ## Running
 
 ```
@@ -104,6 +130,61 @@ without the override: `docker compose -f compose.yaml up -d --wait`.
 Stop everything: `make down`. Stop and also drop the Postgres volume (a
 clean-slate restart): `make clean`.
 
+## Mini App and Tailscale Funnel
+
+Telegram opens a Mini App only from a public `https` address. The `tailscale`
+compose service publishes one through a Tailscale Funnel: it proxies to
+`webapp:8081` and nothing else, and the Funnel is the only thing exposed to the
+internet. The console wording below may differ slightly. `<tailnet>` stands for
+your tailnet name.
+
+1. Create a Tailscale account (the Personal plan is enough).
+2. In the admin console, open **DNS** and turn on **MagicDNS** and **HTTPS
+   Certificates**.
+3. In **Access controls** (the policy file) add:
+   ```
+   "tagOwners": {"tag:pisniar": ["autogroup:admin"]},
+   "nodeAttrs": [{"target": ["tag:pisniar"], "attr": ["funnel"]}]
+   ```
+4. In **Settings → Keys** generate an auth key with the tag `tag:pisniar`,
+   pre-approved, **not** reusable and **not** ephemeral. Put it in
+   `.env.tailscale` as `TS_AUTHKEY=...` (from `.env.tailscale.example`) and
+   nowhere else.
+5. `make funnel-init` creates the external volume `pisniar-tailscale-state`
+   (once), then `make funnel-up` starts the service.
+6. In **Machines** check that a node named `pisniar` appeared with the tag, and
+   that key expiry is off for it. Its address is
+   `https://pisniar.<tailnet>.ts.net`.
+7. Put that address in `.env` as `WEBAPP_PUBLIC_URL` and recreate the services
+   that read it: `docker compose up -d --force-recreate bot worker webapp`.
+
+The state volume is external on purpose: `make clean` and `make verify` (both
+`down -v`) cannot delete it, so the node keeps its identity and its URL. If the
+volume is lost, the next start registers a new node under a new URL, needs a new
+auth key, and every button already sent keeps pointing at the old address.
+`make funnel-down` removes the container and leaves the state in place; the bot
+and the worker do not depend on it.
+
+### Frontend workflow
+
+The sources are in `frontend/`. With `compose.override.yml`, the running
+`webapp` serves the host's `frontend/dist`, read on every request.
+
+- `make frontend-build` builds into `frontend/dist`.
+- `make frontend-watch` rebuilds on every change: edit, then reopen the Mini App
+  in Telegram.
+- After any change to the API, run `make api-types`. `frontend/openapi.json` and
+  `frontend/src/api/schema.ts` are generated and never edited by hand; `make
+  check` fails when they drift.
+- To work in a browser outside Telegram, start the Vite dev server in
+  `frontend/` (`npm run dev`, `http://127.0.0.1:5173`, `/api` proxied to the
+  published `webapp` on `127.0.0.1:18081`). The dev build installs a stand-in for
+  the Telegram SDK and reads a session token from `sessionStorage` under the key
+  `pisniar.devToken`. Print one with `make dev-token u=<your user id>`, set it in
+  the browser console with `sessionStorage.setItem('pisniar.devToken', '<token>')`
+  and reload. The token is a secret, valid for an hour by default: do not paste it
+  anywhere else, and it never reaches a production build.
+
 ## Everyday commands
 
 Run `make help` for the full list. The ones you will use most:
@@ -114,12 +195,19 @@ lint, type, and test — from one invocation instead of fixing them one
 round-trip at a time.
 
 ```
-make check        # sync + lock-check + fmt-check + lint + typecheck + test (host, no Docker); use `make -k check` to see every failure at once
+make check        # sync + lock-check + fmt-check + lint + typecheck + test, then the frontend checks (host, no Docker); use `make -k check` to see every failure at once
 make test-int      # full test suite (unit + integration) inside the bot container
 make test-fonts    # the subtitle font and its glyph-width table, inside the worker container
 make migrate       # alembic upgrade head
 make revision m="add lyric table"   # alembic revision --autogenerate
 make alembic-check # confirm models and migrations agree
+make api-types     # regenerate the frontend API types after an API change
+make frontend-build # build the Mini App into frontend/dist
+make frontend-watch # rebuild it on every change
+make dev-token u=<user id>   # session token for a browser outside Telegram (a secret)
+make funnel-init   # create the Tailscale state volume (once)
+make funnel-up     # start the Funnel
+make funnel-down   # stop it; the node and its URL stay
 make shell         # shell in the bot container
 make psql          # interactive psql in the postgres container
 make logs          # follow logs from every service
@@ -174,3 +262,17 @@ With a real `.env` in place and the stack up (`make up`):
     ("Повторюю публікацію поста N").
 16. Tapping the button from a non-admin account → nothing at all, plus a
     `update_rejected_non_admin` line from `bot`.
+17. With `WEBAPP_PUBLIC_URL` set, a new draft in a private chat carries
+    **Редагувати**; it opens the editor. Change the title and tap **Зберегти** →
+    «Збережено й застосовано.» and the draft's caption changes.
+18. Open the same post in two tabs and save in both → the second save is
+    refused and the post is reloaded.
+19. Edit a published post → the save does not touch the channel; **Застосувати в
+    каналі** asks for confirmation first. Do this against a **test** channel.
+20. Delete that channel message by hand, then apply → the archive button appears
+    and archives the post.
+21. `make funnel-down` → the bot, the worker and publication keep working; only
+    the Mini App is unreachable.
+22. `docker compose logs | grep` for a real `initData`, session token or
+    `TS_AUTHKEY` → empty output. Do this by hand; never script a check that
+    echoes the secret.

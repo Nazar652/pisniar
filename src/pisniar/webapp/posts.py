@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Annotated, cast
 
@@ -13,7 +15,7 @@ from pisniar.webapp.applying import apply_caption, archive_post, edit_remaining
 from pisniar.webapp.auth import AdminUser, WebappContext, require_admin
 from pisniar.webapp.database import read_from_database, write_to_database
 from pisniar.webapp.editing import POST_NOT_FOUND_MESSAGE, preview_fields, save_fields
-from pisniar.webapp.errors import ApiProblem
+from pisniar.webapp.errors import ApiProblem, FieldsInvalidError
 from pisniar.webapp.meta import build_meta
 from pisniar.webapp.schemas import (
     POST_ID_MAX,
@@ -51,6 +53,27 @@ EDIT_ERROR_RESPONSES: dict[int | str, dict[str, type[ApiError]]] = {
     409: {"model": ApiError},
     422: {"model": FieldsInvalid},
 }
+# the refusals no deeper layer logs; every other one is logged where it is decided
+LOGGED_AT_THE_ROUTE = frozenset(
+    {"post_not_found", "post_busy", "database_unavailable", "telegram_unavailable"}
+)
+
+
+@asynccontextmanager
+async def refusals_logged(event: str, user_id: int, post_id: int) -> AsyncIterator[None]:
+    """one warning with the user and the post for a refusal that has no log line of its own."""
+    try:
+        yield
+    except ApiProblem as problem:
+        if problem.code in LOGGED_AT_THE_ROUTE:
+            logger.warning(event, reason=problem.code, user_id=user_id, post_id=post_id)
+        raise
+    except FieldsInvalidError as invalid:
+        fields = [error.field for error in invalid.errors]
+        logger.warning(
+            event, reason="invalid_fields", fields=fields, user_id=user_id, post_id=post_id
+        )
+        raise
 
 
 async def list_posts(
@@ -92,12 +115,13 @@ async def save_post_fields(
     post_id: Annotated[int, Path(ge=1, le=POST_ID_MAX)],
 ) -> PostDetail:
     year = current_year_of(request)
-    saved = await write_to_database(
-        request, lambda session: save_fields(session, post_id, update, year, admin.user_id)
-    )
-    if saved is None:
-        raise ApiProblem(404, "post_not_found", POST_NOT_FOUND_MESSAGE)
-    return saved
+    async with refusals_logged("fields_save_refused", admin.user_id, post_id):
+        saved = await write_to_database(
+            request, lambda session: save_fields(session, post_id, update, year, admin.user_id)
+        )
+        if saved is None:
+            raise ApiProblem(404, "post_not_found", POST_NOT_FOUND_MESSAGE)
+        return saved
 
 
 async def preview_post_fields(
@@ -107,12 +131,13 @@ async def preview_post_fields(
     post_id: Annotated[int, Path(ge=1, le=POST_ID_MAX)],
 ) -> PreviewResponse:
     year = current_year_of(request)
-    preview = await read_from_database(
-        request, lambda session: preview_fields(session, post_id, update, year, admin.user_id)
-    )
-    if preview is None:
-        raise ApiProblem(404, "post_not_found", POST_NOT_FOUND_MESSAGE)
-    return preview
+    async with refusals_logged("fields_preview_refused", admin.user_id, post_id):
+        preview = await read_from_database(
+            request, lambda session: preview_fields(session, post_id, update, year, admin.user_id)
+        )
+        if preview is None:
+            raise ApiProblem(404, "post_not_found", POST_NOT_FOUND_MESSAGE)
+        return preview
 
 
 async def apply_post_caption(
@@ -121,16 +146,18 @@ async def apply_post_caption(
     admin: Annotated[AdminUser, Depends(require_admin)],
     post_id: Annotated[int, Path(ge=1, le=POST_ID_MAX)],
 ) -> ApplyResponse:
-    bot = telegram_bot_of(request)
     public_url = cast("str | None", request.app.state.webapp_public_url)
-    applied = await write_to_database(
-        request,
-        lambda session: apply_caption(
-            session, bot, post_id, body.expected_caption_sha256, admin.user_id, public_url
-        ),
-    )
-    if applied is None:
-        raise ApiProblem(404, "post_not_found", POST_NOT_FOUND_MESSAGE)
+    async with refusals_logged("caption_apply_refused", admin.user_id, post_id):
+        bot = telegram_bot_of(request)
+        applied = await write_to_database(
+            request,
+            lambda session: apply_caption(
+                session, bot, post_id, body.expected_caption_sha256, admin.user_id, public_url
+            ),
+        )
+        if applied is None:
+            raise ApiProblem(404, "post_not_found", POST_NOT_FOUND_MESSAGE)
+
     return await edit_remaining(bot, applied, admin.user_id, post_id)
 
 
@@ -139,13 +166,14 @@ async def archive_published_post(
     admin: Annotated[AdminUser, Depends(require_admin)],
     post_id: Annotated[int, Path(ge=1, le=POST_ID_MAX)],
 ) -> ArchiveResponse:
-    bot = telegram_bot_of(request)
-    archived = await write_to_database(
-        request, lambda session: archive_post(session, bot, post_id, admin.user_id)
-    )
-    if archived is None:
-        raise ApiProblem(404, "post_not_found", POST_NOT_FOUND_MESSAGE)
-    return archived
+    async with refusals_logged("post_archive_refused", admin.user_id, post_id):
+        bot = telegram_bot_of(request)
+        archived = await write_to_database(
+            request, lambda session: archive_post(session, bot, post_id, admin.user_id)
+        )
+        if archived is None:
+            raise ApiProblem(404, "post_not_found", POST_NOT_FOUND_MESSAGE)
+        return archived
 
 
 async def read_meta() -> MetaResponse:

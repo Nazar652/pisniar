@@ -6,7 +6,9 @@ COMPOSE := docker compose
 
 .DEFAULT_GOAL := help
 
-.PHONY: help sync lock-check fmt fmt-check lint typecheck test check \n	frontend-sync frontend-typecheck frontend-lint frontend-format frontend-test frontend-bundle \n	api-types api-types-check frontend-build frontend-watch \
+.PHONY: help sync lock-check fmt fmt-check lint typecheck test check \
+	frontend-sync frontend-typecheck frontend-lint frontend-format frontend-test frontend-bundle \
+	api-types api-types-check frontend-build frontend-watch \
 	build up down ps logs restart clean test-int test-fonts migrate revision downgrade \
 	alembic-check psql shell verify funnel-init funnel-up funnel-down dev-token
 

@@ -31,7 +31,8 @@ resolve a link's metadata, prepare a post, render a vertical video fragment
 Canonical commands are `make` targets (`make help` lists all of them).
 
 ```
-make check       # uv sync --frozen + uv lock --check + ruff format --check + ruff check + ty check + unit tests
+make check       # uv sync --frozen + uv lock --check + ruff format --check + ruff check + ty check + unit tests,
+                 # then the frontend: vue-tsc, ESLint, Prettier, Vitest, API type drift, bundle check
 make up           # docker compose up -d --wait
 make ps            # docker compose ps
 make test-int      # full test suite (unit + integration) inside the bot container
@@ -39,8 +40,13 @@ make test-fonts    # the subtitle font and the glyph-width table, inside the wor
 make migrate       # alembic upgrade head inside the bot container
 make revision m="add lyric table"   # alembic revision --autogenerate
 make alembic-check # alembic check: model/migration drift
-make api-types     # regenerate frontend/openapi.json and src/api/schema.ts from the application
+make api-types     # regenerate frontend/openapi.json and frontend/src/api/schema.ts from the application
 make frontend-build # vite build into frontend/dist, which the running webapp serves
+make frontend-watch # vite build --watch into frontend/dist: the Telegram dev loop
+make dev-token u=<id> # print a session token for an admin, for a browser outside Telegram (a secret)
+make funnel-init    # create the external volume holding the Tailscale node state (once)
+make funnel-up      # start the Tailscale Funnel service
+make funnel-down    # remove the Funnel container; the node state stays on its volume
 make shell         # shell in the bot container
 make verify        # full local + Docker verification in one entrypoint
 ```
@@ -56,11 +62,15 @@ suggest or introduce either.
 - `pisniar/worker/` never imports `pisniar/bot/`, and `pisniar/bot/` never
   imports `pisniar/worker/tasks` directly. The bot dispatches Celery tasks by
   name through `pisniar.worker.celery_app`, not by importing task functions.
-- `pisniar/bot/` imports only `pisniar.resolve.urls` (syntactic
-  classification, no network) and `pisniar.telegram.keyboards` (the
-  `callback_data` grammar, `aiogram` only) — the full resolve pipeline
-  (`resolve.service`/`resolve.registry`, the six source adapters, `post/`
-  caption building) runs only in `pisniar/worker/`.
+- `pisniar/bot/` reaches `resolve/`, `post/`, `telegram/` and `worker/` only
+  through six modules: `resolve.urls` (syntactic classification, no network),
+  `resolve.types` (the `USER_INPUT_SOURCE` constant), `telegram.client`,
+  `telegram.keyboards` (the `callback_data` grammar), `telegram.menu` and
+  `worker.celery_app` (task dispatch by name). The resolve pipeline
+  (`resolve.service`/`resolve.registry`, the six source adapters) and `post/`
+  caption building run only in `pisniar/worker/`.
+  `tests/unit/webapp/test_package_boundaries.py` scans the AST imports of
+  every `bot/` module and fails on any other module of those four packages.
 - `pisniar/resolve/` (six source adapters + ISRC-first matching/merge, plus
   the LRCLIB adapter and the LRC parser) and `pisniar/post/`
   (caption/hashtags/sanitize/render) never import `bot/` or `worker/` — they
@@ -223,6 +233,13 @@ suggest or introduce either.
   the post lock, `probe_message` on the channel message; the verbatim «not found» runs
   `set_post_status(ARCHIVED)` and logs `post_archived_channel_message_missing`, a live message is a
   409, and any other answer refuses with the post untouched.
+- **Every edit and archive action logs one line with `user_id` and `post_id`**: `fields_saved`,
+  `fields_previewed`, `caption_applied`, `post_archived_channel_message_missing` on success, and
+  `fields_save_refused`, `fields_preview_refused`, `caption_apply_refused`, `post_archive_refused`
+  with a `reason` on every refusal. The layer that decides a refusal logs it; `posts.refusals_logged`
+  adds only the four it cannot (`post_not_found`, `post_busy`, `database_unavailable`,
+  `telegram_unavailable`) and `invalid_fields`, which carries the field names and no sentences. No
+  line carries `initData`, a session token, the bot token or `TS_AUTHKEY`.
 - **The Mini App frontend (`frontend/`) is Vue 3 + TypeScript, built by Vite, checked on the host.**
   Node is pinned to 24.16.0 (`.node-version`, `engines`, `engine-strict`, and the one `NODE_IMAGE`
   in the `Dockerfile`); `.npmrc` sets `ignore-scripts`, `save-exact`; dependencies are installed with
