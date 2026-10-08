@@ -77,6 +77,14 @@ MEDIA_IN_PROGRESS_ANSWER = (
     "Для поста {post_id} саме зараз готується відео. Дочекайтесь прев'ю — "
     "кнопка публікації буде під ним."
 )
+MEDIA_FAILED_STAGES = MEDIA_IN_PROGRESS_STATUSES | {PostStatus.EDITING}
+OUTDATED_PREVIEW_ANSWER = (
+    "Пост {post_id}: це застаріле прев'ю. Публікуйте кнопкою під найновішим прев'ю."
+)
+MEDIA_FAILED_PUBLISH_ANSWER = (
+    "Відео для поста {post_id} не вдалося підготувати, тож кнопка публікації тут не діє. "
+    "Спробуйте /retry {post_id}."
+)
 VIDEO_READY_ANSWER = "Відео для поста {post_id} уже готове — публікуйте кнопкою під прев'ю з відео."
 PREVIEW_ALREADY_SHOWN_ANSWER = (
     "Відео для поста {post_id} уже показано в прев'ю, і повторно воно не рендериться: "
@@ -492,7 +500,9 @@ async def handle_publish_tap(
         tapped_event="publish_button_tapped",
         refused_event="publish_refused",
         keyboard_failure_event="publish_keyboard_removal_failed",
-        claim=claim_post_for_publishing,
+        claim=lambda post, claimed_id, claimed_user_id: claim_post_for_publishing(
+            post, claimed_id, claimed_user_id, tapped_message_reference(callback)
+        ),
         expected_status=PostStatus.PUBLISHING,
         dispatch_failed_error=PUBLISH_DISPATCH_FAILED_ERROR,
         dispatched_answer="Публікую…",
@@ -540,11 +550,21 @@ async def handle_render_tap(
     )
 
 
+def tapped_message_reference(callback: CallbackQuery) -> tuple[int, int] | None:
+    """an inaccessible message still carries both ids."""
+    if callback.message is None:
+        return None
+    return callback.message.chat.id, callback.message.message_id
+
+
 def claim_post_for_publishing(
-    post: Post | None, post_id: int, user_id: int
+    post: Post | None,
+    post_id: int,
+    user_id: int,
+    tapped: tuple[int, int] | None = None,
 ) -> tuple[str | None, tuple[int, int] | None]:
-    """returns `(refusal, draft_reference)`, exactly one of them set. Each refusal
-    is logged in its own branch with its own reason."""
+    """returns `(refusal, draft_reference)`, exactly one set, each refusal logged with its
+    own reason; with a preview in the chat only a tap under it publishes."""
     if post is None:
         logger.warning("publish_refused", reason="post_not_found", user_id=user_id, post_id=post_id)
         return POST_NOT_FOUND_ANSWER.format(post_id=post_id), None
@@ -574,6 +594,25 @@ def claim_post_for_publishing(
             post_id=post_id,
         )
         return MEDIA_IN_PROGRESS_ANSWER.format(post_id=post_id), None
+
+    if post.preview_chat_id is not None and tapped != (
+        post.preview_chat_id,
+        post.preview_message_id,
+    ):
+        logger.warning(
+            "publish_refused", reason="outdated_preview", user_id=user_id, post_id=post_id
+        )
+        return OUTDATED_PREVIEW_ANSWER.format(post_id=post_id), None
+
+    if post.status is PostStatus.FAILED and post.failed_from_status in MEDIA_FAILED_STAGES:
+        logger.warning(
+            "publish_refused",
+            reason="media_stage_failed",
+            failed_from=str(post.failed_from_status),
+            user_id=user_id,
+            post_id=post_id,
+        )
+        return MEDIA_FAILED_PUBLISH_ANSWER.format(post_id=post_id), None
 
     try:
         set_post_status(post, PostStatus.PUBLISHING)

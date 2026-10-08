@@ -15,6 +15,7 @@ from sqlalchemy.engine import make_url
 pytestmark = pytest.mark.integration
 
 PREVIOUS_REVISION = "be8d6bff2a6c"
+MANUAL_FIELDS_REVISION = "6134b8e293e1"
 
 
 def test_upgrade_head_then_downgrade_base_then_upgrade_head(
@@ -89,7 +90,9 @@ async def test_channel_message_kind_backfill_follows_the_publication_rule(
                 old_stamp,
             )
 
-        head = run_alembic("upgrade", "head", database_url=migrations_test_database_url)
+        head = run_alembic(
+            "upgrade", MANUAL_FIELDS_REVISION, database_url=migrations_test_database_url
+        )
         assert head.returncode == 0, head.stdout + head.stderr
 
         stored = {
@@ -110,3 +113,90 @@ async def test_channel_message_kind_backfill_follows_the_publication_rule(
 
     downgraded = run_alembic("downgrade", "-1", database_url=migrations_test_database_url)
     assert downgraded.returncode == 0, downgraded.stdout + downgraded.stderr
+
+
+async def test_preview_params_hash_backfill_takes_the_newest_render_and_fails_without_one(
+    migrations_test_database_url: str,
+    run_alembic: Callable[..., subprocess.CompletedProcess[str]],
+) -> None:
+    """a previewed post gets its newest render's hash and a fresh `updated_at`; a post without a
+    preview is untouched; a previewed post with no render row fails the CHECK."""
+    old_stamp = datetime(2020, 1, 1, tzinfo=UTC)
+    upgraded = run_alembic(
+        "upgrade", MANUAL_FIELDS_REVISION, database_url=migrations_test_database_url
+    )
+    assert upgraded.returncode == 0, upgraded.stdout + upgraded.stderr
+
+    plain_dsn = (
+        make_url(migrations_test_database_url)
+        .set(drivername="postgresql")
+        .render_as_string(hide_password=False)
+    )
+    connection = await asyncpg.connect(plain_dsn)
+    try:
+        await connection.execute(
+            "INSERT INTO track (id, source_url, source_url_normalized) "
+            "OVERRIDING SYSTEM VALUE VALUES (1, 'test://1', 'test://1')"
+        )
+        for post_id, preview_id in ((1, 10), (2, None), (4, 12)):
+            await connection.execute(
+                "INSERT INTO post (id, track_id, created_by_user_id, preview_chat_id, "
+                "preview_message_id, updated_at) OVERRIDING SYSTEM VALUE "
+                "VALUES ($1, 1, 1, $2, $3, $4::timestamptz)",
+                post_id,
+                -200 if preview_id else None,
+                preview_id,
+                old_stamp,
+            )
+        renders = (
+            (1, "older", 2021),
+            (1, "newer", 2022),
+            (4, "tie_first", 2021),
+            (4, "tie_second", 2021),
+        )
+        for render_post_id, params_hash, stamp_year in renders:
+            await connection.execute(
+                "INSERT INTO render (post_id, params_hash, path, size_bytes, duration_ms, "
+                "updated_at) VALUES ($1, $2, 'p', 1, 1, $3::timestamptz)",
+                render_post_id,
+                params_hash,
+                datetime(stamp_year, 1, 1, tzinfo=UTC),
+            )
+
+        head = run_alembic("upgrade", "head", database_url=migrations_test_database_url)
+        assert head.returncode == 0, head.stdout + head.stderr
+
+        stored = {
+            record["id"]: record
+            for record in await connection.fetch(
+                "SELECT id, preview_params_hash, updated_at > $1::timestamptz AS touched FROM post",
+                old_stamp,
+            )
+        }
+        downgraded = run_alembic("downgrade", "-1", database_url=migrations_test_database_url)
+        assert downgraded.returncode == 0, downgraded.stdout + downgraded.stderr
+        column_left = await connection.fetchval(
+            "SELECT count(*) FROM information_schema.columns "
+            "WHERE table_name = 'post' AND column_name = 'preview_params_hash'"
+        )
+        check_left = await connection.fetchval(
+            "SELECT count(*) FROM pg_constraint "
+            "WHERE conname = 'ck_post_preview_params_hash_matches_ref'"
+        )
+
+        await connection.execute(
+            "INSERT INTO post (id, track_id, created_by_user_id, preview_chat_id, "
+            "preview_message_id) OVERRIDING SYSTEM VALUE VALUES (3, 1, 1, -200, 11)"
+        )
+        failed = run_alembic("upgrade", "head", database_url=migrations_test_database_url)
+    finally:
+        await connection.close()
+
+    assert stored[1]["preview_params_hash"] == "newer"
+    assert stored[1]["touched"] is True
+    assert stored[2]["preview_params_hash"] is None
+    assert stored[2]["touched"] is False
+    assert stored[4]["preview_params_hash"] == "tie_second"
+    assert (column_left, check_left) == (0, 0)
+    assert failed.returncode != 0
+    assert "ck_post_preview_params_hash_matches_ref" in failed.stdout + failed.stderr

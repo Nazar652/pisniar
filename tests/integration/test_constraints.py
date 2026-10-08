@@ -329,15 +329,41 @@ async def test_partial_unique_index_rejects_duplicate_preview_message(
     """two posts claiming one preview message would put two publish buttons for
     different rows into one chat."""
     track = await make_track(db_session)
-    db_session.add(
-        Post(track_id=track.id, created_by_user_id=1, preview_chat_id=1, preview_message_id=42)
-    )
+    previewed = {
+        "track_id": track.id,
+        "created_by_user_id": 1,
+        "preview_chat_id": 1,
+        "preview_message_id": 42,
+        "preview_params_hash": "a" * 64,
+    }
+    db_session.add(Post(**previewed))
     await db_session.flush()
 
+    db_session.add(Post(**previewed))
+    with pytest.raises(IntegrityError, match="uq_post_preview_message"):
+        await db_session.flush()
+
+
+async def test_a_preview_message_without_its_params_hash_is_rejected(
+    db_session: AsyncSession,
+) -> None:
+    """publication takes the render the hash points at; a preview with none has no file."""
+    track = await make_track(db_session)
     db_session.add(
         Post(track_id=track.id, created_by_user_id=1, preview_chat_id=1, preview_message_id=42)
     )
-    with pytest.raises(IntegrityError, match="uq_post_preview_message"):
+
+    with pytest.raises(IntegrityError, match="ck_post_preview_params_hash_matches_ref"):
+        await db_session.flush()
+
+
+async def test_a_params_hash_without_a_preview_message_is_rejected(
+    db_session: AsyncSession,
+) -> None:
+    track = await make_track(db_session)
+    db_session.add(Post(track_id=track.id, created_by_user_id=1, preview_params_hash="a" * 64))
+
+    with pytest.raises(IntegrityError, match="ck_post_preview_params_hash_matches_ref"):
         await db_session.flush()
 
 

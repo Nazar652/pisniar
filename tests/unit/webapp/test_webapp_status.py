@@ -10,8 +10,7 @@ from pisniar.db.states import ALLOWED_TRANSITIONS, PostStatus
 from pisniar.webapp import status
 from pisniar.webapp.status import STATUS_LABELS, editability_of
 
-# the table exactly as it stood before the Mini App: reading it must not move it
-TRANSITIONS_BEFORE_THE_MINI_APP = {
+EXPECTED_TRANSITIONS = {
     PostStatus.DRAFT: {PostStatus.RESOLVING, PostStatus.ARCHIVED},
     PostStatus.RESOLVING: {
         PostStatus.RESOLVED,
@@ -39,7 +38,12 @@ TRANSITIONS_BEFORE_THE_MINI_APP = {
         PostStatus.RENDERING,
         PostStatus.ARCHIVED,
     },
-    PostStatus.RENDERED: {PostStatus.PUBLISHING, PostStatus.EDITING, PostStatus.ARCHIVED},
+    PostStatus.RENDERED: {
+        PostStatus.PUBLISHING,
+        PostStatus.EDITING,
+        PostStatus.RENDERING,
+        PostStatus.ARCHIVED,
+    },
     PostStatus.PUBLISHING: {
         PostStatus.PUBLISHED,
         PostStatus.FAILED,
@@ -58,10 +62,13 @@ TRANSITIONS_BEFORE_THE_MINI_APP = {
 }
 
 
-def test_the_transition_table_is_the_one_from_before_the_mini_app() -> None:
-    assert {key: set(value) for key, value in ALLOWED_TRANSITIONS.items()} == (
-        TRANSITIONS_BEFORE_THE_MINI_APP
-    )
+def test_the_transition_table_is_the_expected_snapshot() -> None:
+    assert {key: set(value) for key, value in ALLOWED_TRANSITIONS.items()} == EXPECTED_TRANSITIONS
+
+
+def test_a_rendered_post_can_be_rendered_again_but_never_fails() -> None:
+    assert PostStatus.RENDERING in ALLOWED_TRANSITIONS[PostStatus.RENDERED]
+    assert PostStatus.FAILED not in ALLOWED_TRANSITIONS[PostStatus.RENDERED]
 
 
 def test_every_status_has_a_ukrainian_label() -> None:

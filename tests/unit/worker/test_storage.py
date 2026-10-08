@@ -181,6 +181,50 @@ def test_existing_audio_is_found_by_its_stem_whatever_the_container(tmp_path: Pa
     )
 
 
+def test_the_peaks_path_is_a_subdirectory_of_the_tracks_audio(tmp_path: Path) -> None:
+    path = media_storage.peaks_file_path(tmp_path, 3, VIDEO_ID)
+
+    assert path == tmp_path / "audio" / "3" / "peaks" / f"{VIDEO_ID}.json"
+
+
+@pytest.mark.parametrize("video_id", ["../etc/passwd", "short", ""])
+def test_a_video_id_that_fails_validation_never_becomes_a_peaks_path(
+    tmp_path: Path, video_id: str
+) -> None:
+    with pytest.raises(media_storage.MediaPathError):
+        media_storage.peaks_file_path(tmp_path, 3, video_id)
+
+
+def test_a_stored_peaks_file_never_hides_the_audio(tmp_path: Path) -> None:
+    directory = media_storage.audio_directory(tmp_path, 3)
+    peaks = media_storage.peaks_file_path(tmp_path, 3, VIDEO_ID)
+    peaks.parent.mkdir(parents=True)
+    peaks.write_text("{}", encoding="utf-8")
+    (directory / f"{VIDEO_ID}.webm").write_bytes(b"audio")
+
+    assert (
+        media_storage.find_existing_audio(tmp_path, 3, VIDEO_ID) == directory / f"{VIDEO_ID}.webm"
+    )
+
+
+def test_peaks_alone_are_not_audio(tmp_path: Path) -> None:
+    peaks = media_storage.peaks_file_path(tmp_path, 3, VIDEO_ID)
+    peaks.parent.mkdir(parents=True)
+    peaks.write_text("{}", encoding="utf-8")
+
+    assert media_storage.find_existing_audio(tmp_path, 3, VIDEO_ID) is None
+
+
+def test_removing_a_tracks_artifacts_takes_its_peaks_too(tmp_path: Path) -> None:
+    peaks = media_storage.peaks_file_path(tmp_path, 3, VIDEO_ID)
+    peaks.parent.mkdir(parents=True)
+    peaks.write_text("{}", encoding="utf-8")
+
+    media_storage.remove_track_artifacts(tmp_path, 3)
+
+    assert not peaks.exists()
+
+
 def test_an_empty_stored_audio_file_is_not_reused(tmp_path: Path) -> None:
     directory = media_storage.audio_directory(tmp_path, 3)
     directory.mkdir(parents=True)

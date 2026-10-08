@@ -5,6 +5,8 @@ moved on or its lock cannot be taken.
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -241,3 +243,128 @@ async def test_a_post_that_is_no_longer_rendering_gets_no_second_preview(
     assert reference is None
     assert database.order == []
     preview.assert_not_awaited()
+
+
+OLD_PREVIEW_CHAT_ID = 556
+OLD_PREVIEW_MESSAGE_ID = 77
+OLD_PARAMS_HASH = "b" * 64
+
+
+@pytest.fixture
+def superseded_removal(monkeypatch: pytest.MonkeyPatch, database: SimpleNamespace) -> AsyncMock:
+    async def remove(post_id: int, superseded: PreviewReference) -> None:
+        database.order.append("remove")
+
+    mock = AsyncMock(side_effect=remove)
+    monkeypatch.setattr(worker_tasks, "remove_superseded_preview_keyboard", mock)
+    return mock
+
+
+def make_previewed_post(status: PostStatus) -> Post:
+    return make_post(
+        status,
+        preview_chat_id=OLD_PREVIEW_CHAT_ID,
+        preview_message_id=OLD_PREVIEW_MESSAGE_ID,
+        preview_params_hash=OLD_PARAMS_HASH,
+    )
+
+
+async def test_the_first_preview_points_the_post_at_its_render_and_removes_nothing(
+    database: SimpleNamespace, preview: AsyncMock, superseded_removal: AsyncMock
+) -> None:
+    database.post = make_post(PostStatus.RENDERING)
+
+    await worker_tasks.finish_render(database.session_factory, RENDER_CLAIM, RENDER_OUTCOME)
+
+    assert database.post.preview_params_hash == RENDER_OUTCOME.params_hash
+    superseded_removal.assert_not_awaited()
+
+
+async def test_a_new_preview_replaces_the_reference_and_the_hash_in_one_commit(
+    database: SimpleNamespace, preview: AsyncMock, superseded_removal: AsyncMock
+) -> None:
+    database.post = make_previewed_post(PostStatus.RENDERING)
+
+    reference = await worker_tasks.finish_render(
+        database.session_factory, RENDER_CLAIM, RENDER_OUTCOME
+    )
+
+    assert database.order == ["execute", "preview", "commit", "remove"]
+    assert database.post.status is PostStatus.RENDERED
+    assert database.post.preview_message_id == PREVIEW_MESSAGE_ID
+    assert database.post.preview_params_hash == RENDER_OUTCOME.params_hash
+    assert reference == PreviewReference(chat_id=PREVIEW_CHAT_ID, message_id=PREVIEW_MESSAGE_ID)
+    superseded_removal.assert_awaited_once_with(
+        POST_ID, PreviewReference(chat_id=OLD_PREVIEW_CHAT_ID, message_id=OLD_PREVIEW_MESSAGE_ID)
+    )
+
+
+async def test_a_failed_new_preview_keeps_the_old_reference_and_removes_nothing(
+    database: SimpleNamespace, preview: AsyncMock, superseded_removal: AsyncMock
+) -> None:
+    preview.side_effect = RuntimeError("telegram is down")
+    database.post = make_previewed_post(PostStatus.RENDERING)
+
+    with pytest.raises(RuntimeError, match="telegram is down"):
+        await worker_tasks.finish_render(database.session_factory, RENDER_CLAIM, RENDER_OUTCOME)
+
+    assert database.post.status is PostStatus.RENDERING
+    assert database.post.preview_message_id == OLD_PREVIEW_MESSAGE_ID
+    assert database.post.preview_params_hash == OLD_PARAMS_HASH
+    superseded_removal.assert_not_awaited()
+
+
+def patch_bot_client(monkeypatch: pytest.MonkeyPatch, bot: object) -> None:
+    @asynccontextmanager
+    async def client() -> AsyncIterator[object]:
+        yield bot
+
+    monkeypatch.setattr(worker_tasks, "bot_client", client)
+
+
+async def test_the_superseded_keyboard_is_removed_from_the_old_preview(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bot = AsyncMock()
+    patch_bot_client(monkeypatch, bot)
+
+    await worker_tasks.remove_superseded_preview_keyboard(
+        POST_ID, PreviewReference(chat_id=OLD_PREVIEW_CHAT_ID, message_id=OLD_PREVIEW_MESSAGE_ID)
+    )
+
+    assert bot.edit_message_reply_markup.await_args.kwargs == {
+        "chat_id": OLD_PREVIEW_CHAT_ID,
+        "message_id": OLD_PREVIEW_MESSAGE_ID,
+        "reply_markup": None,
+    }
+
+
+async def test_a_failure_removing_the_superseded_keyboard_never_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bot = AsyncMock()
+    bot.edit_message_reply_markup.side_effect = RuntimeError("network")
+    patch_bot_client(monkeypatch, bot)
+
+    await worker_tasks.remove_superseded_preview_keyboard(
+        POST_ID, PreviewReference(chat_id=OLD_PREVIEW_CHAT_ID, message_id=OLD_PREVIEW_MESSAGE_ID)
+    )
+
+
+@pytest.mark.parametrize(("previewed", "draft_keyboard_removed"), [(False, True), (True, False)])
+async def test_only_the_first_preview_removes_the_draft_keyboard(
+    previewed: bool, draft_keyboard_removed: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    patch_bot_client(monkeypatch, AsyncMock())
+    deliver = AsyncMock()
+    remove_draft = AsyncMock()
+    monkeypatch.setattr(worker_tasks, "deliver_preview", deliver)
+    monkeypatch.setattr(worker_tasks, "remove_draft_keyboard", remove_draft)
+    post = (
+        make_previewed_post(PostStatus.RENDERING) if previewed else make_post(PostStatus.RENDERING)
+    )
+
+    await worker_tasks.deliver_preview_for(post, RENDER_OUTCOME)
+
+    deliver.assert_awaited_once()
+    assert remove_draft.await_count == (1 if draft_keyboard_removed else 0)

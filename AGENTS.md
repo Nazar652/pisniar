@@ -153,7 +153,11 @@ suggest or introduce either.
   falling through to publication. Both taps follow the same order —
   **database first (lock, guard, status, commit), keyboard second, dispatch
   last** — so a tap the database declined never loses its own button, and a
-  double tap has nothing left to press.
+  double tap has nothing left to press. A publish tap on a post that has a preview
+  must come from exactly that preview message (chat id and message id, an
+  inaccessible message counts), else it is refused as outdated with the post untouched;
+  a tap on a `failed` post whose failed stage is a media one is refused with a
+  pointer to `/retry`.
 - **`RESOLVED -> PUBLISHING` stays legal while a render is running**, which
   means the text draft's publish button is live during it. Refusing that tap
   with the generic "wrong state" sentence would name `downloading` and read
@@ -428,10 +432,15 @@ suggest or introduce either.
   and Cyrillic filenames in one. `shutil.disk_usage()` is checked **before** a
   download starts, because running out mid-render leaves a file that looks
   finished.
-- **The fragment rule has no heuristics**: start at 0, length 45 s,
+- **The default fragment rule has no heuristics**: start at 0, length 45 s,
   a shorter track taken whole. `post.fragment_start_ms`/`fragment_end_ms` are
   absolute from the start of the **full** track. Bounds already on the post win
-  as long as they still fit the downloaded file.
+  as long as they still fit the downloaded file. `fragment.validate_chosen_bounds`
+  is the rule for a chosen fragment: `0 <= start < end <= audio duration`, at most
+  `MAX_FRAGMENT_LENGTH_MS` (120 s), no minimum.
+- **The peaks file** `/data/audio/<track_id>/peaks/<video_id>.json` is derived from the
+  audio, written (`worker/peaks.py`) after each download, and sits outside the
+  `<video_id>.*` mask of `find_existing_audio`. A failure is a warning, never a failed download.
 - **`scale=...:in_range=pc:out_range=tv` plus `-color_range tv` is required,
   not a refinement.** The cover arrives from the Spotify CDN as
   full-range JPEG, and a naive `format=yuv420p` produces `yuvj420p` *every
@@ -462,7 +471,7 @@ suggest or introduce either.
   a state no task will move it out of.
 - **The preview is the only safeguard before publication.** Publication cannot be
   revoked, so `RENDERED` means «прев'ю вже в чаті адміна»: the render
-  task sends the video, writes `preview_chat_id`/`preview_message_id`, sets
+  task sends the video, writes `preview_chat_id`/`preview_message_id`/`preview_params_hash`, sets
   the status and commits, in that order — the draft's `RESOLVED` rule,
   mirrored. A delivery failure
   therefore happens while the post is still `RENDERING`, which is the state
@@ -472,7 +481,7 @@ suggest or introduce either.
   button would send the cover photo instead of the video.
 - **That transaction holds the post lock across one Telegram upload**, and
   that is deliberate — it is the same delivery guard `publish_post`'s barrier
-  1 is, and the lock is what makes the `preview_message_id IS NULL` check
+  1 is, and the `RENDERING` status read under that lock is what makes it
   atomic against redelivery. The "milliseconds" of the three-phase rule above
   are about yt-dlp and ffmpeg, which run with no transaction open at all.
 - **`telegram.video.send_rendered_video` is the one `send_video` call** the
@@ -488,12 +497,17 @@ suggest or introduce either.
   as a video and the video is gone, publication **fails loudly**; falling
   back to `send_photo` would put a different post in the channel than the one
   the admin approved.
-- **A post with a preview is never downloaded or rendered again**, so the
-  render publication takes is always the one the admin saw. `video_for_publication`
-  picks the post's newest `render` row, and that is safe only because no row
-  can appear after `preview_message_id` is written: both media tasks exit
-  without work on a previewed post, and «Зробити відео» refuses it with a
-  sentence of its own before any status changes.
+- **A post with a preview is never downloaded again**, and «Зробити відео»
+  refuses it with a sentence of its own before any status changes. It can be
+  rendered again only from `RENDERING`, reached by the `RENDERED -> RENDERING`
+  edge (the one way back; `RENDERED -> FAILED` and `/retry` on `RENDERED` stay
+  refused). The render claim does not look at `preview_message_id`; a redelivered
+  render finding `RENDERED`, `PUBLISHING`, `PUBLISHED` or `FAILED` exits without work.
+  `finish_render` then sends a new preview under the post lock, writes the new
+  reference, `preview_params_hash` and `RENDERED` in one commit, and afterwards
+  removes the old preview's keyboard best-effort. `video_for_publication` picks
+  the `render` row `(post.id, post.preview_params_hash)`, never the newest, so
+  publication sends the file the admin last saw.
 - **A media task never acts on a `failed` post**: it can only get there by
   redelivery. Every bot path (the button, each `/retry` branch, a stale
   reclaim) writes the target status before it dispatches, and the download
@@ -616,7 +630,9 @@ suggest or introduce either.
   because a post that failed while downloading also has a draft.
 - `post.preview_chat_id`/`preview_message_id` are the video preview's own
   reference, shaped exactly like the draft pair — a `CHECK` against a
-  one-sided pair plus a partial unique index.
+  one-sided pair plus a partial unique index. `post.preview_params_hash` is the
+  `render.params_hash` of that preview, written in the same transaction as the pair; a `CHECK`
+  keeps it NULL exactly when `preview_message_id` is.
 - A schema change always goes into a new revision, never into an applied
   one: `upgrade head` skips a revision that changed after it ran, and
   `alembic check` then reports drift.

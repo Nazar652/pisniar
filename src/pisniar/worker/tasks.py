@@ -56,7 +56,11 @@ from pisniar.telegram.client import build_bot
 from pisniar.telegram.draft import deliver_draft
 from pisniar.telegram.keyboards import published_keyboard
 from pisniar.telegram.notifier import send_alert
-from pisniar.telegram.preview import deliver_preview, remove_draft_keyboard
+from pisniar.telegram.preview import (
+    deliver_preview,
+    remove_draft_keyboard,
+    remove_preview_keyboard,
+)
 from pisniar.telegram.publish import (
     channel_post_url,
     describe_publish_error,
@@ -69,6 +73,7 @@ from pisniar.worker import download as audio_download
 from pisniar.worker import ffmpeg as media_tools
 from pisniar.worker import fragment as fragment_rule
 from pisniar.worker import lyrics as worker_lyrics
+from pisniar.worker import peaks as audio_peaks
 from pisniar.worker import render as video_render
 from pisniar.worker import storage as media_storage
 from pisniar.worker.celery_app import (
@@ -729,20 +734,18 @@ class RenderedVideoUnavailableError(RuntimeError):
 
 
 async def video_for_publication(session: AsyncSession, post: Post) -> RenderedVideo | None:
-    """a file alone never qualifies: a failed attempt can leave one behind that
-    the admin never previewed."""
+    """a file alone never qualifies: a failed attempt can leave one behind that the
+    admin never previewed. The row is the one `preview_params_hash` points at, never the newest."""
     if not post_reached_rendered(post):
         return None
 
     render_row = (
-        (
-            await session.execute(
-                select(Render).where(Render.post_id == post.id).order_by(Render.updated_at.desc())
+        await session.execute(
+            select(Render).where(
+                Render.post_id == post.id, Render.params_hash == post.preview_params_hash
             )
         )
-        .scalars()
-        .first()
-    )
+    ).scalar_one_or_none()
     if render_row is None:
         raise RenderedVideoUnavailableError(
             f"пост {post.id} має прев'ю з відео, але рядка render для нього немає — "
@@ -931,22 +934,21 @@ class ClaimEvents:
     post_locked: str
     post_not_found: str
     settled: str
-    previewed: str
 
 
 DOWNLOAD_CLAIM_EVENTS = ClaimEvents(
     post_locked="download_post_audio_post_locked",
     post_not_found="download_post_audio_post_not_found",
     settled="download_post_audio_task_arrived_at_settled_post",
-    previewed="download_post_audio_task_arrived_at_previewed_post",
 )
 
 RENDER_CLAIM_EVENTS = ClaimEvents(
     post_locked="render_post_video_post_locked",
     post_not_found="render_post_video_post_not_found",
     settled="render_post_video_task_arrived_at_settled_post",
-    previewed="render_post_video_task_arrived_at_previewed_post",
 )
+
+DOWNLOAD_PREVIEWED_EVENT = "download_post_audio_task_arrived_at_previewed_post"
 
 
 async def lock_post_for_claim(
@@ -955,8 +957,7 @@ async def lock_post_for_claim(
     entry_statuses: frozenset[PostStatus],
     events: ClaimEvents,
 ) -> Post | None:
-    """locks the post; refuses a missing or locked row, a status outside the entries
-    and a previewed post, whose newest `render` row publication takes."""
+    """locks the post; refuses a missing or locked row and a status outside the entries."""
     try:
         post = await session.get(Post, post_id, with_for_update=True)
     except DBAPIError as error:
@@ -970,10 +971,6 @@ async def lock_post_for_claim(
 
     if post.status not in entry_statuses:
         logger.info(events.settled, post_id=post_id, status=post.status.value)
-        return None
-
-    if post.preview_message_id is not None:
-        logger.info(events.previewed, post_id=post_id, status=post.status.value)
         return None
 
     return post
@@ -1107,12 +1104,16 @@ async def claim_post_for_downloading(
     session_factory: async_sessionmaker[AsyncSession], post_id: int
 ) -> DownloadClaim | None:
     """transaction 1: lock, guard, status, commit — milliseconds, and the lock
-    is gone long before yt-dlp is started."""
+    is gone long before yt-dlp is started. A previewed post is never downloaded again."""
     async with session_factory() as session:
         post = await lock_post_for_claim(
             session, post_id, DOWNLOAD_ENTRY_STATUSES, DOWNLOAD_CLAIM_EVENTS
         )
         if post is None:
+            return None
+
+        if post.preview_message_id is not None:
+            logger.info(DOWNLOAD_PREVIEWED_EVENT, post_id=post_id, status=post.status.value)
             return None
 
         track = await session.get(Track, post.track_id)
@@ -1147,6 +1148,9 @@ def download_audio_off_transaction(
             track_id=claim.track_id,
             path=str(reused),
         )
+        audio_peaks.ensure_peaks(
+            settings.media_root, claim.track_id, video_id, reused, temporary_directory
+        )
         return DownloadOutcome(
             video_id=video_id,
             path=reused,
@@ -1168,6 +1172,9 @@ def download_audio_off_transaction(
         settings.media_root, claim.track_id, video_id, downloaded.suffix.lstrip(".")
     )
     media_storage.publish_atomically(downloaded, final_path)
+    audio_peaks.ensure_peaks(
+        settings.media_root, claim.track_id, video_id, final_path, temporary_directory
+    )
 
     return DownloadOutcome(
         video_id=video_id,
@@ -1661,6 +1668,13 @@ async def finish_render(
 
         await session.execute(upsert_render_statement(claim, outcome))
 
+        # plain values: the ORM attributes are overwritten by the new preview below.
+        superseded = (
+            None
+            if post.preview_chat_id is None or post.preview_message_id is None
+            else PreviewReference(chat_id=post.preview_chat_id, message_id=post.preview_message_id)
+        )
+
         await deliver_preview_for(post, outcome)
         preview_chat_id = post.preview_chat_id
         preview_message_id = post.preview_message_id
@@ -1675,8 +1689,12 @@ async def finish_render(
             preview_message_id=preview_message_id,
         )
 
+        post.preview_params_hash = outcome.params_hash
         set_post_status(post, PostStatus.RENDERED)
         await session.commit()
+
+    if superseded is not None:
+        await remove_superseded_preview_keyboard(claim.post_id, superseded)
 
     logger.info(
         "render_post_video_finished",
@@ -1692,6 +1710,20 @@ async def finish_render(
     return PreviewReference(chat_id=preview_chat_id, message_id=preview_message_id)
 
 
+async def remove_superseded_preview_keyboard(post_id: int, superseded: PreviewReference) -> None:
+    """after the commit and never raising; a publish tap is bound to the current
+    preview, so a leftover button on the old one is refused anyway."""
+    try:
+        async with bot_client() as bot:
+            await remove_preview_keyboard(bot, superseded.chat_id, superseded.message_id)
+    except SoftTimeLimitExceeded:
+        logger.error("render_post_video_superseded_keyboard_timed_out", post_id=post_id)
+    except Exception:
+        logger.warning(
+            "render_post_video_superseded_keyboard_failed", post_id=post_id, exc_info=True
+        )
+
+
 def rendered_video(outcome: RenderOutcome) -> RenderedVideo:
     """the dimensions are the renderer's constants, not a probe of the file:
     `telegram/` never imports `worker/`, so they travel as data."""
@@ -1705,17 +1737,19 @@ def rendered_video(outcome: RenderOutcome) -> RenderedVideo:
 
 
 async def deliver_preview_for(post: Post, outcome: RenderOutcome) -> None:
-    """publication cannot be revoked, so the admin first sees the exact file. The
-    text draft loses its keyboard: its publish button would send the cover photo."""
+    """publication cannot be revoked, so the admin first sees the exact file. The text
+    draft loses its keyboard with the first preview, not with later ones."""
     preview_chat_id = (
         post.draft_chat_id if post.draft_chat_id is not None else settings.alert_chat_id
     )
+    first_preview = post.preview_message_id is None
 
     async with bot_client() as bot:
         await deliver_preview(
             bot, post, preview_chat_id, rendered_video(outcome), settings.webapp_public_url
         )
-        await remove_draft_keyboard(bot, post)
+        if first_preview:
+            await remove_draft_keyboard(bot, post)
 
 
 def upsert_render_statement(claim: RenderClaim, outcome: RenderOutcome) -> PostgresInsert:

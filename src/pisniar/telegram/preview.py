@@ -10,6 +10,7 @@ from aiogram.exceptions import TelegramAPIError
 
 from pisniar.db.models import Post
 from pisniar.logging import get_logger
+from pisniar.telegram.caption_edit import EditOutcome, classify_edit_error
 from pisniar.telegram.keyboards import preview_keyboard
 from pisniar.telegram.video import RenderedVideo, send_rendered_video
 
@@ -23,10 +24,8 @@ async def deliver_preview(
     video: RenderedVideo,
     webapp_public_url: str | None = None,
 ) -> None:
-    """idempotent on `preview_message_id`, like `deliver_draft`. A failure
-    propagates: the preview is the product."""
-    if post.preview_message_id is not None:
-        return
+    """always sends a new message and points the post at it: the caller's status under the
+    post lock is the guard. A failure propagates: the preview is the product."""
     if post.caption is None:
         raise ValueError(f"post {post.id} has no caption to preview")
 
@@ -39,6 +38,24 @@ async def deliver_preview(
     )
     post.preview_chat_id = chat_id
     post.preview_message_id = sent_message.message_id
+
+
+async def remove_preview_keyboard(bot: Bot, chat_id: int, message_id: int) -> None:
+    """a superseded preview must not offer publication. Cosmetic, so it never raises."""
+    try:
+        await bot.edit_message_reply_markup(
+            chat_id=chat_id, message_id=message_id, reply_markup=None
+        )
+    except TelegramAPIError as error:
+        if classify_edit_error(error) is EditOutcome.NOT_MODIFIED:
+            logger.info("preview_superseded_keyboard_already_removed", message_id=message_id)
+            return
+        logger.warning(
+            "preview_superseded_keyboard_removal_failed",
+            chat_id=chat_id,
+            message_id=message_id,
+            exc_info=True,
+        )
 
 
 async def remove_draft_keyboard(bot: Bot, post: Post) -> None:

@@ -196,6 +196,10 @@ class Post(IdAndTimestampsMixin, Base):
             "num_nonnulls(preview_chat_id, preview_message_id) <> 1",
             name="preview_ref_complete",
         ),
+        CheckConstraint(
+            "num_nonnulls(preview_message_id, preview_params_hash) <> 1",
+            name="preview_params_hash_matches_ref",
+        ),
         Index(
             "uq_post_preview_message",
             "preview_chat_id",
@@ -230,10 +234,11 @@ class Post(IdAndTimestampsMixin, Base):
     # is delivery's own idempotency guard against Celery redelivery.
     draft_chat_id: Mapped[int | None] = mapped_column(BigInteger)
     draft_message_id: Mapped[int | None] = mapped_column(BigInteger)
-    # the rendered video shown to the admin before publication;
-    # `preview_message_id IS NULL` is that delivery's idempotency guard.
+    # the rendered video shown to the admin before publication.
     preview_chat_id: Mapped[int | None] = mapped_column(BigInteger)
     preview_message_id: Mapped[int | None] = mapped_column(BigInteger)
+    # the `render.params_hash` of that preview: publication sends exactly this file.
+    preview_params_hash: Mapped[str | None] = mapped_column(Text)
     published_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     last_error: Mapped[str | None] = mapped_column(Text)
     # the stage that failed, written by `set_post_status()`; `/retry` routes by it,

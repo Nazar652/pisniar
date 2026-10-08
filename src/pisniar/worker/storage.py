@@ -17,6 +17,7 @@ from pisniar.resolve.matching import is_valid_youtube_video_id
 logger = get_logger(__name__)
 
 AUDIO_DIRECTORY_NAME = "audio"
+PEAKS_DIRECTORY_NAME = "peaks"
 RENDER_DIRECTORY_NAME = "render"
 TEMPORARY_DIRECTORY_NAME = "tmp"
 SUBTITLES_FILE_NAME = "lyrics.ass"
@@ -52,6 +53,15 @@ def audio_file_path(media_root: Path, track_id: int, video_id: str, extension: s
     return (
         audio_directory(media_root, track_id)
         / f"{validated_video_id(video_id)}.{validated_extension(extension)}"
+    )
+
+
+def peaks_file_path(media_root: Path, track_id: int, video_id: str) -> Path:
+    """a subdirectory, so the `<video_id>.*` mask of `find_existing_audio` never sees it."""
+    return (
+        audio_directory(media_root, track_id)
+        / PEAKS_DIRECTORY_NAME
+        / f"{validated_video_id(video_id)}.json"
     )
 
 

@@ -1,5 +1,5 @@
-"""Integration test fixtures. Two databases: `pisniar_test` (shared, migrated
-once per session) for `test_constraints.py`, `pisniar_test_migrations`
+"""Integration test fixtures. Two databases: `pisniar_test` (shared, recreated and
+migrated once per session) for `test_constraints.py`, `pisniar_test_migrations`
 (disposable, per-test) for `test_migrations.py`'s destructive cycle — never
 `pisniar`, which the live `bot`/`worker` containers use.
 """
@@ -51,11 +51,10 @@ async def test_database_url() -> str:
 
     connection = await asyncpg.connect(to_asyncpg_maintenance_dsn(settings.database_url))
     try:
-        already_exists = await connection.fetchval(
-            "SELECT 1 FROM pg_database WHERE datname = $1", TEST_DATABASE_NAME
-        )
-        if not already_exists:
-            await connection.execute(f"CREATE DATABASE {TEST_DATABASE_NAME}")
+        # recreated every session: committed rows of earlier runs would break a migration
+        # that backfills. The name is the module constant, never the application database.
+        await connection.execute(f"DROP DATABASE IF EXISTS {TEST_DATABASE_NAME} WITH (FORCE)")
+        await connection.execute(f"CREATE DATABASE {TEST_DATABASE_NAME}")
     finally:
         await connection.close()
 

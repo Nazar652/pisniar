@@ -1,5 +1,5 @@
-"""`lock_post_for_claim`, the four checks both media claims share: the lock, a missing row,
-the entry statuses and a previewed post, each with the log event of its own task.
+"""`lock_post_for_claim`, the three checks both media claims share: the lock, a missing row,
+the entry statuses, each with the log event of its own task.
 """
 
 from __future__ import annotations
@@ -19,7 +19,6 @@ EVENTS = worker_tasks.ClaimEvents(
     post_locked="locked_event",
     post_not_found="not_found_event",
     settled="settled_event",
-    previewed="previewed_event",
 )
 ENTRY_STATUSES = frozenset({PostStatus.RESOLVED})
 
@@ -94,14 +93,18 @@ async def test_a_status_outside_the_entries_logs_the_settled_event(
     fake_logger.info.assert_called_once_with("settled_event", post_id=POST_ID, status="downloading")
 
 
-async def test_a_previewed_post_logs_the_previewed_event(fake_logger: MagicMock) -> None:
+async def test_a_previewed_post_in_an_entry_status_is_still_locked_and_returned(
+    fake_logger: MagicMock,
+) -> None:
+    """whether a preview refuses the claim is each task's own rule, not the shared lock's."""
+    post = make_post(PostStatus.RESOLVED, preview_message_id=99)
     session = AsyncMock()
-    session.get.return_value = make_post(PostStatus.RESOLVED, preview_message_id=99)
+    session.get.return_value = post
 
     claimed = await worker_tasks.lock_post_for_claim(session, POST_ID, ENTRY_STATUSES, EVENTS)
 
-    assert claimed is None
-    fake_logger.info.assert_called_once_with("previewed_event", post_id=POST_ID, status="resolved")
+    assert claimed is post
+    fake_logger.info.assert_not_called()
 
 
 def test_each_media_task_has_its_own_event_names() -> None:
@@ -109,5 +112,4 @@ def test_each_media_task_has_its_own_event_names() -> None:
     render = worker_tasks.RENDER_CLAIM_EVENTS
 
     assert download.post_locked == "download_post_audio_post_locked"
-    assert render.previewed == "render_post_video_task_arrived_at_previewed_post"
-    assert len({*vars(download).values(), *vars(render).values()}) == 8
+    assert len({*vars(download).values(), *vars(render).values()}) == 6

@@ -93,6 +93,26 @@ def test_an_illegal_status_is_refused_with_the_status_in_the_log(
     assert refusal_fields["status"] == "resolving"
 
 
+def test_a_tap_under_another_message_than_the_preview_is_refused_with_its_own_reason(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_logger = capture_logger(monkeypatch)
+    post = make_post()
+    for step in (PostStatus.RESOLVING, PostStatus.RESOLVED, PostStatus.DOWNLOADING):
+        set_post_status(post, step)
+    for step in (PostStatus.DOWNLOADED, PostStatus.RENDERING, PostStatus.RENDERED):
+        set_post_status(post, step)
+    post.preview_chat_id = 111
+    post.preview_message_id = 300
+
+    refusal, _ = handlers.claim_post_for_publishing(post, POST_ID, PUBLISHER_ID, (111, 299))
+    claimed, reference = handlers.claim_post_for_publishing(post, POST_ID, PUBLISHER_ID, (111, 300))
+
+    assert refusal is not None
+    assert warnings_named(fake_logger, "publish_refused")[0]["reason"] == "outdated_preview"
+    assert (claimed, reference) == (None, (111, 300))
+
+
 def test_a_claimed_post_is_not_logged_as_a_refusal(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_logger = capture_logger(monkeypatch)
     post = make_post()

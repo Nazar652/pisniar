@@ -112,6 +112,7 @@ async def seeded(webapp_client: WebappClient) -> AsyncIterator[Seeded]:
                 post.failed_from_status = PostStatus.RESOLVING
             if status is PostStatus.RENDERED:
                 post.preview_chat_id, post.preview_message_id = 1, 10_000_000 + index
+                post.preview_params_hash = "a" * 64
             session.add(post)
             posts.append(post)
         await session.flush()

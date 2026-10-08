@@ -9,6 +9,7 @@ import json
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from pisniar.logging import get_logger
 from pisniar.resolve.json_utils import as_int, as_nonempty_str
@@ -85,6 +86,20 @@ def run_media_tool(
     binary: str, arguments: list[str], *, timeout_seconds: float
 ) -> subprocess.CompletedProcess[str]:
     """every value in `arguments` is built from validated ids, never concatenated."""
+    return run_media_command(binary, arguments, timeout_seconds=timeout_seconds, text=True)
+
+
+def run_media_tool_bytes(
+    binary: str, arguments: list[str], *, timeout_seconds: float
+) -> subprocess.CompletedProcess[bytes]:
+    """the same discipline as `run_media_tool`, with stdout and stderr left as bytes."""
+    return run_media_command(binary, arguments, timeout_seconds=timeout_seconds, text=False)
+
+
+def run_media_command(
+    binary: str, arguments: list[str], *, timeout_seconds: float, text: bool
+) -> subprocess.CompletedProcess[Any]:
+    """the one subprocess call behind both tool runners; `text` picks str or bytes output."""
     command = [binary, *arguments]
     logger.info("media_tool_started", binary=binary, argument_count=len(arguments))
 
@@ -93,11 +108,11 @@ def run_media_tool(
             command,
             shell=False,
             capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
             timeout=timeout_seconds,
             check=False,
+            text=text,
+            encoding="utf-8" if text else None,
+            errors="replace" if text else None,
         )
     except FileNotFoundError as error:
         raise MediaToolNotFoundError(binary) from error

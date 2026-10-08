@@ -187,6 +187,7 @@ async def seeded(environment: Environment) -> AsyncIterator[Seeded]:
             draft_message_id=base + 1,
             preview_chat_id=DRAFT_CHAT_ID,
             preview_message_id=base + 2,
+            preview_params_hash="a" * 64,
         )
         published = Post(
             track_id=track.id,

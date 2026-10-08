@@ -110,6 +110,48 @@ def test_run_media_tool_checked_returns_the_process_on_success(
     assert completed.stdout == "2025.12.8"
 
 
+def test_the_bytes_runner_keeps_the_argument_discipline_and_returns_raw_stdout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recorded: dict[str, Any] = {}
+
+    def fake_run(command: object, **kwargs: Any) -> subprocess.CompletedProcess[bytes]:
+        recorded["command"] = command
+        recorded["kwargs"] = kwargs
+        return subprocess.CompletedProcess(args=["ffmpeg"], returncode=0, stdout=b"\x00\xff")
+
+    monkeypatch.setattr(media_tools.subprocess, "run", fake_run)
+
+    completed = media_tools.run_media_tool_bytes(
+        "ffmpeg", ["-i", "a b;rm -rf /"], timeout_seconds=9
+    )
+
+    assert completed.stdout == b"\x00\xff"
+    assert recorded["command"] == ["ffmpeg", "-i", "a b;rm -rf /"]
+    assert recorded["kwargs"]["shell"] is False
+    assert recorded["kwargs"]["timeout"] == 9
+    assert recorded["kwargs"]["text"] is False
+    assert recorded["kwargs"]["encoding"] is None
+
+
+def test_the_bytes_runner_names_a_missing_binary_and_a_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def missing(command: object, **kwargs: Any) -> subprocess.CompletedProcess[bytes]:
+        raise FileNotFoundError(2, "No such file or directory")
+
+    monkeypatch.setattr(media_tools.subprocess, "run", missing)
+    with pytest.raises(media_tools.MediaToolNotFoundError, match="ffmpeg"):
+        media_tools.run_media_tool_bytes("ffmpeg", ["-version"], timeout_seconds=5)
+
+    def slow(command: object, **kwargs: Any) -> subprocess.CompletedProcess[bytes]:
+        raise subprocess.TimeoutExpired(cmd=["ffmpeg"], timeout=3)
+
+    monkeypatch.setattr(media_tools.subprocess, "run", slow)
+    with pytest.raises(media_tools.MediaToolTimeoutError):
+        media_tools.run_media_tool_bytes("ffmpeg", ["-i", "x"], timeout_seconds=3)
+
+
 def test_stderr_tail_is_bounded() -> None:
     tail = media_tools.stderr_tail("x" * (media_tools.STDERR_TAIL_CHARACTERS + 500))
 

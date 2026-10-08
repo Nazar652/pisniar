@@ -5,6 +5,7 @@ is worded, and who may start the chain.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -48,10 +49,13 @@ def test_the_download_entry_statuses_are_the_legal_ones_except_failed() -> None:
     )
 
 
-def test_the_render_entry_statuses_are_the_legal_ones_except_failed() -> None:
-    assert statuses_with_an_edge_into(PostStatus.RENDERING) - {PostStatus.FAILED} == (
-        worker_tasks.RENDER_ENTRY_STATUSES
-    )
+def test_the_render_entry_statuses_are_the_legal_ones_except_failed_and_rendered() -> None:
+    """a `rendered` post enters through the explicit choice that writes `rendering` first,
+    so a render task that finds `rendered` is always a redelivery."""
+    assert statuses_with_an_edge_into(PostStatus.RENDERING) - {
+        PostStatus.FAILED,
+        PostStatus.RENDERED,
+    } == (worker_tasks.RENDER_ENTRY_STATUSES)
 
 
 def make_post(start_ms: int | None = None, end_ms: int | None = None) -> Post:
@@ -269,6 +273,67 @@ def test_a_stored_audio_file_is_reused_instead_of_downloaded_again(
 
     assert outcome.path == directory / "n4bPzdIs_nc.opus"
     assert outcome.ytdlp_version is None
+
+
+DOWNLOAD_CLAIM = worker_tasks.DownloadClaim(
+    post_id=7,
+    track_id=3,
+    platform_links={"youtubeMusic": {"url": "https://music.youtube.com/watch?v=n4bPzdIs_nc"}},
+    track_duration_ms=212_000,
+)
+
+
+def record_peaks_calls(monkeypatch: pytest.MonkeyPatch) -> list[tuple[object, ...]]:
+    calls: list[tuple[object, ...]] = []
+
+    def spy(*arguments: object) -> None:
+        calls.append(arguments)
+
+    monkeypatch.setattr(worker_tasks.audio_peaks, "ensure_peaks", spy)
+    return calls
+
+
+def test_peaks_are_written_for_a_reused_audio_artifact(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(worker_tasks.settings, "media_root", tmp_path)
+    directory = tmp_path / "audio" / "3"
+    directory.mkdir(parents=True)
+    (directory / "n4bPzdIs_nc.opus").write_bytes(b"already downloaded")
+    monkeypatch.setattr(
+        worker_tasks.audio_download, "verify_media", lambda path, **k: audio_probe()
+    )
+    calls = record_peaks_calls(monkeypatch)
+
+    worker_tasks.download_audio_off_transaction(DOWNLOAD_CLAIM, tmp_path / "tmp" / "7")
+
+    assert calls == [
+        (tmp_path, 3, "n4bPzdIs_nc", directory / "n4bPzdIs_nc.opus", tmp_path / "tmp" / "7")
+    ]
+
+
+def test_peaks_are_written_for_a_fresh_download_from_its_published_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(worker_tasks.settings, "media_root", tmp_path)
+    temporary_directory = tmp_path / "tmp" / "7"
+    temporary_directory.mkdir(parents=True)
+    downloaded = temporary_directory / "n4bPzdIs_nc.opus"
+    downloaded.write_bytes(b"fresh audio")
+    monkeypatch.setattr(worker_tasks.media_storage, "ensure_free_space", lambda root, size: size)
+    monkeypatch.setattr(
+        worker_tasks.audio_download, "download_audio", lambda *a, **k: (downloaded, "2026.1.1")
+    )
+    monkeypatch.setattr(
+        worker_tasks.audio_download, "verify_downloaded_audio", lambda path, duration: audio_probe()
+    )
+    calls = record_peaks_calls(monkeypatch)
+
+    outcome = worker_tasks.download_audio_off_transaction(DOWNLOAD_CLAIM, temporary_directory)
+
+    published = tmp_path / "audio" / "3" / "n4bPzdIs_nc.opus"
+    assert outcome.path == published
+    assert calls == [(tmp_path, 3, "n4bPzdIs_nc", published, temporary_directory)]
 
 
 def render_claim() -> worker_tasks.RenderClaim:
@@ -715,7 +780,7 @@ def session_returning(render_row: object) -> AsyncMock:
     """`session.execute()` is awaited and its result is not — a plain
     AsyncMock would hand back a coroutine where `.scalars()` is expected."""
     result = MagicMock()
-    result.scalars.return_value.first.return_value = render_row
+    result.scalar_one_or_none.return_value = render_row
 
     session = AsyncMock()
     session.execute.return_value = result
@@ -918,23 +983,43 @@ def claim_fixtures(
     return post, sessions, session_factory
 
 
-@pytest.mark.parametrize(
-    ("claim_name", "status"),
-    [
-        ("claim_post_for_downloading", PostStatus.RESOLVED),
-        ("claim_post_for_downloading", PostStatus.DOWNLOADING),
-        ("claim_post_for_rendering", PostStatus.DOWNLOADED),
-        ("claim_post_for_rendering", PostStatus.RENDERING),
-    ],
-)
-async def test_a_previewed_post_is_never_downloaded_or_rendered_again(
-    claim_name: str, status: PostStatus
+@pytest.mark.parametrize("status", [PostStatus.RESOLVED, PostStatus.DOWNLOADING])
+async def test_a_previewed_post_is_never_downloaded_again(
+    status: PostStatus, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """publication takes the newest `render` row, which is the previewed one only
-    while no second row can appear after the preview."""
+    post, sessions, session_factory = claim_fixtures(status, preview_message_id=99)
+    fake_logger = install_fake_logger(monkeypatch)
+
+    claim = await worker_tasks.claim_post_for_downloading(session_factory, 7)
+
+    assert claim is None
+    assert logged(fake_logger, "download_post_audio_task_arrived_at_previewed_post") == [
+        {"post_id": 7, "status": status.value}
+    ]
+    assert post.status is status
+    assert sum(session.commits for session in sessions) == 0
+
+
+async def test_a_previewed_post_in_rendering_is_rendered_again() -> None:
+    """the explicit choice of new bounds writes `rendering` and keeps the old preview
+    reference until the new preview replaces it."""
+    post, sessions, session_factory = claim_fixtures(PostStatus.RENDERING, preview_message_id=99)
+
+    claim = await worker_tasks.claim_post_for_rendering(session_factory, 7)
+
+    assert claim is not None
+    assert post.status is PostStatus.RENDERING
+    assert post.preview_message_id == 99
+    assert sum(session.commits for session in sessions) == 1
+
+
+@pytest.mark.parametrize(
+    "status", [PostStatus.RENDERED, PostStatus.PUBLISHING, PostStatus.PUBLISHED]
+)
+async def test_a_redelivered_render_of_a_previewed_post_does_no_work(status: PostStatus) -> None:
     post, sessions, session_factory = claim_fixtures(status, preview_message_id=99)
 
-    claim = await getattr(worker_tasks, claim_name)(session_factory, 7)
+    claim = await worker_tasks.claim_post_for_rendering(session_factory, 7)
 
     assert claim is None
     assert post.status is status
@@ -1191,3 +1276,35 @@ async def test_lines_that_all_miss_the_fragment_are_reported_as_such(
     assert renderer.subtitles == [None]
     assert outcome.text_version is None
     assert outcome.lyrics_reason == LYRICS_OUTSIDE_FRAGMENT
+
+
+async def test_new_bounds_change_the_text_and_the_hash_and_lines_outside_them_say_so(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """timecodes are absolute, so the same stored lines follow whatever fragment is chosen."""
+    install_renderer(monkeypatch, tmp_path)
+    claim = render_claim()
+    later_claim = replace(claim, fragment_start_ms=60_000, fragment_end_ms=105_000)
+    lines = (
+        LyricLine(line_index=0, start_ms=1_000, text="Перший рядок"),
+        LyricLine(line_index=1, start_ms=70_000, text="Приспів"),
+    )
+    stub_prepared_lyrics(monkeypatch, lines, LYRICS_ALREADY_STORED)
+
+    first = await worker_tasks.render_video_off_transaction(AsyncMock(), claim, tmp_path / "a")
+    second = await worker_tasks.render_video_off_transaction(
+        AsyncMock(), later_claim, tmp_path / "b"
+    )
+
+    assert first.text_version is not None
+    assert second.text_version is not None
+    assert first.text_version != second.text_version
+    assert first.params_hash != second.params_hash
+
+    stub_prepared_lyrics(monkeypatch, lines[:1], LYRICS_ALREADY_STORED)
+    missed = await worker_tasks.render_video_off_transaction(
+        AsyncMock(), later_claim, tmp_path / "c"
+    )
+
+    assert missed.text_version is None
+    assert missed.lyrics_reason == LYRICS_OUTSIDE_FRAGMENT

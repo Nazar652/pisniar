@@ -1,4 +1,5 @@
-"""The fragment starts at 0 and runs 45 s (a shorter track whole), no heuristics.
+"""The default fragment starts at 0 and runs 45 s (a shorter track whole), no heuristics;
+a chosen one is checked against the audio and a 120 s ceiling, with no minimum.
 Bounds are absolute ms from the start of the *full* track, never fragment-local.
 """
 
@@ -12,6 +13,7 @@ logger = get_logger(__name__)
 
 FRAGMENT_START_MS = 0
 FRAGMENT_LENGTH_MS = 45_000
+MAX_FRAGMENT_LENGTH_MS = 120_000
 
 
 class FragmentBoundsError(ValueError):
@@ -53,6 +55,27 @@ def stored_bounds(start_ms: int | None, end_ms: int | None) -> FragmentBounds | 
         return None
     if start_ms < 0 or end_ms <= start_ms:
         raise FragmentBoundsError(f"збережені межі фрагмента невалідні: [{start_ms}, {end_ms})")
+    return FragmentBounds(start_ms=start_ms, end_ms=end_ms)
+
+
+def validate_chosen_bounds(start_ms: int, end_ms: int, audio_duration_ms: int) -> FragmentBounds:
+    """an admin-chosen fragment: whole ms inside the audio, at most the maximum long."""
+    if start_ms < 0:
+        raise FragmentBoundsError(
+            f"початок фрагмента не може бути меншим за 0, отримано {start_ms}"
+        )
+    if end_ms <= start_ms:
+        raise FragmentBoundsError(
+            f"кінець фрагмента ({end_ms} мс) має бути пізніше за початок ({start_ms} мс)"
+        )
+    if end_ms > audio_duration_ms:
+        raise FragmentBoundsError(
+            f"кінець фрагмента ({end_ms} мс) виходить за межі аудіо ({audio_duration_ms} мс)"
+        )
+    if end_ms - start_ms > MAX_FRAGMENT_LENGTH_MS:
+        raise FragmentBoundsError(
+            f"фрагмент довший за {MAX_FRAGMENT_LENGTH_MS} мс: {end_ms - start_ms} мс"
+        )
     return FragmentBounds(start_ms=start_ms, end_ms=end_ms)
 
 
