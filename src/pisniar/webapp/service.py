@@ -128,6 +128,7 @@ def build_post_detail(post: Post, track: Track, other_post_ids: list[int]) -> Po
 
     return PostDetail(
         id=post.id,
+        has_video=post.preview_message_id is not None or post.channel_message_kind == "video",
         status_label=STATUS_LABELS[post.status],
         editable=editability.editable,
         not_editable_reason=editability.reason,

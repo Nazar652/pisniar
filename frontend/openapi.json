@@ -827,6 +827,10 @@
             "title": "Genres",
             "type": "array"
           },
+          "has_video": {
+            "title": "Has Video",
+            "type": "boolean"
+          },
           "id": {
             "title": "Id",
             "type": "integer"
@@ -955,6 +959,7 @@
         },
         "required": [
           "id",
+          "has_video",
           "status_label",
           "editable",
           "not_editable_reason",

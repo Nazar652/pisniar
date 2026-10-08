@@ -122,6 +122,30 @@ def test_an_automatic_link_on_a_foreign_host_is_not_stored_and_is_reported() -> 
     assert [entry["event"] for entry in captured] == ["platform_link_rejected_by_allowlist"]
 
 
+def test_a_platform_the_app_does_not_list_is_dropped_quietly() -> None:
+    resolved = ResolvedTrack()
+
+    with structlog.testing.capture_logs() as captured:
+        merge.merge_platform_link(resolved, "yandex", make_link("https://music.yandex.ru/track/1"))
+
+    assert resolved.platform_links == {}
+    assert resolved.link_rejections == []
+    assert resolved.warnings == []
+    assert [(entry["event"], entry["log_level"]) for entry in captured] == [
+        ("platform_link_ignored", "info")
+    ]
+
+
+def test_any_unlisted_key_is_dropped_quietly_not_only_yandex() -> None:
+    resolved = ResolvedTrack()
+
+    merge.merge_platform_link(resolved, "newservice", make_link("https://newservice.example/t/1"))
+
+    assert resolved.platform_links == {}
+    assert resolved.link_rejections == []
+    assert resolved.warnings == []
+
+
 def test_a_manual_link_skips_the_host_list_here() -> None:
     resolved = ResolvedTrack()
     manual = make_link("https://evil.example/track/1", MatchClass.MANUAL)

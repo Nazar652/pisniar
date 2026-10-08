@@ -55,6 +55,7 @@ def empty_page() -> PostListResponse:
 def make_detail() -> PostDetail:
     return PostDetail(
         id=7,
+        has_video=False,
         status_label="Чернетка готова",
         editable=True,
         not_editable_reason=None,

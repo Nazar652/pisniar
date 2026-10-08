@@ -16,6 +16,7 @@ function fakeHost(storedToken: string | null): DevShimHost {
     removeEventListener: vi.fn(),
   }
   return {
+    confirm: vi.fn(() => true),
     sessionStorage: { getItem: (key: string) => (key === DEV_TOKEN_KEY ? storedToken : null) },
     document: {
       createElement: vi.fn(() => element),

@@ -335,7 +335,7 @@ def test_a_year_out_of_range_is_refused(value: int) -> None:
     assert [error.field for error in errors] == ["year"]
 
 
-@pytest.mark.parametrize("value", ["single", "album", "compilation", None, "", "  "])
+@pytest.mark.parametrize("value", ["single", "album", "ep", "compilation", None, "", "  "])
 def test_the_three_release_types_and_empty_are_accepted(value: str | None) -> None:
     errors: list[FieldError] = []
 
@@ -347,9 +347,9 @@ def test_the_three_release_types_and_empty_are_accepted(value: str | None) -> No
 def test_a_release_type_from_a_source_is_accepted_only_unchanged() -> None:
     errors: list[FieldError] = []
 
-    assert plan_release_type("ep", "ep", errors) == "ep"
+    assert plan_release_type("mixtape", "mixtape", errors) == "mixtape"
     assert errors == []
-    plan_release_type("ep", "single", errors)
+    plan_release_type("mixtape", "single", errors)
     plan_release_type("mixtape", None, errors)
     assert [error.field for error in errors] == ["release_type", "release_type"]
 
@@ -529,4 +529,4 @@ def test_the_plan_carries_the_genres_languages_and_links_as_the_rows_expect_them
 
 
 def test_the_constants_name_the_three_release_types() -> None:
-    assert fields.RELEASE_TYPES == ("single", "album", "compilation")
+    assert fields.RELEASE_TYPES == ("single", "album", "ep", "compilation")

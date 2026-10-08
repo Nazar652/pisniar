@@ -1,0 +1,107 @@
+:root {
+  --page-bg: var(--tg-theme-bg-color, #ffffff);
+  --page-text: var(--tg-theme-text-color, #000000);
+  --page-hint: var(--tg-theme-hint-color, #707579);
+  --page-link: var(--tg-theme-link-color, #2481cc);
+  --page-button: var(--tg-theme-button-color, #2481cc);
+  --page-button-text: var(--tg-theme-button-text-color, #ffffff);
+  --page-card: var(--tg-theme-secondary-bg-color, #f1f1f4);
+  --page-danger: var(--tg-theme-destructive-text-color, #d14343);
+  --page-ok: #2e9e57;
+}
+
+body {
+  margin: 0;
+  background: var(--page-bg);
+  color: var(--page-text);
+  font-family: system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.4;
+}
+
+.page {
+  box-sizing: border-box;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 12px 12px 96px;
+}
+
+.card {
+  margin: 0 0 10px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--page-card);
+}
+
+.input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: var(--page-bg);
+  color: var(--page-text);
+  font: inherit;
+}
+
+.input:focus {
+  border-color: var(--page-button);
+  outline: none;
+}
+
+.btn {
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--page-button);
+  color: var(--page-button-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+}
+
+.btn--small:disabled {
+  background: transparent;
+  color: var(--page-hint);
+  opacity: 0.3;
+}
+
+.btn--quiet {
+  background: transparent;
+  color: var(--page-link);
+}
+
+.btn--danger {
+  background: var(--page-danger);
+}
+
+.btn--small {
+  min-width: 36px;
+  padding: 6px 8px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.row > .input {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.muted {
+  color: var(--page-hint);
+  font-size: 14px;
+}
+
+.error {
+  margin: 4px 0 0;
+  color: var(--page-danger);
+  font-size: 14px;
+}

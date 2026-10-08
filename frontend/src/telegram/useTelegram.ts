@@ -1,3 +1,5 @@
+export type WebApp = TelegramWebApp
+
 export interface TelegramHost {
   Telegram?: { WebApp?: TelegramWebApp }
 }

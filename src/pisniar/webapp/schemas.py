@@ -97,6 +97,7 @@ class CaptionView(BaseModel):
 
 class PostDetail(BaseModel):
     id: int
+    has_video: bool
     status_label: str
     editable: bool
     not_editable_reason: str | None

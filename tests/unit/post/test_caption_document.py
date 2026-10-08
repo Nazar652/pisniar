@@ -85,9 +85,19 @@ def test_a_single_never_shows_a_release_title() -> None:
 
 
 def test_an_unknown_release_type_is_shown_as_the_source_gave_it() -> None:
-    text, _, _ = build(release_type="ep", release_title=None)
+    text, _, _ = build(release_type="mixtape", release_title=None)
 
-    assert "#Тол · 2013 · ep" in text
+    assert "#Тол · 2013 · mixtape" in text
+
+
+def test_an_ep_is_a_mini_album_with_its_release_title_and_album_link() -> None:
+    text, _, document = build(release_type="ep")
+
+    assert "#Тол · 2013 · міні-альбом «Синдром Бажання»" in text
+    assert any(
+        getattr(segment, "href", "") == f"https://open.spotify.com/album/{ALBUM_ID}"
+        for segment in document.segments
+    )
 
 
 def test_the_year_and_the_release_type_are_optional() -> None:

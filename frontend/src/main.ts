@@ -1,5 +1,6 @@
 import { createApp } from 'vue'
 import App from './App.vue'
+import './styles/base.css'
 
 async function start(): Promise<void> {
   let presetToken: string | undefined

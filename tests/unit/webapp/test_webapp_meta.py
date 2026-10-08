@@ -34,10 +34,15 @@ def test_a_host_added_to_the_policy_shows_up_without_touching_meta(
     assert "new.tidal.example" in rules["tidal"].hosts
 
 
-def test_the_release_types_are_the_three_the_caption_knows() -> None:
+def test_the_release_types_are_the_ones_the_caption_knows() -> None:
     options = {option.value: option.label for option in build_meta().release_types}
 
-    assert options == {"single": "сингл", "album": "альбом", "compilation": "збірка"}
+    assert options == {
+        "single": "сингл",
+        "album": "альбом",
+        "ep": "міні-альбом",
+        "compilation": "збірка",
+    }
 
 
 def test_genre_hints_are_the_deezer_dictionary_names_with_their_hashtags() -> None:

@@ -238,6 +238,13 @@ suggest or introduce either.
   `webapp` copies its `dist` and `bot` and `worker` never see it. The `webapp` healthcheck is strict
   (`/` must answer 200), and `webapp_init_data_received` logs the documented `initData` field names
   and whether `signature` is present, never a value.
+  The screens are `PostList` and `PostEditor` (no router, no store): the logic lives in
+  `usePostList` and `usePostEditor`, which Vitest drives against a fake server. Before publication
+  «Зберегти» is `PUT …/fields` followed at once by `apply` with the hash the save returned; for a
+  published post the save stops there and «Застосувати в каналі» is a separate `showConfirm` step.
+  A 409 `stale_data` or `caption_changed` reloads the post, `channel_message_missing` is the only
+  thing that shows the archive button, and every server sentence is shown as it came. The caption
+  preview renders segments by interpolation, links only for `http(s)`, and never `v-html`.
 
 ## Resolver conventions (`pisniar/resolve/`)
 
@@ -304,8 +311,9 @@ suggest or introduce either.
   a clip the admin sends removes `youtube` from that list again.
 - **Automatic links meet a host list** (`resolve/link_policy.py`), inside
   `merge_platform_link`: https only, no port or credentials, and a host that belongs
-  to that platform (Bandcamp by suffix); an unknown platform key is refused. A refused
-  candidate is not stored; it is logged as `platform_link_rejected_by_allowlist` and
+  to that platform (Bandcamp by suffix). A candidate whose platform key is not listed at all
+  is dropped silently and logged at info as `platform_link_ignored`; a known platform's link
+  that breaks the rules is refused: it is not stored; it is logged as `platform_link_rejected_by_allowlist` and
   carried in `ResolvedTrack.link_rejections`, which the worker's alert under the
   draft lists next to `source_failures`. Manual and already-stored links skip this
   check — a manual link is validated where it is entered (`check_manual_link`: track

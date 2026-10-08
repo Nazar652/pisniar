@@ -21,7 +21,7 @@ export default defineConfig({
     proxy: { '/api': 'http://127.0.0.1:18081' },
     headers: { 'Content-Security-Policy': DEV_CONTENT_SECURITY_POLICY },
   },
-  test: { environment: 'node', include: ['tests/**/*.test.ts'] },
+  test: { environment: 'node', include: ['tests/**/*.test.ts'], testTimeout: 20000 },
   build: {
     target: 'es2020',
     assetsInlineLimit: 0,

@@ -417,6 +417,8 @@ export interface components {
             expected_track_updated_at: string;
             /** Genres */
             genres: components["schemas"]["GenreDetail"][];
+            /** Has Video */
+            has_video: boolean;
             /** Id */
             id: number;
             /** Languages */

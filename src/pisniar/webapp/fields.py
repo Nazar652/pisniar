@@ -11,6 +11,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
 from pisniar.db.models import MANUAL_FIELD_NAMES
+from pisniar.post.caption import RELEASE_TYPE_NAMES
 from pisniar.post.caption_input import genres_from_stored
 from pisniar.resolve.json_utils import as_dict, as_nonempty_str
 from pisniar.resolve.link_policy import ALLOWED_HOSTS, check_manual_link, parse_spotify_album_link
@@ -18,7 +19,7 @@ from pisniar.resolve.merge import artists_from_stored
 from pisniar.webapp.errors import FieldsInvalidError
 from pisniar.webapp.schemas import FieldError, FieldsInput
 
-RELEASE_TYPES = ("single", "album", "compilation")
+RELEASE_TYPES = tuple(RELEASE_TYPE_NAMES)
 MIN_YEAR = 1900
 HASHTAG_PATTERN = re.compile(r"^\w{1,64}$")
 MANUAL_SOURCE = "manual"
@@ -171,12 +172,16 @@ def plan_year(value: int | None, current_year: int, errors: list[FieldError]) ->
 def plan_release_type(
     value: str | None, stored: str | None, errors: list[FieldError]
 ) -> str | None:
-    """a type a source reported (say `ep`) is accepted only as it already is."""
+    """a type a source reported outside the known ones is accepted only as it already is."""
     release_type = (value or "").strip() or None
     if release_type is None or release_type in RELEASE_TYPES or release_type == stored:
         return release_type
 
-    collect(errors, "release_type", "Тип релізу: сингл, альбом, збірка або порожньо.")
+    collect(
+        errors,
+        "release_type",
+        "Тип релізу: " + ", ".join(RELEASE_TYPE_NAMES.values()) + " або порожньо.",
+    )
     return release_type
 
 

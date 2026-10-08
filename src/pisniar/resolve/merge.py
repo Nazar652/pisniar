@@ -83,6 +83,15 @@ def merge_platform_link(
 ) -> None:
     """the single funnel every candidate passes through; only fresh automatic links meet
     the host list, since a manual link is validated on entry and a stored one was accepted."""
+    if (
+        check_allowlist
+        and link.match is not MatchClass.MANUAL
+        and platform not in link_policy.ALLOWED_HOSTS
+    ):
+        # a platform the app does not list is not a forged link: quiet, unlike a bad host
+        logger.info("platform_link_ignored", platform=platform, source=link.source)
+        return
+
     if not is_safe_url(link.url):
         logger.warning(
             "platform_link_rejected_unsafe_scheme",

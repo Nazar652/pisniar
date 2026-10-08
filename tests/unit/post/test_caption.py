@@ -5,7 +5,14 @@ release title, never the first line, artist hashtags, languages or channel link.
 
 from __future__ import annotations
 
-from pisniar.post.caption import CHANNEL_LINK_URL, MEDIA_CAPTION_LIMIT, build_caption
+import pytest
+
+from pisniar.post.caption import (
+    CHANNEL_LINK_URL,
+    MEDIA_CAPTION_LIMIT,
+    build_caption,
+    build_caption_with_report,
+)
 from pisniar.post.render import LinkSegment, plain_text, visible_length
 from pisniar.resolve.types import ArtistInfo, GenreInfo, MatchClass, PlatformLink
 
@@ -400,3 +407,25 @@ def test_a_malformed_album_id_degrades_to_plain_text_with_a_warning() -> None:
         if isinstance(segment, LinkSegment) and "/album/" in segment.href
     ]
     assert any("base62" in warning for warning in warnings)
+
+
+@pytest.mark.parametrize(
+    ("release_type", "dropped"), [("album", True), ("ep", True), ("single", False)]
+)
+def test_degradation_drops_the_release_title_of_an_album_and_an_ep_only(
+    release_type: str, dropped: bool
+) -> None:
+    result = build_caption_with_report(
+        artists=[ArtistInfo(name="A")],
+        title="T",
+        year=2020,
+        release_type=release_type,
+        release_title="Дуже довга назва релізу " * 4,
+        album_id_spotify=None,
+        languages=["українська"],
+        genres=[],
+        platform_links={"spotify": SPOTIFY_LINK},
+        limit=110,
+    )
+
+    assert result.degradation.release_title_dropped is dropped

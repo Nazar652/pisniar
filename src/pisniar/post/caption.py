@@ -24,7 +24,14 @@ MEDIA_CAPTION_LIMIT = 1024
 CLIP_PLATFORM = "youtube"
 CLIP_LABEL_SUFFIX = " (кліп)"
 
-RELEASE_TYPE_NAMES = {"single": "сингл", "album": "альбом", "compilation": "збірка"}
+RELEASE_TYPE_NAMES = {
+    "single": "сингл",
+    "album": "альбом",
+    "ep": "міні-альбом",
+    "compilation": "збірка",
+}
+# the types whose release title (and album link) the caption shows
+RELEASE_TYPES_WITH_TITLE = ("album", "ep")
 
 PLATFORM_DISPLAY_ORDER = ["spotify", "youtubeMusic", "appleMusic", "bandcamp", "deezer", "tidal"]
 PLATFORM_PROTECTED_UNTIL_LAST = {"spotify", "youtubeMusic"}
@@ -145,7 +152,7 @@ def build_document(
     if release_type is not None:
         release_type_name = RELEASE_TYPE_NAMES.get(release_type, release_type)
         document.append_text(f" · {release_type_name}")
-        if include_release_title and release_title and release_type == "album":
+        if include_release_title and release_title and release_type in RELEASE_TYPES_WITH_TITLE:
             document.append_text(" «")
             if album_id_spotify and is_valid_spotify_id(album_id_spotify):
                 document.append_link(
@@ -254,7 +261,7 @@ def build_caption_with_report(
     release_title_was_dropped = False
     if include_release_title and visible_length(document) > limit:
         include_release_title = False
-        release_title_was_dropped = bool(release_title and release_type == "album")
+        release_title_was_dropped = bool(release_title and release_type in RELEASE_TYPES_WITH_TITLE)
         document, warnings = attempt()
 
     over_limit = visible_length(document) > limit

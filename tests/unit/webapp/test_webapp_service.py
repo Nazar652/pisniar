@@ -95,6 +95,26 @@ def test_the_detail_carries_every_editable_field() -> None:
     assert detail.other_post_ids == [9, 8]
 
 
+def test_the_detail_says_whether_the_post_has_a_video() -> None:
+    plain = build_post_detail(make_post(), make_track(), [])
+    previewed = build_post_detail(
+        make_post(PostStatus.RENDERED, preview_message_id=5), make_track(), []
+    )
+    published = build_post_detail(
+        make_post(PostStatus.PUBLISHED, channel_message_kind="video"), make_track(), []
+    )
+    photo = build_post_detail(
+        make_post(PostStatus.PUBLISHED, channel_message_kind="photo"), make_track(), []
+    )
+
+    assert [plain.has_video, previewed.has_video, published.has_video, photo.has_video] == [
+        False,
+        True,
+        True,
+        False,
+    ]
+
+
 def test_artists_show_their_stored_hashtag_and_the_default_one_for_a_placeholder() -> None:
     detail = build_post_detail(make_post(), make_track(), [])
 

@@ -6,6 +6,7 @@ export const DEV_TOKEN_KEY = 'pisniar.devToken'
 export interface DevShimHost extends TelegramHost {
   sessionStorage: Pick<Storage, 'getItem'>
   document: Pick<Document, 'createElement' | 'body'>
+  confirm: (message: string) => boolean
 }
 
 function noop(): void {
@@ -51,7 +52,7 @@ export function installDevShim(host: DevShimHost): string | undefined {
         onEvent: noop,
         offEvent: noop,
         showAlert: noop,
-        showConfirm: noop,
+        showConfirm: (message, callback) => callback?.(host.confirm(message)),
         BackButton: createDevButton(host, '←'),
         MainButton: createDevButton(host, 'OK'),
       },
