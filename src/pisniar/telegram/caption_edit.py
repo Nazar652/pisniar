@@ -64,6 +64,7 @@ async def edit_message_caption_by_kind(
     message_kind: str,
     caption: str,
     reply_markup: InlineKeyboardMarkup | None = None,
+    request_timeout: int | None = None,
 ) -> EditOutcome:
     """photo and video carry a caption, a text message carries it as its text. An edit without
     `reply_markup` removes the keyboard, so the caller passes the one that belongs."""
@@ -75,6 +76,7 @@ async def edit_message_caption_by_kind(
                 caption=caption,
                 parse_mode="HTML",
                 reply_markup=reply_markup,
+                request_timeout=request_timeout,
             )
         elif message_kind == TEXT_MESSAGE_KIND:
             await bot.edit_message_text(
@@ -84,6 +86,7 @@ async def edit_message_caption_by_kind(
                 parse_mode="HTML",
                 link_preview_options=LinkPreviewOptions(is_disabled=True),
                 reply_markup=reply_markup,
+                request_timeout=request_timeout,
             )
         else:
             raise UnsupportedMessageKindError(f"message kind {message_kind!r} cannot be edited")
@@ -103,12 +106,17 @@ async def edit_message_caption_by_kind(
     return EditOutcome.EDITED
 
 
-async def probe_message(bot: Bot, chat_id: int, message_id: int) -> MessageProbe:
+async def probe_message(
+    bot: Bot, chat_id: int, message_id: int, request_timeout: int | None = None
+) -> MessageProbe:
     """clearing the keyboard of a keyboardless message changes nothing: live answers «not modified»,
     deleted «not found». Anything else raises, so a doubtful answer never proves a deletion."""
     try:
         await bot.edit_message_reply_markup(
-            chat_id=chat_id, message_id=message_id, reply_markup=None
+            chat_id=chat_id,
+            message_id=message_id,
+            reply_markup=None,
+            request_timeout=request_timeout,
         )
     except TelegramAPIError as error:
         outcome = classify_edit_error(error)

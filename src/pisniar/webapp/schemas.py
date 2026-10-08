@@ -198,3 +198,23 @@ class PreviewResponse(BaseModel):
     caption: CaptionView
     stored_caption_sha256: str | None
     differs_from_stored: bool
+
+
+class ApplyRequest(BaseModel):
+    """the hash of the caption the editor showed: the caption is rebuilt and compared before
+    anything is sent."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_caption_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class ApplyResponse(BaseModel):
+    caption_sha256: str
+    result: Literal["edited", "not_modified", "stored_only"]
+    other_messages_failed: list[str]
+
+
+class ArchiveResponse(BaseModel):
+    post_id: int
+    status_label: str

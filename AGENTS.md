@@ -205,6 +205,22 @@ suggest or introduce either.
   `youtubeMusic` link is refused (409 `media_in_progress`) while any post of the track is
   downloading, downloaded, rendering or editing. The response carries the rebuilt caption and its
   `sha256`, which is what applying the caption to a message later compares against.
+- **Applying a caption (`POST /api/posts/{id}/apply`) edits Telegram first and stores second**
+  (`webapp.applying`): the post is locked `FOR UPDATE NOWAIT` through exactly one Telegram call and
+  the track is read with a plain `get`, never locked. The caption is rebuilt from the rows, its
+  sha256 must equal `expected_caption_sha256` (409 `caption_changed`), and more than 1024 visible
+  characters is a 422 with the number. The first message is edited with a 15 s `request_timeout`
+  through `caption_edit.edit_message_caption_by_kind`: `RESOLVED` the draft, `RENDERED` the preview,
+  `FAILED` the draft, `PUBLISHED` the channel message by `channel_message_kind`; the keyboard comes
+  only from `keyboard_for_state`, because an edit without `reply_markup` removes it. «not modified»
+  is a success; «not found» (409 `channel_message_missing`), a 429 (names the seconds), a 403 and
+  any other answer roll back with nothing stored. The remaining messages (the draft under a preview,
+  the preview of a failed post) are edited after the commit, best effort, and named in
+  `other_messages_failed`. The webapp owns a `Bot` client with `parse_mode=None`, closed on shutdown.
+- **`POST /api/posts/{id}/archive` archives a published post only on a measured deletion**: under
+  the post lock, `probe_message` on the channel message; the verbatim «not found» runs
+  `set_post_status(ARCHIVED)` and logs `post_archived_channel_message_missing`, a live message is a
+  409, and any other answer refuses with the post untouched.
 
 ## Resolver conventions (`pisniar/resolve/`)
 

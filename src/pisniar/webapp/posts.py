@@ -5,8 +5,11 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Annotated, cast
 
+from aiogram import Bot
 from fastapi import Depends, FastAPI, Path, Query, Request
 
+from pisniar.logging import get_logger
+from pisniar.webapp.applying import apply_caption, archive_post, edit_remaining
 from pisniar.webapp.auth import AdminUser, WebappContext, require_admin
 from pisniar.webapp.database import read_from_database, write_to_database
 from pisniar.webapp.editing import POST_NOT_FOUND_MESSAGE, preview_fields, save_fields
@@ -15,6 +18,9 @@ from pisniar.webapp.meta import build_meta
 from pisniar.webapp.schemas import (
     POST_ID_MAX,
     ApiError,
+    ApplyRequest,
+    ApplyResponse,
+    ArchiveResponse,
     FieldsInput,
     FieldsInvalid,
     FieldsUpdate,
@@ -30,6 +36,9 @@ from pisniar.webapp.service import (
     fetch_post_page,
 )
 
+logger = get_logger(__name__)
+
+TELEGRAM_UNAVAILABLE_MESSAGE = "Зв'язок із Telegram не налаштовано."
 READ_ERROR_RESPONSES: dict[int | str, dict[str, type[ApiError]]] = {
     401: {"model": ApiError},
     403: {"model": ApiError},
@@ -61,6 +70,14 @@ async def read_post(
     if detail is None:
         raise ApiProblem(404, "post_not_found", "Пост не знайдено.")
     return detail
+
+
+def telegram_bot_of(request: Request) -> Bot:
+    bot = cast("Bot | None", request.app.state.bot)
+    if bot is None:
+        logger.error("webapp_telegram_not_configured")
+        raise ApiProblem(503, "telegram_unavailable", TELEGRAM_UNAVAILABLE_MESSAGE)
+    return bot
 
 
 def current_year_of(request: Request) -> int:
@@ -96,6 +113,39 @@ async def preview_post_fields(
     if preview is None:
         raise ApiProblem(404, "post_not_found", POST_NOT_FOUND_MESSAGE)
     return preview
+
+
+async def apply_post_caption(
+    request: Request,
+    body: ApplyRequest,
+    admin: Annotated[AdminUser, Depends(require_admin)],
+    post_id: Annotated[int, Path(ge=1, le=POST_ID_MAX)],
+) -> ApplyResponse:
+    bot = telegram_bot_of(request)
+    public_url = cast("str | None", request.app.state.webapp_public_url)
+    applied = await write_to_database(
+        request,
+        lambda session: apply_caption(
+            session, bot, post_id, body.expected_caption_sha256, admin.user_id, public_url
+        ),
+    )
+    if applied is None:
+        raise ApiProblem(404, "post_not_found", POST_NOT_FOUND_MESSAGE)
+    return await edit_remaining(bot, applied, admin.user_id, post_id)
+
+
+async def archive_published_post(
+    request: Request,
+    admin: Annotated[AdminUser, Depends(require_admin)],
+    post_id: Annotated[int, Path(ge=1, le=POST_ID_MAX)],
+) -> ArchiveResponse:
+    bot = telegram_bot_of(request)
+    archived = await write_to_database(
+        request, lambda session: archive_post(session, bot, post_id, admin.user_id)
+    )
+    if archived is None:
+        raise ApiProblem(404, "post_not_found", POST_NOT_FOUND_MESSAGE)
+    return archived
 
 
 async def read_meta() -> MetaResponse:
@@ -140,5 +190,19 @@ def register_post_routes(app: FastAPI) -> None:
         preview_post_fields,
         methods=["POST"],
         response_model=PreviewResponse,
+        responses=EDIT_ERROR_RESPONSES,
+    )
+    app.add_api_route(
+        "/api/posts/{post_id}/apply",
+        apply_post_caption,
+        methods=["POST"],
+        response_model=ApplyResponse,
+        responses=EDIT_ERROR_RESPONSES,
+    )
+    app.add_api_route(
+        "/api/posts/{post_id}/archive",
+        archive_published_post,
+        methods=["POST"],
+        response_model=ArchiveResponse,
         responses=EDIT_ERROR_RESPONSES,
     )

@@ -10,6 +10,7 @@ import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
+from aiogram import Bot
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -38,6 +39,7 @@ def create_webapp(
     settings: Settings,
     clock: Callable[[], float] = time.time,
     session_factory: async_sessionmaker[AsyncSession] | None = None,
+    bot: Bot | None = None,
 ) -> FastAPI:
     app = FastAPI(title="pisniar webapp", docs_url=None, redoc_url=None, openapi_url=None)
     app.state.context = WebappContext(
@@ -51,6 +53,8 @@ def create_webapp(
         clock=clock,
     )
     app.state.session_factory = session_factory
+    app.state.bot = bot
+    app.state.webapp_public_url = settings.webapp_public_url
     register_error_handlers(app)
 
     @app.middleware("http")

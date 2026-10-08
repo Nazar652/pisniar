@@ -181,7 +181,7 @@ async def test_a_not_modified_probe_answer_means_the_message_lives() -> None:
     assert await probe_message(bot, -100, 7) is MessageProbe.EXISTS
 
     bot.edit_message_reply_markup.assert_awaited_once_with(
-        chat_id=-100, message_id=7, reply_markup=None
+        chat_id=-100, message_id=7, reply_markup=None, request_timeout=None
     )
 
 
@@ -252,3 +252,27 @@ def test_a_message_in_any_other_state_carries_no_keyboard(
 def test_the_phrases_are_the_measured_ones() -> None:
     assert caption_edit.MESSAGE_NOT_MODIFIED_PHRASE in NOT_MODIFIED_TEXT
     assert caption_edit.MESSAGE_NOT_FOUND_PHRASE in NOT_FOUND_TEXT
+
+
+@pytest.mark.parametrize(
+    ("message_kind", "method"),
+    [
+        ("photo", "edit_message_caption"),
+        ("video", "edit_message_caption"),
+        ("text", "edit_message_text"),
+    ],
+)
+async def test_the_request_timeout_reaches_the_edit_call(message_kind: str, method: str) -> None:
+    bot = make_bot()
+
+    await edit_message_caption_by_kind(bot, 5, 7, message_kind, "x", request_timeout=15)
+
+    assert getattr(bot, method).await_args.kwargs["request_timeout"] == 15
+
+
+async def test_the_request_timeout_reaches_the_probe() -> None:
+    bot = make_bot()
+
+    await probe_message(bot, -100, 7, request_timeout=15)
+
+    assert bot.edit_message_reply_markup.await_args.kwargs["request_timeout"] == 15
