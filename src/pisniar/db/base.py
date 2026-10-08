@@ -5,8 +5,12 @@ rename every constraint in Postgres.
 
 from __future__ import annotations
 
-from sqlalchemy import MetaData
-from sqlalchemy.orm import DeclarativeBase
+from datetime import datetime
+
+from sqlalchemy import BigInteger, MetaData, text
+from sqlalchemy.dialects.postgresql import TIMESTAMP
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.schema import Identity
 
 # _N_ variants: same result for single-column constraints (see
 # test_naming_convention.py), but handle a future multi-column one too.
@@ -23,3 +27,20 @@ metadata = MetaData(naming_convention=NAMING_CONVENTION)
 
 class Base(DeclarativeBase):
     metadata = metadata
+
+
+class IdAndTimestampsMixin:
+    """the key and the two timestamps every table carries, first in column order.
+    `updated_at` comes from the ORM `onupdate`, so a raw UPDATE has to set it itself."""
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True, sort_order=-3)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=text("now()"), sort_order=-2
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        server_default=text("now()"),
+        onupdate=text("now()"),
+        sort_order=-1,
+    )

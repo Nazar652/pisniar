@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 
@@ -62,6 +64,9 @@ EDITOR_NOT_CONFIGURED_ANSWER = "Редагування вимкнене: адр�
 EDITOR_PRIVATE_ONLY_ANSWER = "Редактор відкривається лише в приватному чаті з ботом."
 EDIT_LIST_ANSWER = "Відкрити список постів."
 EDIT_POST_ANSWER = "Редагувати пост {post_id}."
+POST_NOT_FOUND_ANSWER = "Пост {post_id} не знайдено."
+POST_BUSY_ANSWER = "Пост {post_id} зараз обробляється. Спробуйте за кілька секунд."
+DISPATCH_FAILED_RETRY_ANSWER = "Не вдалося поставити задачу в чергу. Спробуйте /retry {post_id}."
 
 # the text draft's publish button is still live during a render, and a
 # refusal naming `downloading` would read to the admin like a breakage.
@@ -204,7 +209,7 @@ async def handle_retry(
             return
 
         if post is None:
-            await message.answer(f"Пост {post_id} не знайдено.")
+            await message.answer(POST_NOT_FOUND_ANSWER.format(post_id=post_id))
             logger.warning(
                 "retry_refused", reason="post_not_found", user_id=user_id, post_id=post_id
             )
@@ -324,7 +329,7 @@ async def handle_edit(message: Message, session_factory: async_sessionmaker[Asyn
         status = None if post is None else post.status
 
     if status is None:
-        await message.answer(f"Пост {post_id} не знайдено.")
+        await message.answer(POST_NOT_FOUND_ANSWER.format(post_id=post_id))
         logger.warning("edit_refused", reason="post_not_found", user_id=user_id, post_id=post_id)
         return
 
@@ -404,17 +409,32 @@ async def handle_callback(
     )
 
 
-async def handle_publish_tap(
+@dataclass(frozen=True)
+class TapSpec:
+    """what differs between the two buttons under a draft: log events, the claim
+    that moves the status, the status a failed dispatch must undo, the answers."""
+
+    tapped_event: str
+    refused_event: str
+    keyboard_failure_event: str
+    claim: Callable[[Post | None, int, int], tuple[str | None, tuple[int, int] | None]]
+    expected_status: PostStatus
+    dispatch_failed_error: str
+    dispatched_answer: str
+    dispatched_event: str
+
+
+async def handle_tap(
     callback: CallbackQuery,
     post_id: int,
     user_id: int,
     bot: Bot,
     session_factory: async_sessionmaker[AsyncSession],
-    celery_client: Celery,
+    spec: TapSpec,
+    start_task: Callable[[], Awaitable[bool]],
 ) -> None:
-    # `published_by_user_id` is written on success only, so this is the only
-    # trace of who tapped a refused or failed publish.
-    logger.info("publish_button_tapped", user_id=user_id, post_id=post_id)
+    """database first (lock, guard, status, commit), keyboard second, dispatch last."""
+    logger.info(spec.tapped_event, user_id=user_id, post_id=post_id)
 
     refusal: str | None = None
     draft_reference: tuple[int, int] | None = None
@@ -426,12 +446,12 @@ async def handle_publish_tap(
             post = await session.get(Post, post_id, with_for_update={"nowait": True})
         except DBAPIError:
             await session.rollback()
-            refusal = f"Пост {post_id} зараз обробляється. Спробуйте за кілька секунд."
+            refusal = POST_BUSY_ANSWER.format(post_id=post_id)
             logger.warning(
-                "publish_refused", reason="post_locked", user_id=user_id, post_id=post_id
+                spec.refused_event, reason="post_locked", user_id=user_id, post_id=post_id
             )
         else:
-            refusal, draft_reference = claim_post_for_publishing(post, post_id, user_id)
+            refusal, draft_reference = spec.claim(post, post_id, user_id)
 
     if refusal is not None:
         await callback.answer(refusal, show_alert=True)
@@ -439,25 +459,54 @@ async def handle_publish_tap(
 
     # after the commit, before the dispatch: removing it any earlier would
     # strand a post the database then declined to move.
-    await remove_keyboard(bot, draft_reference, "publish_keyboard_removal_failed")
+    await remove_keyboard(bot, draft_reference, spec.keyboard_failure_event)
 
-    if not await dispatch_publish_task(celery_client, post_id, user_id):
+    if not await start_task():
         await mark_dispatch_failure(
             session_factory,
             post_id,
-            expected_status=PostStatus.PUBLISHING,
-            error=PUBLISH_DISPATCH_FAILED_ERROR,
+            expected_status=spec.expected_status,
+            error=spec.dispatch_failed_error,
         )
-        await callback.answer(
-            f"Не вдалося поставити задачу в чергу. Спробуйте /retry {post_id}.", show_alert=True
-        )
+        await callback.answer(DISPATCH_FAILED_RETRY_ANSWER.format(post_id=post_id), show_alert=True)
         logger.warning(
-            "publish_refused", reason="dispatch_failed", user_id=user_id, post_id=post_id
+            spec.refused_event, reason="dispatch_failed", user_id=user_id, post_id=post_id
         )
         return
 
-    await callback.answer("Публікую…")
-    logger.info("publish_task_dispatched", user_id=user_id, post_id=post_id)
+    await callback.answer(spec.dispatched_answer)
+    logger.info(spec.dispatched_event, user_id=user_id, post_id=post_id)
+
+
+async def handle_publish_tap(
+    callback: CallbackQuery,
+    post_id: int,
+    user_id: int,
+    bot: Bot,
+    session_factory: async_sessionmaker[AsyncSession],
+    celery_client: Celery,
+) -> None:
+    # `published_by_user_id` is written on success only, so the tap log is the
+    # only trace of who tapped a refused or failed publish.
+    spec = TapSpec(
+        tapped_event="publish_button_tapped",
+        refused_event="publish_refused",
+        keyboard_failure_event="publish_keyboard_removal_failed",
+        claim=claim_post_for_publishing,
+        expected_status=PostStatus.PUBLISHING,
+        dispatch_failed_error=PUBLISH_DISPATCH_FAILED_ERROR,
+        dispatched_answer="Публікую…",
+        dispatched_event="publish_task_dispatched",
+    )
+    await handle_tap(
+        callback,
+        post_id,
+        user_id,
+        bot,
+        session_factory,
+        spec,
+        lambda: dispatch_publish_task(celery_client, post_id, user_id),
+    )
 
 
 async def handle_render_tap(
@@ -470,44 +519,25 @@ async def handle_render_tap(
 ) -> None:
     """the media chain starts here and nowhere else. Minutes of CPU and
     hundreds of megabytes are spent only on a draft the admin approved."""
-    logger.info("render_button_tapped", user_id=user_id, post_id=post_id)
-
-    refusal: str | None = None
-    draft_reference: tuple[int, int] | None = None
-
-    async with session_scope(session_factory) as session:
-        try:
-            post = await session.get(Post, post_id, with_for_update={"nowait": True})
-        except DBAPIError:
-            await session.rollback()
-            refusal = f"Пост {post_id} зараз обробляється. Спробуйте за кілька секунд."
-            logger.warning("render_refused", reason="post_locked", user_id=user_id, post_id=post_id)
-        else:
-            refusal, draft_reference = claim_post_for_media(post, post_id, user_id)
-
-    if refusal is not None:
-        await callback.answer(refusal, show_alert=True)
-        return
-
-    # database, keyboard, dispatch: removing it before the commit
-    # would strand a post the database then declined to move.
-    await remove_keyboard(bot, draft_reference, "render_keyboard_removal_failed")
-
-    if not await dispatch_media_task(celery_client, DOWNLOAD_POST_AUDIO_TASK_NAME, post_id):
-        await mark_dispatch_failure(
-            session_factory,
-            post_id,
-            expected_status=PostStatus.DOWNLOADING,
-            error=DOWNLOAD_DISPATCH_FAILED_ERROR,
-        )
-        await callback.answer(
-            f"Не вдалося поставити задачу в чергу. Спробуйте /retry {post_id}.", show_alert=True
-        )
-        logger.warning("render_refused", reason="dispatch_failed", user_id=user_id, post_id=post_id)
-        return
-
-    await callback.answer("Роблю відео… Прев'ю прийде окремим повідомленням.")
-    logger.info("download_task_dispatched", user_id=user_id, post_id=post_id)
+    spec = TapSpec(
+        tapped_event="render_button_tapped",
+        refused_event="render_refused",
+        keyboard_failure_event="render_keyboard_removal_failed",
+        claim=claim_post_for_media,
+        expected_status=PostStatus.DOWNLOADING,
+        dispatch_failed_error=DOWNLOAD_DISPATCH_FAILED_ERROR,
+        dispatched_answer="Роблю відео… Прев'ю прийде окремим повідомленням.",
+        dispatched_event="download_task_dispatched",
+    )
+    await handle_tap(
+        callback,
+        post_id,
+        user_id,
+        bot,
+        session_factory,
+        spec,
+        lambda: dispatch_media_task(celery_client, DOWNLOAD_POST_AUDIO_TASK_NAME, post_id),
+    )
 
 
 def claim_post_for_publishing(
@@ -517,7 +547,7 @@ def claim_post_for_publishing(
     is logged in its own branch with its own reason."""
     if post is None:
         logger.warning("publish_refused", reason="post_not_found", user_id=user_id, post_id=post_id)
-        return f"Пост {post_id} не знайдено.", None
+        return POST_NOT_FOUND_ANSWER.format(post_id=post_id), None
 
     if post.channel_message_id is not None:
         logger.warning(
@@ -566,7 +596,7 @@ def claim_post_for_media(
     """the render button's mirror of `claim_post_for_publishing`."""
     if post is None:
         logger.warning("render_refused", reason="post_not_found", user_id=user_id, post_id=post_id)
-        return f"Пост {post_id} не знайдено.", None
+        return POST_NOT_FOUND_ANSWER.format(post_id=post_id), None
 
     if post.channel_message_id is not None:
         logger.warning(
@@ -899,27 +929,42 @@ async def mark_dispatch_failure(
         logger.exception("dispatch_failure_status_write_failed", post_id=post_id)
 
 
-async def dispatch_resolve_task(celery_client: Celery, post_id: int) -> bool:
-    # `send_task()` blocks synchronously; off-loop, or an unreachable Redis
-    # stalls this single-loop process's event loop.
+async def dispatch_task(
+    celery_client: Celery,
+    celery_task_name: str,
+    task_kwargs: dict[str, int],
+    failure_event: str,
+    **failure_fields: object,
+) -> bool:
+    """by name: `bot/` never imports `worker.tasks`. `send_task()` blocks, so it runs
+    off-loop, or an unreachable Redis stalls this single-loop process."""
     try:
-        await asyncio.to_thread(
-            celery_client.send_task, RESOLVE_POST_TASK_NAME, kwargs={"post_id": post_id}
-        )
+        await asyncio.to_thread(celery_client.send_task, celery_task_name, kwargs=task_kwargs)
     except Exception:
-        logger.exception("resolve_task_dispatch_failed", post_id=post_id)
+        logger.exception(failure_event, **failure_fields)
         return False
     return True
+
+
+async def dispatch_resolve_task(celery_client: Celery, post_id: int) -> bool:
+    return await dispatch_task(
+        celery_client,
+        RESOLVE_POST_TASK_NAME,
+        {"post_id": post_id},
+        "resolve_task_dispatch_failed",
+        post_id=post_id,
+    )
 
 
 async def dispatch_media_task(celery_client: Celery, task_name: str, post_id: int) -> bool:
-    """by name: `bot/` never imports `worker.tasks`."""
-    try:
-        await asyncio.to_thread(celery_client.send_task, task_name, kwargs={"post_id": post_id})
-    except Exception:
-        logger.exception("media_task_dispatch_failed", task_name=task_name, post_id=post_id)
-        return False
-    return True
+    return await dispatch_task(
+        celery_client,
+        task_name,
+        {"post_id": post_id},
+        "media_task_dispatch_failed",
+        task_name=task_name,
+        post_id=post_id,
+    )
 
 
 async def dispatch_publish_task(
@@ -927,13 +972,10 @@ async def dispatch_publish_task(
 ) -> bool:
     """`published_by_user_id` is whoever tapped the button or ran `/retry`, not
     whoever submitted the link."""
-    try:
-        await asyncio.to_thread(
-            celery_client.send_task,
-            PUBLISH_POST_TASK_NAME,
-            kwargs={"post_id": post_id, "published_by_user_id": published_by_user_id},
-        )
-    except Exception:
-        logger.exception("publish_task_dispatch_failed", post_id=post_id)
-        return False
-    return True
+    return await dispatch_task(
+        celery_client,
+        PUBLISH_POST_TASK_NAME,
+        {"post_id": post_id, "published_by_user_id": published_by_user_id},
+        "publish_task_dispatch_failed",
+        post_id=post_id,
+    )

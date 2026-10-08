@@ -6,6 +6,8 @@ entrypoint. Importing this reads/validates `Settings`, unlike
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -110,6 +112,31 @@ MISSING_TITLE_ERROR = (
 )
 
 
+@asynccontextmanager
+async def bot_client() -> AsyncIterator[Bot]:
+    """a short-lived `Bot` whose HTTP session is closed on every way out."""
+    bot = build_bot(settings)
+    try:
+        yield bot
+    finally:
+        await bot.session.close()
+
+
+@asynccontextmanager
+async def task_session_factory(
+    *, lock_timeout_ms: int | None = None
+) -> AsyncIterator[async_sessionmaker[AsyncSession]]:
+    """a fresh `NullPool` engine for one task, disposed on every way out; the
+    `lock_timeout` is set only by the callers that pass it."""
+    engine = build_engine(
+        settings.database_url, use_null_pool=True, lock_timeout_ms=lock_timeout_ms
+    )
+    try:
+        yield build_session_factory(engine)
+    finally:
+        await engine.dispose()
+
+
 # clears correlation ids around every task, not just `ping` — a stale
 # post_id would otherwise leak from one task into the next.
 @task_prerun.connect
@@ -135,21 +162,14 @@ def ping(self: Any, post_id: int | None = None) -> None:
 async def perform_ping(post_id: int | None) -> None:
     logger.info("ping_task_started", post_id=post_id)
 
-    engine = build_engine(settings.database_url, use_null_pool=True)
-    try:
-        session_factory = build_session_factory(engine)
+    async with task_session_factory() as session_factory:
         async with session_factory() as session:
             await session.execute(text("SELECT 1"))
 
-        bot = build_bot(settings)
-        try:
+        async with bot_client() as bot:
             delivered = await send_alert(
                 bot, settings.alert_chat_id, f"Діагностичний пінг виконано, post_id={post_id}"
             )
-        finally:
-            await bot.session.close()
-    finally:
-        await engine.dispose()
 
     logger.info("ping_task_finished", post_id=post_id, alert_delivered=delivered)
 
@@ -164,39 +184,35 @@ def resolve_post(self: Any, post_id: int) -> None:
 
 
 async def perform_resolve_post(post_id: int) -> None:
-    engine = build_engine(
-        settings.database_url, use_null_pool=True, lock_timeout_ms=LOCK_TIMEOUT_MS
-    )
-    try:
-        session_factory = build_session_factory(engine)
-        async with session_factory() as session:
-            try:
-                # locked for the whole task: the delivery guard is a read-then-write
-                # pair. Wrapped because `lock_timeout` makes this raise, not wait.
-                post = await session.get(Post, post_id, with_for_update=True)
-            except DBAPIError as error:
-                await session.rollback()
-                await fail_post(session, post_id, f"пост заблоковано іншою задачею: {error}")
-                return
+    async with (
+        task_session_factory(lock_timeout_ms=LOCK_TIMEOUT_MS) as session_factory,
+        session_factory() as session,
+    ):
+        try:
+            # locked for the whole task: the delivery guard is a read-then-write
+            # pair. Wrapped because `lock_timeout` makes this raise, not wait.
+            post = await session.get(Post, post_id, with_for_update=True)
+        except DBAPIError as error:
+            await session.rollback()
+            await fail_post(session, post_id, f"пост заблоковано іншою задачею: {error}")
+            return
 
-            if post is None:
-                logger.error("resolve_post_post_not_found", post_id=post_id)
-                return
+        if post is None:
+            logger.error("resolve_post_post_not_found", post_id=post_id)
+            return
 
-            # unlocked on purpose: the track lock is taken just before the write,
-            # so a second post of the same track never waits out a whole resolve.
-            track = await session.get(Track, post.track_id)
-            assert track is not None
+        # unlocked on purpose: the track lock is taken just before the write,
+        # so a second post of the same track never waits out a whole resolve.
+        track = await session.get(Track, post.track_id)
+        assert track is not None
 
-            if post.status is not PostStatus.RESOLVING:
-                # stale Celery redelivery: work already done (or post moved
-                # on) — only idempotent delivery is still worth attempting.
-                await redeliver_if_resolved(session, post)
-                return
+        if post.status is not PostStatus.RESOLVING:
+            # stale Celery redelivery: work already done (or post moved
+            # on) — only idempotent delivery is still worth attempting.
+            await redeliver_if_resolved(session, post)
+            return
 
-            await resolve_and_deliver(session_factory, session, post, track)
-    finally:
-        await engine.dispose()
+        await resolve_and_deliver(session_factory, session, post, track)
 
 
 async def redeliver_if_resolved(session: AsyncSession, post: Post) -> None:
@@ -212,25 +228,24 @@ async def redeliver_if_resolved(session: AsyncSession, post: Post) -> None:
     # read before any rollback below: that expires every ORM object, and the
     # next attribute access would be a lazy refresh -> MissingGreenlet.
     post_id = post.id
-    bot = build_bot(settings)
-    try:
-        await deliver_draft(bot, post, post.created_by_user_id, settings.webapp_public_url)
-        await session.commit()
-    except Exception as error:
-        logger.exception("resolve_post_redelivery_failed", post_id=post_id)
-        await session.rollback()
+    async with bot_client() as bot:
+        try:
+            await deliver_draft(bot, post, post.created_by_user_id, settings.webapp_public_url)
+            await session.commit()
+        except Exception as error:
+            logger.exception("resolve_post_redelivery_failed", post_id=post_id)
+            await session.rollback()
 
-        # RESOLVED has no edge back to RESOLVING, so a silent failure here
-        # would strand the post with no draft and no way out.
-        await send_alert(
-            bot,
-            settings.alert_chat_id,
-            redacted_text(
-                f"Пост {post_id} уже в стані «resolved», але чернетку доставити не вдалося: {error}"
-            ),
-        )
-    finally:
-        await bot.session.close()
+            # RESOLVED has no edge back to RESOLVING, so a silent failure here
+            # would strand the post with no draft and no way out.
+            await send_alert(
+                bot,
+                settings.alert_chat_id,
+                redacted_text(
+                    f"Пост {post_id} уже в стані «resolved», "
+                    f"але чернетку доставити не вдалося: {error}"
+                ),
+            )
 
 
 async def resolve_and_deliver(
@@ -326,11 +341,8 @@ async def resolve_and_deliver(
 
             # delivery first: RESOLVED means "the draft is in the admin's chat",
             # and only RESOLVING, not RESOLVED, can still move to FAILED.
-            bot = build_bot(settings)
-            try:
+            async with bot_client() as bot:
                 await deliver_draft(bot, post, post.created_by_user_id, settings.webapp_public_url)
-            finally:
-                await bot.session.close()
 
             set_post_status(post, PostStatus.RESOLVED)
             await session.commit()
@@ -516,12 +528,9 @@ async def alert_admin_and_draft_chat(post: Post, text_message: str) -> None:
     if post.draft_chat_id is not None and post.draft_chat_id != settings.alert_chat_id:
         chat_ids.append(post.draft_chat_id)
 
-    bot = build_bot(settings)
-    try:
+    async with bot_client() as bot:
         for chat_id in chat_ids:
             await send_alert(bot, chat_id, text_message)
-    finally:
-        await bot.session.close()
 
 
 def redacted_text(text_value: str) -> str:
@@ -559,11 +568,8 @@ async def fail_post(session: AsyncSession, post_id: int, error_message: str) -> 
             "\nСтатус у базі зафіксувати не вдалося — пост міг лишитись у стані «resolving»."
         )
 
-    bot = build_bot(settings)
-    try:
+    async with bot_client() as bot:
         await send_alert(bot, settings.alert_chat_id, alert_text)
-    finally:
-        await bot.session.close()
 
 
 async def write_failed_status(session: AsyncSession, post_id: int, error_message: str) -> None:
@@ -596,11 +602,8 @@ async def clean_up_non_track(
         f"{cleanup_note}{source_failure_note(source_failures)}"
     )
 
-    bot = build_bot(settings)
-    try:
+    async with bot_client() as bot:
         await send_alert(bot, settings.alert_chat_id, alert_text)
-    finally:
-        await bot.session.close()
 
 
 async def delete_post_and_orphan_track(
@@ -675,49 +678,43 @@ def publish_post(self: Any, post_id: int, published_by_user_id: int) -> None:
 
 
 async def perform_publish_post(post_id: int, published_by_user_id: int) -> None:
-    engine = build_engine(
-        settings.database_url, use_null_pool=True, lock_timeout_ms=LOCK_TIMEOUT_MS
-    )
-    try:
-        session_factory = build_session_factory(engine)
-        async with session_factory() as session:
-            try:
-                # barrier 1: this lock and the two guards under it are the
-                # only real deduplication — see AGENTS.md on the other two.
-                post = await session.get(Post, post_id, with_for_update=True)
-            except DBAPIError as error:
-                await session.rollback()
-                await fail_publish(
-                    session, post_id, None, f"пост заблоковано іншою задачею: {error}"
-                )
-                return
+    async with (
+        task_session_factory(lock_timeout_ms=LOCK_TIMEOUT_MS) as session_factory,
+        session_factory() as session,
+    ):
+        try:
+            # barrier 1: this lock and the two guards under it are the
+            # only real deduplication — see AGENTS.md on the other two.
+            post = await session.get(Post, post_id, with_for_update=True)
+        except DBAPIError as error:
+            await session.rollback()
+            await fail_publish(session, post_id, None, f"пост заблоковано іншою задачею: {error}")
+            return
 
-            if post is None:
-                logger.error("publish_post_post_not_found", post_id=post_id)
-                return
+        if post is None:
+            logger.error("publish_post_post_not_found", post_id=post_id)
+            return
 
-            if post.channel_message_id is not None:
-                logger.info(
-                    "publish_post_already_published",
-                    post_id=post_id,
-                    channel_message_id=post.channel_message_id,
-                )
-                return
+        if post.channel_message_id is not None:
+            logger.info(
+                "publish_post_already_published",
+                post_id=post_id,
+                channel_message_id=post.channel_message_id,
+            )
+            return
 
-            if post.status is not PostStatus.PUBLISHING:
-                logger.info(
-                    "publish_post_task_arrived_at_settled_post",
-                    post_id=post_id,
-                    status=post.status.value,
-                )
-                return
+        if post.status is not PostStatus.PUBLISHING:
+            logger.info(
+                "publish_post_task_arrived_at_settled_post",
+                post_id=post_id,
+                status=post.status.value,
+            )
+            return
 
-            track = await session.get(Track, post.track_id)
-            assert track is not None
+        track = await session.get(Track, post.track_id)
+        assert track is not None
 
-            await publish_and_confirm(session, post, track, published_by_user_id)
-    finally:
-        await engine.dispose()
+        await publish_and_confirm(session, post, track, published_by_user_id)
 
 
 def post_reached_rendered(post: Post) -> bool:
@@ -781,8 +778,7 @@ async def publish_and_confirm(
     preview_reference = (post.preview_chat_id, post.preview_message_id)
     cover_url = track.cover_url
 
-    bot = build_bot(settings)
-    try:
+    async with bot_client() as bot:
         try:
             chat = await preflight_channel(bot, settings.channel_id)
 
@@ -833,8 +829,6 @@ async def publish_and_confirm(
             preview_reference,
             channel_post_url(chat, channel_message_id),
         )
-    finally:
-        await bot.session.close()
 
 
 async def confirm_publication(
@@ -907,12 +901,9 @@ async def fail_publish(
     if draft_chat_id is not None and draft_chat_id != settings.alert_chat_id:
         chat_ids.append(draft_chat_id)
 
-    bot = build_bot(settings)
-    try:
+    async with bot_client() as bot:
         for chat_id in chat_ids:
             await send_alert(bot, chat_id, alert_text)
-    finally:
-        await bot.session.close()
 
 
 # legal entries per `db.states` minus FAILED: the bot writes the target status
@@ -931,6 +922,61 @@ RENDER_DISPATCH_FAILED_ERROR = (
 )
 
 UNKNOWN_YTDLP_VERSION = "unknown"
+
+
+@dataclass(frozen=True)
+class ClaimEvents:
+    """the log event names of one media task's refusals, spelled out in full."""
+
+    post_locked: str
+    post_not_found: str
+    settled: str
+    previewed: str
+
+
+DOWNLOAD_CLAIM_EVENTS = ClaimEvents(
+    post_locked="download_post_audio_post_locked",
+    post_not_found="download_post_audio_post_not_found",
+    settled="download_post_audio_task_arrived_at_settled_post",
+    previewed="download_post_audio_task_arrived_at_previewed_post",
+)
+
+RENDER_CLAIM_EVENTS = ClaimEvents(
+    post_locked="render_post_video_post_locked",
+    post_not_found="render_post_video_post_not_found",
+    settled="render_post_video_task_arrived_at_settled_post",
+    previewed="render_post_video_task_arrived_at_previewed_post",
+)
+
+
+async def lock_post_for_claim(
+    session: AsyncSession,
+    post_id: int,
+    entry_statuses: frozenset[PostStatus],
+    events: ClaimEvents,
+) -> Post | None:
+    """locks the post; refuses a missing or locked row, a status outside the entries
+    and a previewed post, whose newest `render` row publication takes."""
+    try:
+        post = await session.get(Post, post_id, with_for_update=True)
+    except DBAPIError as error:
+        await session.rollback()
+        logger.error(events.post_locked, post_id=post_id, error=str(error))
+        return None
+
+    if post is None:
+        logger.error(events.post_not_found, post_id=post_id)
+        return None
+
+    if post.status not in entry_statuses:
+        logger.info(events.settled, post_id=post_id, status=post.status.value)
+        return None
+
+    if post.preview_message_id is not None:
+        logger.info(events.previewed, post_id=post_id, status=post.status.value)
+        return None
+
+    return post
 
 
 @dataclass(frozen=True)
@@ -992,45 +1038,69 @@ def download_post_audio(self: Any, post_id: int) -> None:
     """own time limits: the resolve limits gate `/retry`, so they stay put."""
     bind_celery_task_id(self.request.id)
     bind_post_id(post_id)
+    run_media_task(post_id, perform_download_post_audio, "download_post_audio_soft_time_limit")
+
+
+def run_media_task(
+    post_id: int,
+    perform: Callable[[int], Coroutine[object, object, None]],
+    soft_time_limit_event: str,
+) -> None:
+    """celery raises the soft limit in the main thread, i.e. out of the event loop
+    rather than out of any `await` inside it — so it is caught here as well."""
     try:
-        run_async(perform_download_post_audio(post_id))
+        run_async(perform(post_id))
     except SoftTimeLimitExceeded:
-        # celery raises it in the main thread, i.e. out of the event loop
-        # rather than out of any `await` inside it — so it is caught here too.
-        logger.error("download_post_audio_soft_time_limit", post_id=post_id)
+        logger.error(soft_time_limit_event, post_id=post_id)
         run_async(fail_media_post_by_id(post_id, MEDIA_TASK_TIMEOUT_ERROR))
 
 
-async def perform_download_post_audio(post_id: int) -> None:
-    engine = build_engine(
-        settings.database_url, use_null_pool=True, lock_timeout_ms=LOCK_TIMEOUT_MS
-    )
-    temporary_directory = media_storage.task_temporary_directory(settings.media_root, post_id)
+async def guard_media_stage[StageResult](
+    session_factory: async_sessionmaker[AsyncSession],
+    post_id: int,
+    stage: Callable[[], Awaitable[StageResult]],
+    *,
+    timeout_event: str,
+    failure_event: str,
+) -> StageResult | None:
+    """runs one stage and fails the post on any error, `None` then. The soft limit is
+    caught first: it is an ordinary exception, and "помилка" would hide a timeout."""
     try:
-        session_factory = build_session_factory(engine)
+        return await stage()
+    except SoftTimeLimitExceeded:
+        logger.error(timeout_event, post_id=post_id)
+        await fail_media_post(session_factory, post_id, MEDIA_TASK_TIMEOUT_ERROR)
+    except Exception as error:
+        logger.exception(failure_event, post_id=post_id)
+        await fail_media_post(session_factory, post_id, describe_media_error(error))
+    return None
+
+
+async def perform_download_post_audio(post_id: int) -> None:
+    async with task_session_factory(lock_timeout_ms=LOCK_TIMEOUT_MS) as session_factory:
+        temporary_directory = media_storage.task_temporary_directory(settings.media_root, post_id)
 
         claim = await claim_post_for_downloading(session_factory, post_id)
         if claim is None:
             return
 
         try:
-            outcome = await asyncio.to_thread(
-                download_audio_off_transaction, claim, temporary_directory
+            outcome = await guard_media_stage(
+                session_factory,
+                post_id,
+                lambda: asyncio.to_thread(
+                    download_audio_off_transaction, claim, temporary_directory
+                ),
+                timeout_event="download_post_audio_soft_time_limit",
+                failure_event="download_post_audio_failed",
             )
-        except SoftTimeLimitExceeded:
-            logger.error("download_post_audio_soft_time_limit", post_id=post_id)
-            await fail_media_post(session_factory, post_id, MEDIA_TASK_TIMEOUT_ERROR)
-            return
-        except Exception as error:
-            logger.exception("download_post_audio_failed", post_id=post_id)
-            await fail_media_post(session_factory, post_id, describe_media_error(error))
-            return
         finally:
             media_storage.remove_tree_quietly(temporary_directory)
 
+        if outcome is None:
+            return
+
         await finish_download(session_factory, claim, outcome)
-    finally:
-        await engine.dispose()
 
 
 async def claim_post_for_downloading(
@@ -1039,31 +1109,10 @@ async def claim_post_for_downloading(
     """transaction 1: lock, guard, status, commit — milliseconds, and the lock
     is gone long before yt-dlp is started."""
     async with session_factory() as session:
-        try:
-            post = await session.get(Post, post_id, with_for_update=True)
-        except DBAPIError as error:
-            await session.rollback()
-            logger.error("download_post_audio_post_locked", post_id=post_id, error=str(error))
-            return None
-
+        post = await lock_post_for_claim(
+            session, post_id, DOWNLOAD_ENTRY_STATUSES, DOWNLOAD_CLAIM_EVENTS
+        )
         if post is None:
-            logger.error("download_post_audio_post_not_found", post_id=post_id)
-            return None
-
-        if post.status not in DOWNLOAD_ENTRY_STATUSES:
-            logger.info(
-                "download_post_audio_task_arrived_at_settled_post",
-                post_id=post_id,
-                status=post.status.value,
-            )
-            return None
-
-        if post.preview_message_id is not None:
-            logger.info(
-                "download_post_audio_task_arrived_at_previewed_post",
-                post_id=post_id,
-                status=post.status.value,
-            )
             return None
 
         track = await session.get(Track, post.track_id)
@@ -1258,45 +1307,34 @@ def render_post_video(self: Any, post_id: int) -> None:
     never a Celery retry."""
     bind_celery_task_id(self.request.id)
     bind_post_id(post_id)
-    try:
-        run_async(perform_render_post_video(post_id))
-    except SoftTimeLimitExceeded:
-        logger.error("render_post_video_soft_time_limit", post_id=post_id)
-        run_async(fail_media_post_by_id(post_id, MEDIA_TASK_TIMEOUT_ERROR))
+    run_media_task(post_id, perform_render_post_video, "render_post_video_soft_time_limit")
 
 
 async def perform_render_post_video(post_id: int) -> None:
-    engine = build_engine(
-        settings.database_url, use_null_pool=True, lock_timeout_ms=LOCK_TIMEOUT_MS
-    )
-    temporary_directory = media_storage.task_temporary_directory(settings.media_root, post_id)
-    try:
-        session_factory = build_session_factory(engine)
+    async with task_session_factory(lock_timeout_ms=LOCK_TIMEOUT_MS) as session_factory:
+        temporary_directory = media_storage.task_temporary_directory(settings.media_root, post_id)
 
         claim = await claim_post_for_rendering(session_factory, post_id)
         if claim is None:
             return
 
         try:
-            outcome = await render_video_off_transaction(
-                session_factory, claim, temporary_directory
+            outcome = await guard_media_stage(
+                session_factory,
+                post_id,
+                lambda: render_video_off_transaction(session_factory, claim, temporary_directory),
+                timeout_event="render_post_video_soft_time_limit",
+                failure_event="render_post_video_failed",
             )
-        except SoftTimeLimitExceeded:
-            logger.error("render_post_video_soft_time_limit", post_id=post_id)
-            await fail_media_post(session_factory, post_id, MEDIA_TASK_TIMEOUT_ERROR)
-            return
-        except Exception as error:
-            logger.exception("render_post_video_failed", post_id=post_id)
-            await fail_media_post(session_factory, post_id, describe_media_error(error))
-            return
         finally:
             media_storage.remove_tree_quietly(temporary_directory)
+
+        if outcome is None:
+            return
 
         preview = await finish_render_or_fail(session_factory, claim, outcome)
         if preview is not None:
             await notify_about_missing_text(claim.post_id, outcome, preview)
-    finally:
-        await engine.dispose()
 
 
 async def finish_render_or_fail(
@@ -1304,17 +1342,13 @@ async def finish_render_or_fail(
 ) -> PreviewReference | None:
     """`RENDERED` has no edge to `FAILED`, so a preview delivery failure is
     reported from `RENDERING`, the state that can legally fail."""
-    try:
-        return await finish_render(session_factory, claim, outcome)
-    except SoftTimeLimitExceeded:
-        # before the blanket handler: Celery raises it as an ordinary
-        # exception, and "помилка" would hide the truth, which is a timeout.
-        logger.error("render_post_video_soft_time_limit", post_id=claim.post_id)
-        await fail_media_post(session_factory, claim.post_id, MEDIA_TASK_TIMEOUT_ERROR)
-    except Exception as error:
-        logger.exception("render_post_video_finish_failed", post_id=claim.post_id)
-        await fail_media_post(session_factory, claim.post_id, describe_media_error(error))
-    return None
+    return await guard_media_stage(
+        session_factory,
+        claim.post_id,
+        lambda: finish_render(session_factory, claim, outcome),
+        timeout_event="render_post_video_soft_time_limit",
+        failure_event="render_post_video_finish_failed",
+    )
 
 
 @dataclass(frozen=True)
@@ -1338,13 +1372,10 @@ async def notify_about_missing_text(
         return
 
     try:
-        bot = build_bot(settings)
-        try:
+        async with bot_client() as bot:
             delivered = await send_alert(
                 bot, preview.chat_id, notice, reply_to_message_id=preview.message_id
             )
-        finally:
-            await bot.session.close()
     except SoftTimeLimitExceeded:
         # the post is already `RENDERED`; the sync wrapper would try to fail it.
         logger.error("render_post_video_no_text_notice_timed_out", post_id=post_id)
@@ -1367,32 +1398,10 @@ async def claim_post_for_rendering(
     """transaction 1 for the render. Everything ffmpeg needs is read out as
     plain values here, because the lock is gone by the time it runs."""
     async with session_factory() as session:
-        try:
-            post = await session.get(Post, post_id, with_for_update=True)
-        except DBAPIError as error:
-            await session.rollback()
-            logger.error("render_post_video_post_locked", post_id=post_id, error=str(error))
-            return None
-
+        post = await lock_post_for_claim(
+            session, post_id, RENDER_ENTRY_STATUSES, RENDER_CLAIM_EVENTS
+        )
         if post is None:
-            logger.error("render_post_video_post_not_found", post_id=post_id)
-            return None
-
-        if post.status not in RENDER_ENTRY_STATUSES:
-            logger.info(
-                "render_post_video_task_arrived_at_settled_post",
-                post_id=post_id,
-                status=post.status.value,
-            )
-            return None
-
-        # publication takes the newest `render` row, so it has to be the previewed one.
-        if post.preview_message_id is not None:
-            logger.info(
-                "render_post_video_task_arrived_at_previewed_post",
-                post_id=post_id,
-                status=post.status.value,
-            )
             return None
 
         track = await session.get(Track, post.track_id)
@@ -1702,14 +1711,11 @@ async def deliver_preview_for(post: Post, outcome: RenderOutcome) -> None:
         post.draft_chat_id if post.draft_chat_id is not None else settings.alert_chat_id
     )
 
-    bot = build_bot(settings)
-    try:
+    async with bot_client() as bot:
         await deliver_preview(
             bot, post, preview_chat_id, rendered_video(outcome), settings.webapp_public_url
         )
         await remove_draft_keyboard(bot, post)
-    finally:
-        await bot.session.close()
 
 
 def upsert_render_statement(claim: RenderClaim, outcome: RenderOutcome) -> PostgresInsert:
@@ -1743,13 +1749,8 @@ def describe_media_error(error: Exception) -> str:
 
 async def fail_media_post_by_id(post_id: int, error_message: str) -> None:
     """the soft-time-limit path owns no engine yet — it builds its own."""
-    engine = build_engine(
-        settings.database_url, use_null_pool=True, lock_timeout_ms=LOCK_TIMEOUT_MS
-    )
-    try:
-        await fail_media_post(build_session_factory(engine), post_id, error_message)
-    finally:
-        await engine.dispose()
+    async with task_session_factory(lock_timeout_ms=LOCK_TIMEOUT_MS) as session_factory:
+        await fail_media_post(session_factory, post_id, error_message)
 
 
 async def fail_media_post(
@@ -1779,8 +1780,5 @@ async def fail_media_post(
     if not status_written:
         alert_text += "\nСтатус у базі зафіксувати не вдалося — пост міг лишитись у роботі."
 
-    bot = build_bot(settings)
-    try:
+    async with bot_client() as bot:
         await send_alert(bot, settings.alert_chat_id, alert_text)
-    finally:
-        await bot.session.close()

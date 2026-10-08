@@ -23,10 +23,9 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.schema import Identity
 from sqlalchemy.types import TypeDecorator
 
-from pisniar.db.base import Base
+from pisniar.db.base import Base, IdAndTimestampsMixin
 from pisniar.db.states import PostStatus
 
 if TYPE_CHECKING:
@@ -78,7 +77,7 @@ class PostStatusType(TypeDecorator[PostStatus]):
         return PostStatus(value)
 
 
-class Track(Base):
+class Track(IdAndTimestampsMixin, Base):
     __tablename__ = "track"
     __table_args__ = (
         CheckConstraint("jsonb_typeof(artists) = 'array'", name="artists_is_array"),
@@ -92,17 +91,6 @@ class Track(Base):
         CheckConstraint(
             "jsonb_typeof(removed_platforms) = 'array'", name="removed_platforms_is_array"
         ),
-    )
-
-    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
-    created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=False, server_default=text("now()")
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True),
-        nullable=False,
-        server_default=text("now()"),
-        onupdate=text("now()"),
     )
 
     source_url: Mapped[str] = mapped_column(Text, nullable=False)
@@ -149,7 +137,7 @@ class Track(Base):
     posts: Mapped[list[Post]] = relationship(back_populates="track", passive_deletes="all")
 
 
-class Post(Base):
+class Post(IdAndTimestampsMixin, Base):
     """several posts per track are allowed (no `UNIQUE (track_id)`). `fragment_*_ms`
     are absolute from the start of the *full* track, never fragment-local."""
 
@@ -217,17 +205,6 @@ class Post(Base):
         ),
     )
 
-    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
-    created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=False, server_default=text("now()")
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True),
-        nullable=False,
-        server_default=text("now()"),
-        onupdate=text("now()"),
-    )
-
     track_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("track.id", ondelete="RESTRICT"), nullable=False, index=True
     )
@@ -270,7 +247,7 @@ class Post(Base):
     track: Mapped[Track] = relationship(back_populates="posts")
 
 
-class AudioAsset(Base):
+class AudioAsset(IdAndTimestampsMixin, Base):
     """keyed to a track, so posts share one download. The unique pair is the
     database half of idempotency; the atomic `os.replace` on disk is the other."""
 
@@ -279,17 +256,6 @@ class AudioAsset(Base):
         UniqueConstraint("track_id", "video_id"),
         CheckConstraint("size_bytes > 0", name="size_positive"),
         CheckConstraint("duration_ms > 0", name="duration_positive"),
-    )
-
-    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
-    created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=False, server_default=text("now()")
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True),
-        nullable=False,
-        server_default=text("now()"),
-        onupdate=text("now()"),
     )
 
     # CASCADE, unlike `post.track_id`: an artifact of a deleted track is not a
@@ -310,7 +276,7 @@ class AudioAsset(Base):
     ytdlp_version: Mapped[str] = mapped_column(Text, nullable=False)
 
 
-class Render(Base):
+class Render(IdAndTimestampsMixin, Base):
     """keyed to a post: the caption and fragment bounds belong to the publication.
     `params_hash` covers every input the frames depend on, `text_version` included."""
 
@@ -319,17 +285,6 @@ class Render(Base):
         UniqueConstraint("post_id", "params_hash"),
         CheckConstraint("size_bytes > 0", name="size_positive"),
         CheckConstraint("duration_ms > 0", name="duration_positive"),
-    )
-
-    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
-    created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=False, server_default=text("now()")
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True),
-        nullable=False,
-        server_default=text("now()"),
-        onupdate=text("now()"),
     )
 
     post_id: Mapped[int] = mapped_column(
@@ -346,7 +301,7 @@ class Render(Base):
     duration_ms: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
 
-class Lyric(Base):
+class Lyric(IdAndTimestampsMixin, Base):
     """keyed to a track, so posts of one recording share the text. `start_ms` is
     absolute in the full track; there is no `end_ms`, render time derives it."""
 
@@ -355,17 +310,6 @@ class Lyric(Base):
         UniqueConstraint("track_id", "line_index"),
         CheckConstraint("start_ms >= 0", name="start_ms_non_negative"),
         CheckConstraint(f"length(text) <= {MAX_LYRIC_TEXT_LENGTH}", name="text_length_bounded"),
-    )
-
-    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
-    created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=False, server_default=text("now()")
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True),
-        nullable=False,
-        server_default=text("now()"),
-        onupdate=text("now()"),
     )
 
     # CASCADE like `audio_asset.track_id`: a stored lyric is not a reason to
@@ -393,23 +337,12 @@ def renderable_lyrics_statement(track_id: int) -> Select[tuple[Lyric]]:
     )
 
 
-class SourceFetch(Base):
+class SourceFetch(IdAndTimestampsMixin, Base):
     """`payload` is `{"found": bool, "data": ... | None}`: a miss is cached too,
     so a retry never re-hits it."""
 
     __tablename__ = "source_fetch"
     __table_args__ = (UniqueConstraint("source", "request_key"),)
-
-    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
-    created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=False, server_default=text("now()")
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True),
-        nullable=False,
-        server_default=text("now()"),
-        onupdate=text("now()"),
-    )
 
     source: Mapped[str] = mapped_column(Text, nullable=False)
     request_key: Mapped[str] = mapped_column(Text, nullable=False)
