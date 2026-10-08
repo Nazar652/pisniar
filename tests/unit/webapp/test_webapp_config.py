@@ -25,7 +25,10 @@ def build(**overrides: Any) -> Settings:
     )
 
 
-def test_defaults_leave_the_mini_app_off_and_the_windows_at_their_documented_values() -> None:
+def test_defaults_leave_the_mini_app_off_and_the_windows_at_their_documented_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("WEBAPP_PUBLIC_URL", raising=False)
     settings = build()
 
     assert settings.webapp_public_url is None
@@ -41,7 +44,8 @@ def test_defaults_leave_the_mini_app_off_and_the_windows_at_their_documented_val
     [
         ("https://pisniar.example.ts.net", "https://pisniar.example.ts.net"),
         (" https://pisniar.example.ts.net/ ", "https://pisniar.example.ts.net"),
-        ("https://host:8443", "https://host:8443"),
+        ("https://pisniar.example.ts.net/", "https://pisniar.example.ts.net"),
+        ("https://host", "https://host"),
         ("", None),
         ("   ", None),
     ],
@@ -60,6 +64,16 @@ def test_public_url_is_normalised(raw: str, expected: str | None) -> None:
         "https://pisniar.example.ts.net/#frag",
         "https://user:pass@pisniar.example.ts.net",
         "ftp://x",
+        "https://pisniar.example.ts.netdocker compose up -d --force-recreate bot worker webapp",
+        "https://pisniar.example.ts.net docker",
+        "https://pisniar example.ts.net",
+        "https://pisniar.example.ts.net:8443",
+        "https://pisniar.example.ts.net:abc",
+        "https://pisniar_x.example.ts.net",
+        "https://-bad.example.ts.net",
+        "https://exa mple",
+        "https://[::1",
+        "https://",
     ],
 )
 def test_public_url_that_is_not_a_bare_https_origin_is_refused(raw: str) -> None:

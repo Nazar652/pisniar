@@ -2,13 +2,48 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Annotated, Literal
 from urllib.parse import unquote, urlsplit
 
-from pydantic import Field, SecretStr, ValidationInfo, field_validator, model_validator
+from pydantic import (
+    Field,
+    HttpUrl,
+    SecretStr,
+    TypeAdapter,
+    ValidationError,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 from sqlalchemy.engine import make_url
+
+WEBAPP_ORIGIN_ERROR = (
+    "webapp_public_url must be a bare https://host origin: a DNS host name, no port, "
+    "credentials, path, query or fragment"
+)
+DNS_LABEL = r"[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?"
+DNS_HOST_PATTERN = re.compile(rf"^{DNS_LABEL}(\.{DNS_LABEL})*$")
+HTTP_URL_ADAPTER = TypeAdapter(HttpUrl)
+
+
+def bare_https_origin(value: str) -> str:
+    """the same text Telegram would accept as a `web_app` origin, or a `ValueError` that never
+    echoes the value; the URL parser rejects spaces and stray characters in the host."""
+    try:
+        parts = urlsplit(value)
+        parsed = HTTP_URL_ADAPTER.validate_python(value)
+        has_port = parts.port is not None
+    except (ValidationError, ValueError):
+        raise ValueError(WEBAPP_ORIGIN_ERROR) from None
+
+    has_extras = parts.path or parts.query or parts.fragment or parts.username or parts.password
+    host = parsed.host or ""
+    if parts.scheme != "https" or has_extras or has_port or not DNS_HOST_PATTERN.match(host):
+        raise ValueError(WEBAPP_ORIGIN_ERROR)
+    return value
 
 
 class Settings(BaseSettings):
@@ -114,11 +149,7 @@ class Settings(BaseSettings):
         if not stripped:
             return None
 
-        parts = urlsplit(stripped)
-        has_extras = parts.path or parts.query or parts.fragment or parts.username
-        if parts.scheme != "https" or not parts.hostname or has_extras:
-            raise ValueError("webapp_public_url must be a bare https://host origin")
-        return stripped
+        return bare_https_origin(stripped)
 
     @model_validator(mode="after")
     def require_soft_limit_below_hard_limit(self) -> Settings:
