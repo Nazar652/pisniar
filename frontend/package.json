@@ -1,0 +1,41 @@
+{
+  "name": "pisniar-webapp",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=24.16.0 <25"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "build:watch": "vite build --watch",
+    "typecheck": "vue-tsc --noEmit -p tsconfig.app.json && vue-tsc --noEmit -p tsconfig.node.json",
+    "lint": "eslint . --max-warnings 0",
+    "format:check": "prettier --check .",
+    "format": "prettier --write .",
+    "test": "vitest run",
+    "api-types": "node scripts/generate-types.ts src/api/schema.ts",
+    "check:bundle": "node scripts/check-bundle.ts dist-check"
+  },
+  "dependencies": {
+    "openapi-fetch": "0.17.0",
+    "vue": "3.5.43"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "24.19.1",
+    "@vitejs/plugin-vue": "6.0.9",
+    "eslint": "10.12.0",
+    "eslint-config-prettier": "10.1.8",
+    "eslint-plugin-vue": "10.11.1",
+    "globals": "17.13.0",
+    "openapi-typescript": "7.13.0",
+    "prettier": "3.9.9",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.71.1",
+    "vite": "8.3.4",
+    "vitest": "5.0.3",
+    "vue-tsc": "3.3.12"
+  }
+}

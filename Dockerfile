@@ -1,6 +1,9 @@
 # syntax=docker/dockerfile:1.7
 # ffmpeg and fonts go only into the worker stages, so changing them invalidates no shared layer.
 
+# the one place that pins node: the host runs the same version (frontend/.node-version)
+ARG NODE_IMAGE=node:24.16.0-slim@sha256:2c87ef9bd3c6a3bd4b472b4bec2ce9d16354b0c574f736c476489d09f560a203
+
 FROM python:3.13-slim AS base
 
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
@@ -66,8 +69,17 @@ FROM source-dev AS bot-dev
 EXPOSE 8080
 CMD ["watchfiles", "--filter", "python", "python -m pisniar.bot.main", "/app/src"]
 
-# webapp: no ffmpeg, no node
+FROM ${NODE_IMAGE} AS frontend-build
+# node exists only here; the webapp stage takes the built `dist` and nothing else
+WORKDIR /frontend
+COPY frontend/package.json frontend/package-lock.json frontend/.npmrc ./
+RUN --mount=type=cache,target=/root/.npm npm ci --ignore-scripts
+COPY frontend/ ./
+RUN npm run build
+
+# webapp: no ffmpeg, no node, only the built frontend
 FROM source-prod AS webapp
+COPY --from=frontend-build --chown=app:app /frontend/dist /app/webapp-static
 EXPOSE 8081
 CMD ["python", "-m", "pisniar.webapp.main"]
 

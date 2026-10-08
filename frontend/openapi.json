@@ -1,0 +1,1933 @@
+{
+  "components": {
+    "schemas": {
+      "ApiError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ApiError",
+        "type": "object"
+      },
+      "ApplyRequest": {
+        "additionalProperties": false,
+        "description": "the hash of the caption the editor showed: the caption is rebuilt and compared before\nanything is sent.",
+        "properties": {
+          "expected_caption_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Expected Caption Sha256",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_caption_sha256"
+        ],
+        "title": "ApplyRequest",
+        "type": "object"
+      },
+      "ApplyResponse": {
+        "properties": {
+          "caption_sha256": {
+            "title": "Caption Sha256",
+            "type": "string"
+          },
+          "other_messages_failed": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Other Messages Failed",
+            "type": "array"
+          },
+          "result": {
+            "enum": [
+              "edited",
+              "not_modified",
+              "stored_only"
+            ],
+            "title": "Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "caption_sha256",
+          "result",
+          "other_messages_failed"
+        ],
+        "title": "ApplyResponse",
+        "type": "object"
+      },
+      "ArchiveResponse": {
+        "properties": {
+          "post_id": {
+            "title": "Post Id",
+            "type": "integer"
+          },
+          "status_label": {
+            "title": "Status Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "post_id",
+          "status_label"
+        ],
+        "title": "ArchiveResponse",
+        "type": "object"
+      },
+      "ArtistDetail": {
+        "properties": {
+          "default_hashtag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Hashtag"
+          },
+          "hashtag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hashtag"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "spotify_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spotify Id"
+          }
+        },
+        "required": [
+          "name",
+          "hashtag",
+          "default_hashtag",
+          "spotify_id"
+        ],
+        "title": "ArtistDetail",
+        "type": "object"
+      },
+      "ArtistInput": {
+        "additionalProperties": false,
+        "properties": {
+          "hashtag": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hashtag"
+          },
+          "name": {
+            "maxLength": 200,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "ArtistInput",
+        "type": "object"
+      },
+      "CaptionSegmentView": {
+        "properties": {
+          "href": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Href"
+          },
+          "kind": {
+            "enum": [
+              "text",
+              "link",
+              "line_break"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text"
+          }
+        },
+        "required": [
+          "kind",
+          "text",
+          "href"
+        ],
+        "title": "CaptionSegmentView",
+        "type": "object"
+      },
+      "CaptionView": {
+        "properties": {
+          "dropped_genres": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Dropped Genres",
+            "type": "array"
+          },
+          "dropped_platforms": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Dropped Platforms",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "over_limit": {
+            "title": "Over Limit",
+            "type": "boolean"
+          },
+          "release_title_dropped": {
+            "title": "Release Title Dropped",
+            "type": "boolean"
+          },
+          "segments": {
+            "items": {
+              "$ref": "#/components/schemas/CaptionSegmentView"
+            },
+            "title": "Segments",
+            "type": "array"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "visible_length": {
+            "title": "Visible Length",
+            "type": "integer"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "segments",
+          "visible_length",
+          "limit",
+          "dropped_genres",
+          "dropped_platforms",
+          "release_title_dropped",
+          "over_limit",
+          "warnings",
+          "sha256"
+        ],
+        "title": "CaptionView",
+        "type": "object"
+      },
+      "FieldError": {
+        "properties": {
+          "field": {
+            "title": "Field",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "field",
+          "message"
+        ],
+        "title": "FieldError",
+        "type": "object"
+      },
+      "FieldsInput": {
+        "additionalProperties": false,
+        "description": "the full set of editable fields: what is missing from it is removed, not left alone.",
+        "properties": {
+          "album_link": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Album Link"
+          },
+          "artists": {
+            "items": {
+              "$ref": "#/components/schemas/ArtistInput"
+            },
+            "maxItems": 20,
+            "title": "Artists",
+            "type": "array"
+          },
+          "genres": {
+            "items": {
+              "$ref": "#/components/schemas/GenreInput"
+            },
+            "maxItems": 30,
+            "title": "Genres",
+            "type": "array"
+          },
+          "languages": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 10,
+            "title": "Languages",
+            "type": "array"
+          },
+          "platform_links": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "maxProperties": 25,
+            "title": "Platform Links",
+            "type": "object"
+          },
+          "release_title": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Release Title"
+          },
+          "release_type": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Release Type"
+          },
+          "revert_to_automatic": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 6,
+            "title": "Revert To Automatic",
+            "type": "array"
+          },
+          "title": {
+            "maxLength": 300,
+            "title": "Title",
+            "type": "string"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Year"
+          }
+        },
+        "required": [
+          "title",
+          "artists",
+          "languages",
+          "genres",
+          "platform_links"
+        ],
+        "title": "FieldsInput",
+        "type": "object"
+      },
+      "FieldsInvalid": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "errors": {
+            "items": {
+              "$ref": "#/components/schemas/FieldError"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "FieldsInvalid",
+        "type": "object"
+      },
+      "FieldsUpdate": {
+        "additionalProperties": false,
+        "properties": {
+          "album_link": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Album Link"
+          },
+          "artists": {
+            "items": {
+              "$ref": "#/components/schemas/ArtistInput"
+            },
+            "maxItems": 20,
+            "title": "Artists",
+            "type": "array"
+          },
+          "expected_post_updated_at": {
+            "format": "date-time",
+            "title": "Expected Post Updated At",
+            "type": "string"
+          },
+          "expected_track_updated_at": {
+            "format": "date-time",
+            "title": "Expected Track Updated At",
+            "type": "string"
+          },
+          "genres": {
+            "items": {
+              "$ref": "#/components/schemas/GenreInput"
+            },
+            "maxItems": 30,
+            "title": "Genres",
+            "type": "array"
+          },
+          "languages": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 10,
+            "title": "Languages",
+            "type": "array"
+          },
+          "platform_links": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "maxProperties": 25,
+            "title": "Platform Links",
+            "type": "object"
+          },
+          "release_title": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Release Title"
+          },
+          "release_type": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Release Type"
+          },
+          "revert_to_automatic": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 6,
+            "title": "Revert To Automatic",
+            "type": "array"
+          },
+          "title": {
+            "maxLength": 300,
+            "title": "Title",
+            "type": "string"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Year"
+          }
+        },
+        "required": [
+          "title",
+          "artists",
+          "languages",
+          "genres",
+          "platform_links",
+          "expected_post_updated_at",
+          "expected_track_updated_at"
+        ],
+        "title": "FieldsUpdate",
+        "type": "object"
+      },
+      "GenreDetail": {
+        "properties": {
+          "default_hashtag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Hashtag"
+          },
+          "hashtag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hashtag"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "hashtag",
+          "default_hashtag",
+          "source"
+        ],
+        "title": "GenreDetail",
+        "type": "object"
+      },
+      "GenreHint": {
+        "properties": {
+          "default_hashtag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Hashtag"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "default_hashtag"
+        ],
+        "title": "GenreHint",
+        "type": "object"
+      },
+      "GenreInput": {
+        "additionalProperties": false,
+        "properties": {
+          "hashtag": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hashtag"
+          },
+          "name": {
+            "maxLength": 64,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "GenreInput",
+        "type": "object"
+      },
+      "MeResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "user_id": {
+            "title": "User Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "user_id"
+        ],
+        "title": "MeResponse",
+        "type": "object"
+      },
+      "MetaResponse": {
+        "properties": {
+          "caption_limit": {
+            "title": "Caption Limit",
+            "type": "integer"
+          },
+          "genres": {
+            "items": {
+              "$ref": "#/components/schemas/GenreHint"
+            },
+            "title": "Genres",
+            "type": "array"
+          },
+          "languages": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Languages",
+            "type": "array"
+          },
+          "manual_field_names": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Manual Field Names",
+            "type": "array"
+          },
+          "platforms": {
+            "items": {
+              "$ref": "#/components/schemas/PlatformRule"
+            },
+            "title": "Platforms",
+            "type": "array"
+          },
+          "release_types": {
+            "items": {
+              "$ref": "#/components/schemas/ReleaseTypeOption"
+            },
+            "title": "Release Types",
+            "type": "array"
+          }
+        },
+        "required": [
+          "platforms",
+          "release_types",
+          "languages",
+          "genres",
+          "manual_field_names",
+          "caption_limit"
+        ],
+        "title": "MetaResponse",
+        "type": "object"
+      },
+      "PlatformLinkDetail": {
+        "properties": {
+          "match": {
+            "title": "Match",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "source",
+          "match"
+        ],
+        "title": "PlatformLinkDetail",
+        "type": "object"
+      },
+      "PlatformRule": {
+        "properties": {
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "host_suffixes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Host Suffixes",
+            "type": "array"
+          },
+          "hosts": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Hosts",
+            "type": "array"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "requires_track_link": {
+            "title": "Requires Track Link",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "key",
+          "display_name",
+          "hosts",
+          "host_suffixes",
+          "requires_track_link"
+        ],
+        "title": "PlatformRule",
+        "type": "object"
+      },
+      "PostDetail": {
+        "properties": {
+          "album_id_spotify": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Album Id Spotify"
+          },
+          "album_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Album Url"
+          },
+          "artists": {
+            "items": {
+              "$ref": "#/components/schemas/ArtistDetail"
+            },
+            "title": "Artists",
+            "type": "array"
+          },
+          "caption": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CaptionView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "editable": {
+            "title": "Editable",
+            "type": "boolean"
+          },
+          "expected_post_updated_at": {
+            "format": "date-time",
+            "title": "Expected Post Updated At",
+            "type": "string"
+          },
+          "expected_track_updated_at": {
+            "format": "date-time",
+            "title": "Expected Track Updated At",
+            "type": "string"
+          },
+          "genres": {
+            "items": {
+              "$ref": "#/components/schemas/GenreDetail"
+            },
+            "title": "Genres",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "languages": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Languages",
+            "type": "array"
+          },
+          "manual_fields": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Manual Fields",
+            "type": "array"
+          },
+          "not_editable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Not Editable Reason"
+          },
+          "other_post_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Other Post Ids",
+            "type": "array"
+          },
+          "platform_links": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/PlatformLinkDetail"
+            },
+            "title": "Platform Links",
+            "type": "object"
+          },
+          "published_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Published At"
+          },
+          "release_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Release Title"
+          },
+          "release_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Release Type"
+          },
+          "removed_platforms": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Removed Platforms",
+            "type": "array"
+          },
+          "status_label": {
+            "title": "Status Label",
+            "type": "string"
+          },
+          "stored_caption_html": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stored Caption Html"
+          },
+          "stored_caption_matches": {
+            "title": "Stored Caption Matches",
+            "type": "boolean"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Year"
+          }
+        },
+        "required": [
+          "id",
+          "status_label",
+          "editable",
+          "not_editable_reason",
+          "created_at",
+          "published_at",
+          "title",
+          "artists",
+          "languages",
+          "genres",
+          "year",
+          "release_type",
+          "release_title",
+          "album_id_spotify",
+          "album_url",
+          "platform_links",
+          "manual_fields",
+          "removed_platforms",
+          "caption",
+          "stored_caption_html",
+          "stored_caption_matches",
+          "other_post_ids",
+          "expected_post_updated_at",
+          "expected_track_updated_at"
+        ],
+        "title": "PostDetail",
+        "type": "object"
+      },
+      "PostListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PostSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_before_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Before Id"
+          }
+        },
+        "required": [
+          "items",
+          "next_before_id"
+        ],
+        "title": "PostListResponse",
+        "type": "object"
+      },
+      "PostSummary": {
+        "properties": {
+          "artists": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Artists",
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "editable": {
+            "title": "Editable",
+            "type": "boolean"
+          },
+          "has_video": {
+            "title": "Has Video",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "not_editable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Not Editable Reason"
+          },
+          "published_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Published At"
+          },
+          "status_label": {
+            "title": "Status Label",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "id",
+          "status_label",
+          "title",
+          "artists",
+          "created_at",
+          "published_at",
+          "editable",
+          "not_editable_reason",
+          "has_video"
+        ],
+        "title": "PostSummary",
+        "type": "object"
+      },
+      "PreviewResponse": {
+        "properties": {
+          "caption": {
+            "$ref": "#/components/schemas/CaptionView"
+          },
+          "differs_from_stored": {
+            "title": "Differs From Stored",
+            "type": "boolean"
+          },
+          "stored_caption_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stored Caption Sha256"
+          }
+        },
+        "required": [
+          "caption",
+          "stored_caption_sha256",
+          "differs_from_stored"
+        ],
+        "title": "PreviewResponse",
+        "type": "object"
+      },
+      "ReleaseTypeOption": {
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "label"
+        ],
+        "title": "ReleaseTypeOption",
+        "type": "object"
+      },
+      "SessionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "init_data": {
+            "maxLength": 8192,
+            "minLength": 1,
+            "title": "Init Data",
+            "type": "string"
+          }
+        },
+        "required": [
+          "init_data"
+        ],
+        "title": "SessionRequest",
+        "type": "object"
+      },
+      "SessionResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "expires_in": {
+            "title": "Expires In",
+            "type": "integer"
+          },
+          "token": {
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "expires_in"
+        ],
+        "title": "SessionResponse",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "pisniar webapp",
+    "version": "0.1.0",
+    "x-generated": "generated by `make api-types`, do not edit"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/me": {
+      "get": {
+        "operationId": "read_me_api_me_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          }
+        },
+        "summary": "Read Me"
+      }
+    },
+    "/api/meta": {
+      "get": {
+        "operationId": "read_meta_api_meta_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetaResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Read Meta"
+      }
+    },
+    "/api/posts": {
+      "get": {
+        "operationId": "list_posts_api_posts_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "before_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 9223372036854775807,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Before Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PostListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "List Posts"
+      }
+    },
+    "/api/posts/{post_id}": {
+      "get": {
+        "operationId": "read_post_api_posts__post_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "post_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Post Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PostDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Read Post"
+      }
+    },
+    "/api/posts/{post_id}/apply": {
+      "post": {
+        "operationId": "apply_post_caption_api_posts__post_id__apply_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "post_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Post Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FieldsInvalid"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Apply Post Caption"
+      }
+    },
+    "/api/posts/{post_id}/archive": {
+      "post": {
+        "operationId": "archive_published_post_api_posts__post_id__archive_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "post_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Post Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArchiveResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FieldsInvalid"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Archive Published Post"
+      }
+    },
+    "/api/posts/{post_id}/fields": {
+      "put": {
+        "operationId": "save_post_fields_api_posts__post_id__fields_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "post_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Post Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FieldsUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PostDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FieldsInvalid"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Save Post Fields"
+      }
+    },
+    "/api/posts/{post_id}/preview": {
+      "post": {
+        "operationId": "preview_post_fields_api_posts__post_id__preview_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "post_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Post Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FieldsInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FieldsInvalid"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Preview Post Fields"
+      }
+    },
+    "/api/session": {
+      "post": {
+        "operationId": "create_session_api_session_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          }
+        },
+        "summary": "Create Session"
+      }
+    }
+  }
+}

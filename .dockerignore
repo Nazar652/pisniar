@@ -19,3 +19,8 @@ dist/
 
 README.md
 docs/
+
+frontend/node_modules
+frontend/dist
+frontend/dist-check
+.api-check

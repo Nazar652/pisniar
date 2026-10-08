@@ -26,6 +26,23 @@ from pisniar.webapp.schemas import INIT_DATA_MAX_LENGTH
 
 logger = get_logger(__name__)
 
+# the fields Telegram documents in `initData`; only these names are ever logged
+INIT_DATA_FIELD_NAMES = frozenset(
+    {
+        "auth_date",
+        "can_send_after",
+        "chat",
+        "chat_instance",
+        "chat_type",
+        "hash",
+        "query_id",
+        "receiver",
+        "signature",
+        "start_param",
+        "user",
+    }
+)
+
 SESSION_KEY_CONTEXT = b"pisniar-webapp-session-v1"
 BEARER_PREFIX = "Bearer "
 # room before `iat` for clock drift between the process that issued a token and this one.
@@ -60,6 +77,18 @@ class WebappContext:
 @dataclass(frozen=True)
 class AdminUser:
     user_id: int
+
+
+def init_data_field_names(init_data: str) -> tuple[list[str], int]:
+    """the known field names present and how many unknown ones there are, never a value; a
+    malformed string gives nothing, and a name outside the list is counted, not echoed."""
+    try:
+        pairs = parse_qsl(init_data, keep_blank_values=True, strict_parsing=True)
+    except ValueError:
+        return [], 0
+
+    names = {name for name, value in pairs}
+    return sorted(names & INIT_DATA_FIELD_NAMES), len(names - INIT_DATA_FIELD_NAMES)
 
 
 def validate_init_data(init_data: str, bot_token: str, now: int, window: AuthWindow) -> int:

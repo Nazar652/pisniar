@@ -6,7 +6,7 @@ COMPOSE := docker compose
 
 .DEFAULT_GOAL := help
 
-.PHONY: help sync lock-check fmt fmt-check lint typecheck test check \
+.PHONY: help sync lock-check fmt fmt-check lint typecheck test check \n	frontend-sync frontend-typecheck frontend-lint frontend-format frontend-test frontend-bundle \n	api-types api-types-check frontend-build frontend-watch \
 	build up down ps logs restart clean test-int test-fonts migrate revision downgrade \
 	alembic-check psql shell verify funnel-init funnel-up funnel-down dev-token
 
@@ -38,7 +38,50 @@ test: ## unit tests only, no DB
 
 # `check`'s prerequisites stop at the first failure (like `&&`); run
 # `make -k check` (a make-invocation flag, not something `verify` sets for you) to see all of them.
-check: sync lock-check fmt-check lint typecheck test ## sync + lock-check + fmt-check + lint + typecheck + test; use `make -k check` to see every failure in one go
+check: sync lock-check fmt-check lint typecheck test frontend-typecheck frontend-lint frontend-format frontend-test api-types-check frontend-bundle ## python and frontend checks; use `make -k check` to see every failure in one go
+
+# frontend targets: Node 24.16.0 on the host (frontend/.node-version), no Docker
+
+# the hidden lockfile npm writes into node_modules marks an install that matches package-lock.json
+frontend/node_modules/.package-lock.json: frontend/package-lock.json frontend/package.json
+	cd frontend && npm ci
+
+frontend-sync: frontend/node_modules/.package-lock.json ## npm ci when node_modules is older than the lockfile
+
+frontend-typecheck: frontend-sync ## vue-tsc --noEmit, strict
+	cd frontend && npm run typecheck
+
+frontend-lint: frontend-sync ## eslint --max-warnings 0
+	cd frontend && npm run lint
+
+frontend-format: frontend-sync ## prettier --check
+	cd frontend && npm run format:check
+
+frontend-test: frontend-sync ## vitest run
+	cd frontend && npm run test
+
+# built into dist-check so the check never touches the `dist` the running webapp serves
+frontend-bundle: frontend-sync ## production build into dist-check, then the bundle checks
+	cd frontend && npx vite build --outDir dist-check --emptyOutDir && npm run check:bundle
+	rm -rf frontend/dist-check
+
+api-types: frontend-sync ## regenerate frontend/openapi.json and frontend/src/api/schema.ts
+	uv run python -m pisniar.webapp.export_openapi
+	cd frontend && npm run api-types
+
+api-types-check: frontend-sync ## fail when the committed API types differ from the application
+	rm -rf .api-check && mkdir .api-check
+	uv run python -m pisniar.webapp.export_openapi --output .api-check/openapi.json
+	cd frontend && node scripts/generate-types.ts ../.api-check/schema.ts ../.api-check/openapi.json
+	cmp frontend/openapi.json .api-check/openapi.json || { echo "run make api-types"; exit 1; }
+	cmp frontend/src/api/schema.ts .api-check/schema.ts || { echo "run make api-types"; exit 1; }
+	rm -rf .api-check
+
+frontend-build: frontend-sync ## production build into frontend/dist (served by the running webapp)
+	cd frontend && npm run build
+
+frontend-watch: frontend-sync ## vite build --watch into frontend/dist: the Telegram dev loop
+	cd frontend && npm run build:watch
 
 # docker targets: compose.yaml and compose.override.yml pick up .env automatically
 

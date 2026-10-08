@@ -11,6 +11,7 @@ from pisniar.webapp.auth import (
     AdminUser,
     InitDataError,
     WebappContext,
+    init_data_field_names,
     issue_session_token,
     require_admin,
     validate_init_data,
@@ -31,6 +32,14 @@ ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
 async def create_session(body: SessionRequest, request: Request) -> SessionResponse:
     context = cast(WebappContext, request.app.state.context)
     now = int(context.clock())
+
+    field_names, unknown_fields = init_data_field_names(body.init_data)
+    logger.info(
+        "webapp_init_data_received",
+        fields=field_names,
+        unknown_fields=unknown_fields,
+        has_signature="signature" in field_names,
+    )
 
     try:
         user_id = validate_init_data(body.init_data, context.bot_token, now, context.auth_window)

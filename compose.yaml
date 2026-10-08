@@ -109,8 +109,8 @@ services:
       retries: 10
       start_period: 10s
 
-  # no `ports:`: the only way in is the Funnel below. The healthcheck accepts any HTTP answer, so a
-  # frontend that is not built yet (503 on `/`) does not hold `up --wait` or the Funnel back.
+  # no `ports:`: the only way in is the Funnel below. The healthcheck is strict: `/` must answer 200,
+  # so a missing frontend build (503) leaves the container unhealthy and the Funnel waiting.
   webapp:
     build:
       context: .
@@ -131,7 +131,7 @@ services:
           "CMD",
           "python",
           "-c",
-          "import http.client; c = http.client.HTTPConnection('localhost', 8081, timeout=3); c.request('GET', '/'); c.getresponse()",
+          "import http.client, sys; c = http.client.HTTPConnection('localhost', 8081, timeout=3); c.request('GET', '/'); sys.exit(0 if c.getresponse().status == 200 else 1)",
         ]
       interval: 5s
       timeout: 5s
