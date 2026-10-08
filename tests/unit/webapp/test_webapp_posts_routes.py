@@ -30,6 +30,9 @@ class FakeSession:
     async def __aexit__(self, *exception_info: object) -> None:
         return None
 
+    async def commit(self) -> None:
+        return None
+
 
 def make_client(settings: Settings, with_database: bool = True) -> tuple[TestClient, MagicMock]:
     session_factory = MagicMock(return_value=FakeSession())

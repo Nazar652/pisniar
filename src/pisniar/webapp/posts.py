@@ -2,20 +2,26 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+from datetime import UTC, datetime
+from typing import Annotated, cast
 
 from fastapi import Depends, FastAPI, Path, Query, Request
 
-from pisniar.webapp.auth import require_admin
-from pisniar.webapp.database import read_from_database
+from pisniar.webapp.auth import AdminUser, WebappContext, require_admin
+from pisniar.webapp.database import read_from_database, write_to_database
+from pisniar.webapp.editing import POST_NOT_FOUND_MESSAGE, preview_fields, save_fields
 from pisniar.webapp.errors import ApiProblem
 from pisniar.webapp.meta import build_meta
 from pisniar.webapp.schemas import (
     POST_ID_MAX,
     ApiError,
+    FieldsInput,
+    FieldsInvalid,
+    FieldsUpdate,
     MetaResponse,
     PostDetail,
     PostListResponse,
+    PreviewResponse,
 )
 from pisniar.webapp.service import (
     DEFAULT_PAGE_SIZE,
@@ -30,6 +36,11 @@ READ_ERROR_RESPONSES: dict[int | str, dict[str, type[ApiError]]] = {
     404: {"model": ApiError},
     422: {"model": ApiError},
     503: {"model": ApiError},
+}
+EDIT_ERROR_RESPONSES: dict[int | str, dict[str, type[ApiError]]] = {
+    **READ_ERROR_RESPONSES,
+    409: {"model": ApiError},
+    422: {"model": FieldsInvalid},
 }
 
 
@@ -50,6 +61,41 @@ async def read_post(
     if detail is None:
         raise ApiProblem(404, "post_not_found", "Пост не знайдено.")
     return detail
+
+
+def current_year_of(request: Request) -> int:
+    context = cast(WebappContext, request.app.state.context)
+    return datetime.fromtimestamp(context.clock(), UTC).year
+
+
+async def save_post_fields(
+    request: Request,
+    update: FieldsUpdate,
+    admin: Annotated[AdminUser, Depends(require_admin)],
+    post_id: Annotated[int, Path(ge=1, le=POST_ID_MAX)],
+) -> PostDetail:
+    year = current_year_of(request)
+    saved = await write_to_database(
+        request, lambda session: save_fields(session, post_id, update, year, admin.user_id)
+    )
+    if saved is None:
+        raise ApiProblem(404, "post_not_found", POST_NOT_FOUND_MESSAGE)
+    return saved
+
+
+async def preview_post_fields(
+    request: Request,
+    update: FieldsInput,
+    admin: Annotated[AdminUser, Depends(require_admin)],
+    post_id: Annotated[int, Path(ge=1, le=POST_ID_MAX)],
+) -> PreviewResponse:
+    year = current_year_of(request)
+    preview = await read_from_database(
+        request, lambda session: preview_fields(session, post_id, update, year, admin.user_id)
+    )
+    if preview is None:
+        raise ApiProblem(404, "post_not_found", POST_NOT_FOUND_MESSAGE)
+    return preview
 
 
 async def read_meta() -> MetaResponse:
@@ -81,4 +127,18 @@ def register_post_routes(app: FastAPI) -> None:
         response_model=MetaResponse,
         responses=READ_ERROR_RESPONSES,
         dependencies=protected,
+    )
+    app.add_api_route(
+        "/api/posts/{post_id}/fields",
+        save_post_fields,
+        methods=["PUT"],
+        response_model=PostDetail,
+        responses=EDIT_ERROR_RESPONSES,
+    )
+    app.add_api_route(
+        "/api/posts/{post_id}/preview",
+        preview_post_fields,
+        methods=["POST"],
+        response_model=PreviewResponse,
+        responses=EDIT_ERROR_RESPONSES,
     )

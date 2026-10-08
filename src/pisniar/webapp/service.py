@@ -1,10 +1,13 @@
-"""Reading posts for the Mini App: the list page and one post's editable fields.
+"""Reading, previewing and saving posts for the Mini App.
 
-Everything here is a plain SELECT. Stored rows become the response through the same
-conversions the worker uses, so what the editor shows is what the caption is built from.
+Reads are plain SELECTs. Stored rows become the response through the same conversions the worker
+uses, so the editor shows what the caption is built from; a save never calls Telegram.
 """
 
 from __future__ import annotations
+
+import hashlib
+from collections.abc import Sequence
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -104,7 +107,10 @@ async def fetch_post_detail(session: AsyncSession, post_id: int) -> PostDetail |
     if row is None:
         return None
     post, track = row.tuple()
+    return await detail_of(session, post, track)
 
+
+async def detail_of(session: AsyncSession, post: Post, track: Track) -> PostDetail:
     other_post_ids = list(
         await session.scalars(
             select(Post.id)
@@ -167,12 +173,11 @@ def build_post_detail(post: Post, track: Track, other_post_ids: list[int]) -> Po
 def rebuild_caption(post: Post, track: Track) -> tuple[CaptionView | None, str | None]:
     """the caption the rows would give now, which the editor previews; `None` while the
     track has no title to build one from."""
-    title = track.title
-    if not title:
+    if not track.title:
         return None, None
 
-    rebuilt = build_caption_from_rows(
-        title=title,
+    return caption_view_of(
+        title=track.title,
         artists=track.artists,
         year=track.year,
         release_type=track.release_type,
@@ -181,6 +186,32 @@ def rebuild_caption(post: Post, track: Track) -> tuple[CaptionView | None, str |
         languages=track.languages,
         genres=post.genres,
         platform_links=track.platform_links,
+    )
+
+
+def caption_view_of(
+    *,
+    title: str,
+    artists: Sequence[object],
+    year: int | None,
+    release_type: str | None,
+    release_title: str | None,
+    album_id_spotify: str | None,
+    languages: Sequence[object],
+    genres: Sequence[object],
+    platform_links: dict[str, object],
+) -> tuple[CaptionView, str]:
+    """the view and the exact HTML it renders to; the sha256 in the view is that HTML's."""
+    rebuilt = build_caption_from_rows(
+        title=title,
+        artists=artists,
+        year=year,
+        release_type=release_type,
+        release_title=release_title,
+        album_id_spotify=album_id_spotify,
+        languages=languages,
+        genres=genres,
+        platform_links=platform_links,
     )
 
     segments = []
@@ -192,6 +223,7 @@ def rebuild_caption(post: Post, track: Track) -> tuple[CaptionView | None, str |
         elif isinstance(segment, LineBreakSegment):
             segments.append(CaptionSegmentView(kind="line_break", text=None, href=None))
 
+    html = render_html(rebuilt.document)
     degradation = rebuilt.degradation
     view = CaptionView(
         segments=segments,
@@ -201,8 +233,14 @@ def rebuild_caption(post: Post, track: Track) -> tuple[CaptionView | None, str |
         dropped_platforms=list(degradation.dropped_platforms),
         release_title_dropped=degradation.release_title_dropped,
         over_limit=degradation.over_limit,
+        warnings=rebuilt.warnings,
+        sha256=caption_sha256(html),
     )
-    return view, render_html(rebuilt.document)
+    return view, html
+
+
+def caption_sha256(html: str) -> str:
+    return hashlib.sha256(html.encode("utf-8")).hexdigest()
 
 
 def album_url_of(album_id: str | None) -> str | None:

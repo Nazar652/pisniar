@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 # real `initData` is under 2 KiB; the bound keeps a hostile body cheap to reject.
 INIT_DATA_MAX_LENGTH = 8192
@@ -91,6 +91,8 @@ class CaptionView(BaseModel):
     dropped_platforms: list[str]
     release_title_dropped: bool
     over_limit: bool
+    warnings: list[str]
+    sha256: str
 
 
 class PostDetail(BaseModel):
@@ -145,3 +147,54 @@ class MetaResponse(BaseModel):
     genres: list[GenreHint]
     manual_field_names: list[str]
     caption_limit: int
+
+
+class ArtistInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(max_length=200)
+    hashtag: str | None = Field(default=None, max_length=64)
+
+
+class GenreInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(max_length=64)
+    hashtag: str | None = Field(default=None, max_length=64)
+
+
+class FieldsInput(BaseModel):
+    """the full set of editable fields: what is missing from it is removed, not left alone."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(max_length=300)
+    artists: list[ArtistInput] = Field(max_length=20)
+    languages: list[str] = Field(max_length=10)
+    genres: list[GenreInput] = Field(max_length=30)
+    year: StrictInt | None = None
+    release_type: str | None = Field(default=None, max_length=40)
+    release_title: str | None = Field(default=None, max_length=300)
+    album_link: str | None = Field(default=None, max_length=300)
+    platform_links: dict[str, str] = Field(max_length=25)
+    revert_to_automatic: list[str] = Field(default_factory=list, max_length=6)
+
+
+class FieldsUpdate(FieldsInput):
+    expected_post_updated_at: datetime
+    expected_track_updated_at: datetime
+
+
+class FieldError(BaseModel):
+    field: str
+    message: str
+
+
+class FieldsInvalid(ApiError):
+    errors: list[FieldError] = Field(default_factory=list)
+
+
+class PreviewResponse(BaseModel):
+    caption: CaptionView
+    stored_caption_sha256: str | None
+    differs_from_stored: bool
