@@ -6,10 +6,12 @@ so changing this logic means a data migration, not just a code change.
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from urllib.parse import parse_qs, urlsplit, urlunsplit
+
+from pisniar.resolve.matching import is_valid_youtube_video_id
 
 INTERNATIONAL_PREFIX_PATTERN = re.compile(r"^/intl-[a-z]{2}(-[a-z0-9]+)?(?=/)", re.IGNORECASE)
 LANGUAGE_PREFIX_PATTERN = re.compile(r"^/[a-z]{2}(?=/)", re.IGNORECASE)
@@ -268,3 +270,24 @@ def classify_url(raw_url: str) -> ClassifiedUrl:
 
 def normalize_url(raw_url: str) -> str:
     return classify_url(raw_url).normalized_url
+
+
+def stored_link_url(platform_links: Mapping[str, object], platform: str) -> str | None:
+    """the url of a stored `platform_links` entry; `None` when it is absent or has no url."""
+    link = platform_links.get(platform)
+    if not isinstance(link, dict):
+        return None
+
+    url = link.get("url")
+    if not isinstance(url, str) or not url:
+        return None
+    return url
+
+
+def track_video_id_of(url: str) -> str | None:
+    """the validated `videoId` of a YouTube track url, else `None`."""
+    classified = classify_url(url)
+    video_id = classified.track_id
+    if classified.kind is not UrlKind.TRACK or not is_valid_youtube_video_id(video_id):
+        return None
+    return video_id

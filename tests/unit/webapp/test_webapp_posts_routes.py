@@ -18,7 +18,12 @@ from pisniar.webapp import posts as posts_module
 from pisniar.webapp.app import create_webapp
 from pisniar.webapp.auth import issue_session_token
 from pisniar.webapp.database import DATABASE_UNAVAILABLE_MESSAGE
-from pisniar.webapp.schemas import POST_ID_MAX, PostDetail, PostListResponse
+from pisniar.webapp.schemas import (
+    POST_ID_MAX,
+    FragmentAvailability,
+    PostDetail,
+    PostListResponse,
+)
 
 STAMP = datetime(2026, 10, 2, 12, 0, tzinfo=UTC)
 
@@ -59,6 +64,9 @@ def make_detail() -> PostDetail:
         status_label="Чернетка готова",
         editable=True,
         not_editable_reason=None,
+        fragment=FragmentAvailability(
+            start_ms=None, end_ms=None, choosable=False, reason="Фрагмент ще не обрано."
+        ),
         created_at=STAMP,
         published_at=None,
         title="Тема",

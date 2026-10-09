@@ -110,6 +110,8 @@ class Settings(BaseSettings):
     webapp_auth_max_age_seconds: int = Field(default=600, gt=0)
     webapp_auth_max_future_seconds: int = Field(default=60, ge=0)
     webapp_session_ttl_seconds: int = Field(default=3600, gt=0)
+    # how long the signed audio URL of the fragment editor stays valid.
+    webapp_media_url_ttl_seconds: int = Field(default=900, gt=0)
 
     @field_validator("admin_ids", mode="before")
     @classmethod

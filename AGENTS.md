@@ -15,7 +15,8 @@ resolve a link's metadata, prepare a post, render a vertical video fragment
 - `yt-dlp` (pinned in `uv.lock`, **never self-updating** — `--no-update` is
   passed explicitly) plus `ffmpeg`/`ffprobe`, both run as subprocesses and both
   present **only in the worker image**. The `bot` image has neither, and the
-  `media-data` volume (`/data`) is mounted only into `worker`.
+  `media-data` volume (`/data`) is writable only in `worker`; `webapp` mounts it
+  read-only (`/data:ro`, same uid `app`) to serve the fragment audio.
 - Postgres and Redis run **only in Docker**; never install them on the host.
 - `REDIS_PASSWORD` in `.env` is a hard prerequisite: `compose.yaml` starts
   Redis with `--requirepass` and builds `REDIS_URL` from it, so `docker
@@ -198,14 +199,41 @@ suggest or introduce either.
   existence probe is `editMessageReplyMarkup(reply_markup=None)`: on a live message without a
   keyboard (a channel post) it answers «not modified», on a deleted one «not found»; it is only
   ever aimed at messages that carry no keyboard.
-- **The Mini App server (`pisniar/webapp/`) imports neither `bot/` nor `worker/`**, and every route
-  but the three public ones sits behind `require_admin` with a `response_model`. Its reads are
+- **The Mini App server (`pisniar/webapp/`) never imports `bot/`, and from `worker/` only three leaf
+  modules**: `worker.fragment`, `worker.storage` and `worker.peaks_format` (the peaks file format and
+  its validating `read_peaks`, which `worker.peaks` imports too). They import no other worker module,
+  so the webapp never loads ffmpeg, the tasks, the download or the render; the boundary test pins
+  both lists. Every route but the three public ones and the signed audio route sits behind
+  `require_admin` with a `response_model`. Its reads are
   plain SELECTs through `database.read_from_database`: no lock, one session per call, and a
   database failure is a Ukrainian 503, never a 401. The post list hides `archived` and `draft`,
   pages by id with a cursor (`before_id`, at most 50) and costs one query. Whether a post can be
   edited is `status.editability_of`, a sentence that never names the state; an id beyond BIGINT is
   a 422 before the database sees it. The platform hosts in `/api/meta` are `link_policy`'s own
   table, not a copy.
+- **The fragment view (`GET /api/posts/{id}/fragment`, `webapp.fragment_view`) is a plain read**:
+  `post_updated_at`, the bounds a render would use (stored ones while they fit the file, else the
+  default), the ffprobe-measured `audio_duration_ms` of the **current** `youtubeMusic` videoId,
+  `max_length_ms` and `peaks` (`null` with a warning for a missing or corrupt file). It is offered for
+  `RENDERED` and for `FAILED` from `downloaded`/`rendering`; any other status is 409 `not_choosable`
+  with a sentence of its own (`status.choosability_of`, never a state name), and no audio for that
+  videoId is 409 `audio_missing`. `PostDetail.fragment` carries the same verdict from the status alone.
+  The `youtubeMusic` -> videoId parsing is `resolve.urls.stored_link_url` + `track_video_id_of`.
+- **The audio route (`GET /api/posts/{id}/audio?token=`) is the one signed route**, hidden from the
+  schema, because `<audio>` sends no `Authorization` header. The token is
+  `base64url(json{uid,pid,tid,vid,iat,exp}).base64url(hmac)` under `HMAC(bot_token,
+  "pisniar-webapp-media-v1")`, a key of its own beside the session one (`auth.sign_claims` /
+  `verify_signed_claims`), so neither token kind verifies as the other. Each request checks the
+  signature, `exp`, `pid` equal to the path, a valid `vid` and `uid` in `ADMIN_IDS`, and reads no
+  database; `Settings.webapp_media_url_ttl_seconds` (900) is its life. The file is found only from the
+  ids by `find_existing_audio`, must resolve inside `audio/`, and goes out through `FileResponse`
+  (Range: 206/416) with `Content-Type` from a fixed table (`webm`, `m4a`/`mp4`, `opus`/`ogg`, `mp3`;
+  anything else 409 `audio_format_unsupported`), no filename, `nosniff` and `no-store`; a vanished
+  file is 404 `audio_gone`. The admin list is read on every request, but removing an admin means editing
+  `ADMIN_IDS` and recreating `bot`/`worker`/`webapp`; a signed URL stays valid for a current admin
+  for its whole TTL. Logs carry `fragment_audio_served` (`http_status`) and `media_token_rejected`, never the
+  token, and a filter on `uvicorn.access` (`webapp.access_log`) cuts the query off every request line.
+  The CSP gains `media-src 'self'`.
 - **Saving fields from the Mini App is one short transaction with no Telegram call**
   (`webapp.editing.save_fields`): the post `FOR UPDATE NOWAIT`, then the track `FOR NO KEY UPDATE`
   (`db.locks.lock_post_without_waiting` / `lock_track_for_write`, the lock the resolve and the

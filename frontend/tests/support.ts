@@ -73,6 +73,7 @@ export function makeDetail(overrides: Partial<PostDetail> = {}): PostDetail {
     status_label: 'Чернетка готова',
     editable: true,
     not_editable_reason: null,
+    fragment: { start_ms: null, end_ms: null, choosable: false, reason: 'Фрагмент ще не обрано.' },
     created_at: STAMP,
     published_at: null,
     title: 'Тема',

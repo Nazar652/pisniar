@@ -1,5 +1,5 @@
 """What an admin sees of a post's state: a Ukrainian label, and whether the fields can be
-edited right now with a sentence that never names the state itself.
+edited or the fragment chosen right now, with a sentence that never names the state itself.
 """
 
 from __future__ import annotations
@@ -50,6 +50,49 @@ UNKNOWN_FAILURE_REASON = (
 class Editability:
     editable: bool
     reason: str | None
+
+
+FRAGMENT_PUBLISHED_REASON = "Пост уже опубліковано — відео в каналі змінити не можна."
+FRAGMENT_NOT_RENDERED_REASON = (
+    "Фрагмент обирають після першого прев'ю відео. Спершу натисніть «Зробити відео» в чаті."
+)
+FRAGMENT_FAILED_REASON = (
+    "Пост завершився помилкою на етапі, де фрагмент змінити не можна. "
+    "Повторіть його командою /retry."
+)
+# a failure at these stages leaves the audio on the volume and a video to redo
+CHOOSABLE_FAILURE_STAGES = frozenset({PostStatus.DOWNLOADED, PostStatus.RENDERING})
+# every status that is neither `RENDERED` nor `FAILED` has one sentence of its own
+FRAGMENT_REFUSAL_REASONS = {
+    PostStatus.DRAFT: NOT_RESOLVED_REASON,
+    PostStatus.RESOLVING: RESOLVING_REASON,
+    PostStatus.RESOLVED: FRAGMENT_NOT_RENDERED_REASON,
+    PostStatus.DOWNLOADING: MEDIA_IN_PROGRESS_REASON,
+    PostStatus.DOWNLOADED: MEDIA_IN_PROGRESS_REASON,
+    PostStatus.EDITING: MEDIA_IN_PROGRESS_REASON,
+    PostStatus.RENDERING: MEDIA_IN_PROGRESS_REASON,
+    PostStatus.PUBLISHING: PUBLISHING_REASON,
+    PostStatus.PUBLISHED: FRAGMENT_PUBLISHED_REASON,
+    PostStatus.ARCHIVED: ARCHIVED_REASON,
+}
+
+
+@dataclass(frozen=True)
+class Choosability:
+    choosable: bool
+    reason: str | None
+
+
+def choosability_of(status: PostStatus, failed_from_status: PostStatus | None) -> Choosability:
+    """a fragment is chosen on a previewed video or after a render that failed; the reason is a
+    sentence for the admin, never the name of the state."""
+    if status is PostStatus.RENDERED:
+        return Choosability(True, None)
+    if status is PostStatus.FAILED:
+        if failed_from_status in CHOOSABLE_FAILURE_STAGES:
+            return Choosability(True, None)
+        return Choosability(False, FRAGMENT_FAILED_REASON)
+    return Choosability(False, FRAGMENT_REFUSAL_REASONS[status])
 
 
 def editability_of(status: PostStatus, failed_from_status: PostStatus | None) -> Editability:

@@ -79,9 +79,9 @@ def test_webapp_publishes_no_port_in_the_base_file(compose: dict[str, Any]) -> N
     assert "ports" not in compose["services"]["webapp"]
 
 
-def test_webapp_gets_neither_redis_nor_the_media_volume(compose: dict[str, Any]) -> None:
+def test_webapp_gets_no_redis_and_the_media_volume_read_only(compose: dict[str, Any]) -> None:
     webapp = compose["services"]["webapp"]
-    assert "volumes" not in webapp
+    assert webapp["volumes"] == ["media-data:/data:ro"]
     assert "redis" not in webapp.get("depends_on", {})
     assert "REDIS_URL" not in webapp["environment"]
     assert webapp["build"]["target"] == "webapp"

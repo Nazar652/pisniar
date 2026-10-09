@@ -105,6 +105,9 @@ environment the containers were created with.
 empty) keeps every Mini App button off. Three optional windows can be set
 (`WEBAPP_AUTH_MAX_AGE_SECONDS`, `WEBAPP_AUTH_MAX_FUTURE_SECONDS`,
 `WEBAPP_SESSION_TTL_SECONDS`); `.env.example` lists their defaults.
+Removing an admin means editing `ADMIN_IDS` and recreating `bot`, `worker` and
+`webapp`; a signed audio URL stays valid for a current admin for its TTL
+(`WEBAPP_MEDIA_URL_TTL_SECONDS`, 900 s).
 `.env.tailscale` (copy `.env.tailscale.example`) holds the one-time Tailscale
 auth key; only the `tailscale` service reads it, and it is git-ignored too.
 

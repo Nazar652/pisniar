@@ -10,7 +10,7 @@ from pathlib import Path
 
 from pisniar.logging import get_logger
 from pisniar.resolve.matching import DURATION_TOLERANCE_MS, is_valid_youtube_video_id
-from pisniar.resolve.urls import UrlKind, classify_url, youtube_watch_url
+from pisniar.resolve.urls import stored_link_url, track_video_id_of, youtube_watch_url
 from pisniar.worker.ffmpeg import (
     MediaProbe,
     run_media_tool,
@@ -85,27 +85,18 @@ VIDEO_UNAVAILABLE_MARKERS = (
 
 
 def youtube_music_video_id(platform_links: dict[str, object]) -> str:
-    link = platform_links.get(YOUTUBE_MUSIC_PLATFORM)
-    if not isinstance(link, dict):
+    url = stored_link_url(platform_links, YOUTUBE_MUSIC_PLATFORM)
+    if url is None:
         raise MissingYouTubeMusicLinkError(
-            "у треку немає посилання youtubeMusic — завантажити аудіо нізвідки, "
+            "у треку немає посилання youtubeMusic з адресою — завантажити аудіо нізвідки, "
             "і брати youtube-кліп замість нього заборонено"
         )
 
-    url = link.get("url")
-    if not isinstance(url, str) or not url:
-        raise MissingYouTubeMusicLinkError(
-            "посилання youtubeMusic збережене без url — завантажити аудіо нізвідки"
-        )
-
-    classified = classify_url(url)
-    video_id = classified.track_id
-    if classified.kind is not UrlKind.TRACK or not is_valid_youtube_video_id(video_id):
+    video_id = track_video_id_of(url)
+    if video_id is None:
         raise InvalidYouTubeVideoIdError(
             f"посилання youtubeMusic не дає валідного videoId: {url!r}"
         )
-
-    assert video_id is not None
     return video_id
 
 

@@ -54,6 +54,7 @@ def test_the_exported_schema_lists_the_api_and_hides_the_static_routes() -> None
         "/api/posts",
         "/api/posts/{post_id}",
         "/api/posts/{post_id}/fields",
+        "/api/posts/{post_id}/fragment",
         "/api/posts/{post_id}/preview",
         "/api/posts/{post_id}/apply",
         "/api/posts/{post_id}/archive",
@@ -62,6 +63,10 @@ def test_the_exported_schema_lists_the_api_and_hides_the_static_routes() -> None
     assert {"ApiError", "SessionRequest", "SessionResponse", "MeResponse"} <= set(
         schema["components"]["schemas"]
     )
+
+
+def test_the_signed_audio_route_is_not_in_the_exported_schema() -> None:
+    assert "/api/posts/{post_id}/audio" not in export_openapi.build_openapi_schema()["paths"]
 
 
 def test_the_exported_schema_is_stable_and_sorted() -> None:

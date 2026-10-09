@@ -95,12 +95,40 @@ class CaptionView(BaseModel):
     sha256: str
 
 
+class FragmentAvailability(BaseModel):
+    """whether the fragment can be chosen now, judged from the status alone."""
+
+    start_ms: int | None
+    end_ms: int | None
+    choosable: bool
+    reason: str | None
+
+
+class FragmentPeaks(BaseModel):
+    peaks_per_second: int
+    values: list[int]
+
+
+class FragmentView(BaseModel):
+    """the editor's data: the bounds of the current video, the audio and the waveform to draw."""
+
+    post_updated_at: datetime
+    start_ms: int
+    end_ms: int
+    audio_duration_ms: int
+    max_length_ms: int
+    peaks: FragmentPeaks | None
+    audio_url: str
+    audio_url_expires_at: datetime
+
+
 class PostDetail(BaseModel):
     id: int
     has_video: bool
     status_label: str
     editable: bool
     not_editable_reason: str | None
+    fragment: FragmentAvailability
     created_at: datetime
     published_at: datetime | None
     title: str | None

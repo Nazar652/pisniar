@@ -13,10 +13,11 @@ import pytest
 from support import ADMIN_ID, BOT_TOKEN, NOW, make_init_data, sign_fields
 
 from pisniar.webapp.auth import (
+    SESSION_KEY_CONTEXT,
     AuthWindow,
     InitDataError,
+    derived_key,
     issue_session_token,
-    session_key,
     validate_init_data,
     verify_session_token,
 )
@@ -153,8 +154,9 @@ def test_a_token_with_a_swapped_payload_is_refused() -> None:
 
 def test_the_session_key_is_not_the_init_data_key() -> None:
     init_data_secret = hmac.new(b"WebAppData", BOT_TOKEN.encode(), hashlib.sha256).digest()
-    assert session_key(BOT_TOKEN) != init_data_secret
-    assert session_key(BOT_TOKEN) != hashlib.sha256(BOT_TOKEN.encode()).digest()
+    session_key = derived_key(BOT_TOKEN, SESSION_KEY_CONTEXT)
+    assert session_key != init_data_secret
+    assert session_key != hashlib.sha256(BOT_TOKEN.encode()).digest()
 
 
 @pytest.mark.parametrize("token", ["", "abc", "a.b.c", "!!!.???"])
@@ -165,7 +167,9 @@ def test_a_malformed_token_is_refused(token: str) -> None:
 
 def signed_claims(claims: object) -> str:
     payload = json.dumps(claims).encode()
-    signature = hmac.new(session_key(BOT_TOKEN), payload, hashlib.sha256).digest()
+    signature = hmac.new(
+        derived_key(BOT_TOKEN, SESSION_KEY_CONTEXT), payload, hashlib.sha256
+    ).digest()
     encode = base64.urlsafe_b64encode
     return f"{encode(payload).rstrip(b'=').decode()}.{encode(signature).rstrip(b'=').decode()}"
 

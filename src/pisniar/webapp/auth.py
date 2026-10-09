@@ -1,7 +1,8 @@
-"""`initData` validation, signed session tokens and the `require_admin` dependency.
+"""`initData` validation, signed session and audio tokens and the `require_admin` dependency.
 
-The session key is derived from the bot token, so rotating the token invalidates every
-session. Nothing here reads the database: a dead Postgres can never look like a 401.
+Each token kind has its own key derived from the bot token, so rotating the token invalidates
+every token and a token of one kind never verifies as the other. Nothing here reads the
+database: a dead Postgres can never look like a 401.
 """
 
 from __future__ import annotations
@@ -11,8 +12,9 @@ import binascii
 import hashlib
 import hmac
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import cast
 from urllib.parse import parse_qsl
 
@@ -21,6 +23,7 @@ from fastapi import Request
 
 from pisniar.logging import get_logger
 from pisniar.resolve.json_utils import as_int
+from pisniar.resolve.matching import is_valid_youtube_video_id
 from pisniar.webapp.errors import ApiProblem
 from pisniar.webapp.schemas import INIT_DATA_MAX_LENGTH
 
@@ -44,6 +47,8 @@ INIT_DATA_FIELD_NAMES = frozenset(
 )
 
 SESSION_KEY_CONTEXT = b"pisniar-webapp-session-v1"
+MEDIA_KEY_CONTEXT = b"pisniar-webapp-media-v1"
+MEDIA_TOKEN_REFUSED_MESSAGE = "Посилання на аудіо недійсне або застаріло. Оновіть сторінку."
 BEARER_PREFIX = "Bearer "
 # room before `iat` for clock drift between the process that issued a token and this one.
 TOKEN_IAT_SKEW_SECONDS = 60
@@ -71,12 +76,24 @@ class WebappContext:
     admin_ids: frozenset[int]
     auth_window: AuthWindow
     session_ttl_seconds: int
+    media_url_ttl_seconds: int
+    media_root: Path
     clock: Callable[[], float]
 
 
 @dataclass(frozen=True)
 class AdminUser:
     user_id: int
+
+
+@dataclass(frozen=True)
+class MediaClaims:
+    """what a signed audio URL grants: one admin, one post, one recording of one track."""
+
+    user_id: int
+    post_id: int
+    track_id: int
+    video_id: str
 
 
 def init_data_field_names(init_data: str) -> tuple[list[str], int]:
@@ -123,22 +140,19 @@ def validate_init_data(init_data: str, bot_token: str, now: int, window: AuthWin
     return read_user_id(fields.get("user"))
 
 
-def session_key(bot_token: str) -> bytes:
-    return hmac.new(bot_token.encode(), SESSION_KEY_CONTEXT, hashlib.sha256).digest()
+def derived_key(bot_token: str, key_context: bytes) -> bytes:
+    """one key per purpose: a token signed for one context verifies in no other."""
+    return hmac.new(bot_token.encode(), key_context, hashlib.sha256).digest()
 
 
-def issue_session_token(user_id: int, bot_token: str, now: int, ttl_seconds: int) -> str:
-    payload = json.dumps(
-        {"uid": user_id, "iat": now, "exp": now + ttl_seconds},
-        separators=(",", ":"),
-        sort_keys=True,
-    ).encode()
-    signature = hmac.new(session_key(bot_token), payload, hashlib.sha256).digest()
+def sign_claims(claims: Mapping[str, object], bot_token: str, key_context: bytes) -> str:
+    payload = json.dumps(claims, separators=(",", ":"), sort_keys=True).encode()
+    signature = hmac.new(derived_key(bot_token, key_context), payload, hashlib.sha256).digest()
     return f"{encode_base64url(payload)}.{encode_base64url(signature)}"
 
 
-def verify_session_token(token: str, bot_token: str, now: int) -> int:
-    """return the user id of an unexpired, correctly signed token, else raise `InitDataError`."""
+def verify_signed_claims(token: str, bot_token: str, key_context: bytes) -> dict[str, object]:
+    """the claims of a correctly signed token; expiry and the fields are the caller's to check."""
     parts = token.split(".")
     if len(parts) != 2:
         raise InitDataError("token_malformed")
@@ -148,7 +162,7 @@ def verify_session_token(token: str, bot_token: str, now: int) -> int:
     if payload is None or signature is None:
         raise InitDataError("token_malformed")
 
-    expected = hmac.new(session_key(bot_token), payload, hashlib.sha256).digest()
+    expected = hmac.new(derived_key(bot_token, key_context), payload, hashlib.sha256).digest()
     if not hmac.compare_digest(expected, signature):
         raise InitDataError("token_bad_signature")
 
@@ -158,17 +172,90 @@ def verify_session_token(token: str, bot_token: str, now: int) -> int:
         raise InitDataError("token_malformed") from None
     if not isinstance(claims, dict):
         raise InitDataError("token_malformed")
+    return claims
 
-    user_id = as_int(claims.get("uid"))
+
+def check_lifetime(claims: Mapping[str, object], now: int) -> None:
     issued_at = as_int(claims.get("iat"))
     expires_at = as_int(claims.get("exp"))
-    if user_id is None or issued_at is None or expires_at is None:
+    if issued_at is None or expires_at is None:
         raise InitDataError("token_malformed")
     if expires_at <= now:
         raise InitDataError("token_expired")
     if issued_at > now + TOKEN_IAT_SKEW_SECONDS:
         raise InitDataError("token_from_future")
+
+
+def issue_session_token(user_id: int, bot_token: str, now: int, ttl_seconds: int) -> str:
+    claims = {"uid": user_id, "iat": now, "exp": now + ttl_seconds}
+    return sign_claims(claims, bot_token, SESSION_KEY_CONTEXT)
+
+
+def verify_session_token(token: str, bot_token: str, now: int) -> int:
+    """return the user id of an unexpired, correctly signed token, else raise `InitDataError`."""
+    claims = verify_signed_claims(token, bot_token, SESSION_KEY_CONTEXT)
+    user_id = as_int(claims.get("uid"))
+    if user_id is None:
+        raise InitDataError("token_malformed")
+
+    check_lifetime(claims, now)
     return user_id
+
+
+def issue_media_token(claims: MediaClaims, bot_token: str, now: int, ttl_seconds: int) -> str:
+    payload = {
+        "uid": claims.user_id,
+        "pid": claims.post_id,
+        "tid": claims.track_id,
+        "vid": claims.video_id,
+        "iat": now,
+        "exp": now + ttl_seconds,
+    }
+    return sign_claims(payload, bot_token, MEDIA_KEY_CONTEXT)
+
+
+def verify_media_token(token: str, bot_token: str, now: int) -> MediaClaims:
+    """the scope of an unexpired audio token, else `InitDataError`; no database is read."""
+    claims = verify_signed_claims(token, bot_token, MEDIA_KEY_CONTEXT)
+    user_id = as_int(claims.get("uid"))
+    post_id = as_int(claims.get("pid"))
+    track_id = as_int(claims.get("tid"))
+    video_id = claims.get("vid")
+    if user_id is None or post_id is None or track_id is None:
+        raise InitDataError("token_malformed")
+    if not isinstance(video_id, str) or not is_valid_youtube_video_id(video_id):
+        raise InitDataError("token_bad_video_id")
+
+    check_lifetime(claims, now)
+    return MediaClaims(user_id=user_id, post_id=post_id, track_id=track_id, video_id=video_id)
+
+
+def authorize_media_request(request: Request, token: str, post_id: int) -> MediaClaims:
+    """the audio route's `require_admin`: the token is the credential, and the post in the path
+    and the admin list are checked on every request."""
+    context = cast(WebappContext, request.app.state.context)
+
+    try:
+        claims = verify_media_token(token, context.bot_token, int(context.clock()))
+    except InitDataError as error:
+        logger.warning("media_token_rejected", reason=error.reason, post_id=post_id)
+        raise ApiProblem(401, "unauthorized", MEDIA_TOKEN_REFUSED_MESSAGE) from None
+
+    if claims.post_id != post_id:
+        logger.warning(
+            "media_token_rejected",
+            reason="post_mismatch",
+            post_id=post_id,
+            token_post_id=claims.post_id,
+            user_id=claims.user_id,
+        )
+        raise ApiProblem(401, "unauthorized", MEDIA_TOKEN_REFUSED_MESSAGE)
+    if claims.user_id not in context.admin_ids:
+        logger.warning(
+            "media_token_rejected", reason="not_admin", post_id=post_id, user_id=claims.user_id
+        )
+        raise ApiProblem(403, "forbidden", "Доступ лише для адміністраторів.")
+    return claims
 
 
 def require_admin(request: Request) -> AdminUser:

@@ -1,4 +1,6 @@
-"""The `/api` routes: the session exchange (public) and everything behind `require_admin`."""
+"""The `/api` routes: the session exchange (public), the signed audio route and everything else
+behind `require_admin`.
+"""
 
 from __future__ import annotations
 
@@ -7,6 +9,7 @@ from typing import Annotated, Any, cast
 from fastapi import Depends, FastAPI, Request
 
 from pisniar.logging import get_logger
+from pisniar.webapp.audio import register_audio_route
 from pisniar.webapp.auth import (
     AdminUser,
     InitDataError,
@@ -76,3 +79,4 @@ def register_api_routes(app: FastAPI) -> None:
         "/api/me", read_me, methods=["GET"], response_model=MeResponse, responses=ERROR_RESPONSES
     )
     register_post_routes(app)
+    register_audio_route(app)

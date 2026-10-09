@@ -119,6 +119,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/posts/{post_id}/fragment": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Fragment */
+        get: operations["read_fragment_api_posts__post_id__fragment_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/posts/{post_id}/preview": {
         parameters: {
             query?: never;
@@ -322,6 +339,54 @@ export interface components {
             /** Year */
             year?: number | null;
         };
+        /**
+         * FragmentAvailability
+         * @description whether the fragment can be chosen now, judged from the status alone.
+         */
+        FragmentAvailability: {
+            /** Choosable */
+            choosable: boolean;
+            /** End Ms */
+            end_ms: number | null;
+            /** Reason */
+            reason: string | null;
+            /** Start Ms */
+            start_ms: number | null;
+        };
+        /** FragmentPeaks */
+        FragmentPeaks: {
+            /** Peaks Per Second */
+            peaks_per_second: number;
+            /** Values */
+            values: number[];
+        };
+        /**
+         * FragmentView
+         * @description the editor's data: the bounds of the current video, the audio and the waveform to draw.
+         */
+        FragmentView: {
+            /** Audio Duration Ms */
+            audio_duration_ms: number;
+            /** Audio Url */
+            audio_url: string;
+            /**
+             * Audio Url Expires At
+             * Format: date-time
+             */
+            audio_url_expires_at: string;
+            /** End Ms */
+            end_ms: number;
+            /** Max Length Ms */
+            max_length_ms: number;
+            peaks: components["schemas"]["FragmentPeaks"] | null;
+            /**
+             * Post Updated At
+             * Format: date-time
+             */
+            post_updated_at: string;
+            /** Start Ms */
+            start_ms: number;
+        };
         /** GenreDetail */
         GenreDetail: {
             /** Default Hashtag */
@@ -415,6 +480,7 @@ export interface components {
              * Format: date-time
              */
             expected_track_updated_at: string;
+            fragment: components["schemas"]["FragmentAvailability"];
             /** Genres */
             genres: components["schemas"]["GenreDetail"][];
             /** Has Video */
@@ -944,6 +1010,82 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PostDetail"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FieldsInvalid"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    read_fragment_api_posts__post_id__fragment_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                post_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FragmentView"];
                 };
             };
             /** @description Unauthorized */

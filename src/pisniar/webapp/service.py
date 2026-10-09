@@ -35,13 +35,14 @@ from pisniar.webapp.schemas import (
     ArtistDetail,
     CaptionSegmentView,
     CaptionView,
+    FragmentAvailability,
     GenreDetail,
     PlatformLinkDetail,
     PostDetail,
     PostListResponse,
     PostSummary,
 )
-from pisniar.webapp.status import STATUS_LABELS, editability_of
+from pisniar.webapp.status import STATUS_LABELS, choosability_of, editability_of
 
 DEFAULT_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 50
@@ -124,6 +125,7 @@ async def detail_of(session: AsyncSession, post: Post, track: Track) -> PostDeta
 
 def build_post_detail(post: Post, track: Track, other_post_ids: list[int]) -> PostDetail:
     editability = editability_of(post.status, post.failed_from_status)
+    choosability = choosability_of(post.status, post.failed_from_status)
     caption_view, rebuilt_html = rebuild_caption(post, track)
 
     return PostDetail(
@@ -132,6 +134,12 @@ def build_post_detail(post: Post, track: Track, other_post_ids: list[int]) -> Po
         status_label=STATUS_LABELS[post.status],
         editable=editability.editable,
         not_editable_reason=editability.reason,
+        fragment=FragmentAvailability(
+            start_ms=post.fragment_start_ms,
+            end_ms=post.fragment_end_ms,
+            choosable=choosability.choosable,
+            reason=choosability.reason,
+        ),
         created_at=post.created_at,
         published_at=post.published_at,
         title=track.title,

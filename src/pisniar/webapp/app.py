@@ -1,7 +1,8 @@
 """The Mini App server: security headers, the built frontend and the `/api` router.
 
-Public routes are exactly `GET /`, `GET /assets/*` and `POST /api/session`; every other
-route sits behind `require_admin`. The production CSP lives only here.
+Public routes are exactly `GET /`, `GET /assets/*` and `POST /api/session`; the audio route
+is signed by its own token, and every other route sits behind `require_admin`. The production
+CSP lives only here.
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ from pisniar.webapp.errors import ApiProblem, error_response, register_error_han
 
 CONTENT_SECURITY_POLICY = (
     "default-src 'none'; script-src 'self' https://telegram.org; style-src 'self'; "
-    "img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; "
+    "img-src 'self'; media-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; "
     "frame-ancestors https://web.telegram.org"
 )
 SECURITY_HEADERS = {
@@ -50,6 +51,8 @@ def create_webapp(
             max_future_seconds=settings.webapp_auth_max_future_seconds,
         ),
         session_ttl_seconds=settings.webapp_session_ttl_seconds,
+        media_url_ttl_seconds=settings.webapp_media_url_ttl_seconds,
+        media_root=settings.media_root,
         clock=clock,
     )
     app.state.session_factory = session_factory

@@ -537,6 +537,134 @@
         "title": "FieldsUpdate",
         "type": "object"
       },
+      "FragmentAvailability": {
+        "description": "whether the fragment can be chosen now, judged from the status alone.",
+        "properties": {
+          "choosable": {
+            "title": "Choosable",
+            "type": "boolean"
+          },
+          "end_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Ms"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "start_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Ms"
+          }
+        },
+        "required": [
+          "start_ms",
+          "end_ms",
+          "choosable",
+          "reason"
+        ],
+        "title": "FragmentAvailability",
+        "type": "object"
+      },
+      "FragmentPeaks": {
+        "properties": {
+          "peaks_per_second": {
+            "title": "Peaks Per Second",
+            "type": "integer"
+          },
+          "values": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Values",
+            "type": "array"
+          }
+        },
+        "required": [
+          "peaks_per_second",
+          "values"
+        ],
+        "title": "FragmentPeaks",
+        "type": "object"
+      },
+      "FragmentView": {
+        "description": "the editor's data: the bounds of the current video, the audio and the waveform to draw.",
+        "properties": {
+          "audio_duration_ms": {
+            "title": "Audio Duration Ms",
+            "type": "integer"
+          },
+          "audio_url": {
+            "title": "Audio Url",
+            "type": "string"
+          },
+          "audio_url_expires_at": {
+            "format": "date-time",
+            "title": "Audio Url Expires At",
+            "type": "string"
+          },
+          "end_ms": {
+            "title": "End Ms",
+            "type": "integer"
+          },
+          "max_length_ms": {
+            "title": "Max Length Ms",
+            "type": "integer"
+          },
+          "peaks": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FragmentPeaks"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "post_updated_at": {
+            "format": "date-time",
+            "title": "Post Updated At",
+            "type": "string"
+          },
+          "start_ms": {
+            "title": "Start Ms",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "post_updated_at",
+          "start_ms",
+          "end_ms",
+          "audio_duration_ms",
+          "max_length_ms",
+          "peaks",
+          "audio_url",
+          "audio_url_expires_at"
+        ],
+        "title": "FragmentView",
+        "type": "object"
+      },
       "GenreDetail": {
         "properties": {
           "default_hashtag": {
@@ -820,6 +948,9 @@
             "title": "Expected Track Updated At",
             "type": "string"
           },
+          "fragment": {
+            "$ref": "#/components/schemas/FragmentAvailability"
+          },
           "genres": {
             "items": {
               "$ref": "#/components/schemas/GenreDetail"
@@ -963,6 +1094,7 @@
           "status_label",
           "editable",
           "not_editable_reason",
+          "fragment",
           "created_at",
           "published_at",
           "title",
@@ -1773,6 +1905,97 @@
           }
         },
         "summary": "Save Post Fields"
+      }
+    },
+    "/api/posts/{post_id}/fragment": {
+      "get": {
+        "operationId": "read_fragment_api_posts__post_id__fragment_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "post_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Post Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FragmentView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FieldsInvalid"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Read Fragment"
       }
     },
     "/api/posts/{post_id}/preview": {

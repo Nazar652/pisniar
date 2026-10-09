@@ -10,6 +10,7 @@ from pisniar.config import get_settings, redaction_secrets
 from pisniar.db.session import LOCK_TIMEOUT_MS, build_engine, build_session_factory
 from pisniar.logging import configure_logging, get_logger
 from pisniar.telegram.client import build_bot
+from pisniar.webapp.access_log import install_access_log_filter
 from pisniar.webapp.app import create_webapp
 
 logger = get_logger(__name__)
@@ -22,6 +23,7 @@ async def run() -> None:
         log_level=settings.log_level,
         secrets=redaction_secrets(settings),
     )
+    install_access_log_filter()
     if not (settings.webapp_static_dir / "index.html").is_file():
         logger.error("webapp_frontend_missing", static_dir=str(settings.webapp_static_dir))
 

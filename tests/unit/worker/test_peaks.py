@@ -1,5 +1,5 @@
-"""Waveform peaks: bucketing, normalisation, the ffmpeg arguments, the validating
-reader, and a failure that costs nothing but the waveform.
+"""Waveform peaks: bucketing, normalisation, the ffmpeg arguments, the atomic write and a
+failure that costs nothing but the waveform. The file format is in `test_peaks_format.py`.
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ from celery.exceptions import SoftTimeLimitExceeded
 from pisniar.worker import peaks
 from pisniar.worker import storage as media_storage
 from pisniar.worker.ffmpeg import MediaToolError, MediaToolFailedError
+from pisniar.worker.peaks_format import peaks_document, read_peaks
 
 VIDEO_ID = "n4bPzdIs_nc"
 
@@ -169,82 +170,6 @@ def test_a_non_zero_ffmpeg_exit_carries_its_stderr(
         peaks.decode_pcm(tmp_path / "a.opus")
 
 
-def test_the_document_names_its_format_and_rate() -> None:
-    assert json.loads(peaks.peaks_document([0, 255])) == {
-        "format_version": 1,
-        "peaks_per_second": 20,
-        "values": [0, 255],
-    }
-
-
-def test_a_valid_file_reads_back_its_values(tmp_path: Path) -> None:
-    path = tmp_path / "p.json"
-    path.write_text(peaks.peaks_document([0, 7, 255]), encoding="utf-8")
-
-    assert peaks.read_peaks(path) == [0, 7, 255]
-
-
-def test_a_missing_file_is_none_without_a_warning(tmp_path: Path, peaks_logger: MagicMock) -> None:
-    assert peaks.read_peaks(tmp_path / "absent.json") is None
-    peaks_logger.warning.assert_not_called()
-
-
-@pytest.mark.parametrize(
-    "document",
-    [
-        [1, 2, 3],
-        {"format_version": 2, "peaks_per_second": 20, "values": [1]},
-        {"format_version": 1, "peaks_per_second": 10, "values": [1]},
-        {"format_version": 1, "peaks_per_second": 20, "values": []},
-        {"format_version": 1, "peaks_per_second": 20, "values": "abc"},
-        {"format_version": 1, "peaks_per_second": 20, "values": [256]},
-        {"format_version": 1, "peaks_per_second": 20, "values": [-1]},
-        {"format_version": 1, "peaks_per_second": 20, "values": [1.5]},
-        {"format_version": 1, "peaks_per_second": 20, "values": [True]},
-        {"format_version": 1, "peaks_per_second": 20, "values": [0] * (peaks.MAX_PEAK_VALUES + 1)},
-    ],
-)
-def test_a_malformed_file_is_none_with_a_warning(
-    tmp_path: Path, peaks_logger: MagicMock, document: object
-) -> None:
-    path = tmp_path / "p.json"
-    write_document(path, document)
-
-    assert peaks.read_peaks(path) is None
-    assert peaks_logger.warning.call_args.args[0] == "audio_peaks_unreadable"
-
-
-def test_the_longest_accepted_file_is_one_hour(tmp_path: Path) -> None:
-    path = tmp_path / "p.json"
-    path.write_text(peaks.peaks_document([255] * peaks.MAX_PEAK_VALUES), encoding="utf-8")
-
-    values = peaks.read_peaks(path)
-
-    assert values is not None
-    assert len(values) == 72_000
-
-
-@pytest.mark.parametrize("content", [b"not json", b"\xff\xfe\x00", b"{"])
-def test_a_file_that_is_not_json_is_none_with_a_warning(
-    tmp_path: Path, peaks_logger: MagicMock, content: bytes
-) -> None:
-    path = tmp_path / "p.json"
-    path.write_bytes(content)
-
-    assert peaks.read_peaks(path) is None
-    peaks_logger.warning.assert_called_once()
-
-
-def test_an_oversized_file_is_refused_before_it_is_parsed(
-    tmp_path: Path, peaks_logger: MagicMock
-) -> None:
-    path = tmp_path / "p.json"
-    path.write_bytes(b" " * (peaks.MAX_PEAKS_FILE_BYTES + 1))
-
-    assert peaks.read_peaks(path) is None
-    peaks_logger.warning.assert_called_once()
-
-
 def test_peaks_are_computed_and_published_atomically(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -255,7 +180,7 @@ def test_peaks_are_computed_and_published_atomically(
 
     expected = media_storage.peaks_file_path(tmp_path, 3, VIDEO_ID)
     assert result == expected
-    assert peaks.read_peaks(expected) == [255, 128]
+    assert read_peaks(expected) == [255, 128]
     assert list(temporary.iterdir()) == []
 
 
@@ -264,7 +189,7 @@ def test_a_valid_existing_file_skips_ffmpeg(
 ) -> None:
     final = media_storage.peaks_file_path(tmp_path, 3, VIDEO_ID)
     final.parent.mkdir(parents=True)
-    final.write_text(peaks.peaks_document([5]), encoding="utf-8")
+    final.write_text(peaks_document([5]), encoding="utf-8")
 
     def fail_if_called(*args: object, **kwargs: object) -> object:
         raise AssertionError("ffmpeg must not run when valid peaks are already on the volume")
@@ -272,7 +197,7 @@ def test_a_valid_existing_file_skips_ffmpeg(
     monkeypatch.setattr(peaks, "run_media_tool_bytes", fail_if_called)
 
     assert peaks.ensure_peaks(tmp_path, 3, VIDEO_ID, tmp_path / "a.opus", tmp_path / "tmp") == final
-    assert peaks.read_peaks(final) == [5]
+    assert read_peaks(final) == [5]
 
 
 def test_a_file_of_another_format_version_is_recomputed(
@@ -284,7 +209,7 @@ def test_a_file_of_another_format_version_is_recomputed(
 
     peaks.ensure_peaks(tmp_path, 3, VIDEO_ID, tmp_path / "a.opus", tmp_path / "tmp")
 
-    assert peaks.read_peaks(final) == [255]
+    assert read_peaks(final) == [255]
 
 
 def test_a_failure_is_a_warning_and_none_with_nothing_left_behind(

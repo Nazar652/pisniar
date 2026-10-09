@@ -13,6 +13,7 @@ from pisniar.db.states import PostStatus
 from pisniar.post.caption_input import build_caption_from_rows
 from pisniar.post.render import render_html
 from pisniar.webapp import service
+from pisniar.webapp.schemas import FragmentAvailability
 from pisniar.webapp.service import (
     album_url_of,
     build_post_detail,
@@ -153,6 +154,22 @@ def test_a_post_in_a_read_only_state_says_why_without_naming_the_state() -> None
     assert detail.editable is False
     assert detail.not_editable_reason == "Пост архівовано — дій із ним немає."
     assert detail.status_label == "Архівовано"
+
+
+def test_the_detail_judges_the_fragment_from_the_status_alone() -> None:
+    rendered = build_post_detail(
+        make_post(PostStatus.RENDERED, fragment_start_ms=10_000, fragment_end_ms=55_000),
+        make_track(),
+        [],
+    )
+    published = build_post_detail(make_post(PostStatus.PUBLISHED), make_track(), [])
+
+    assert rendered.fragment == FragmentAvailability(
+        start_ms=10_000, end_ms=55_000, choosable=True, reason=None
+    )
+    assert published.fragment.choosable is False
+    assert published.fragment.reason
+    assert published.fragment.start_ms is None
 
 
 def test_a_valid_album_id_gives_the_album_link_and_a_bad_one_none() -> None:

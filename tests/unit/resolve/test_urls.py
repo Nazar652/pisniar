@@ -6,7 +6,14 @@ from __future__ import annotations
 
 import pytest
 
-from pisniar.resolve.urls import UrlKind, classify_url, normalize_url, youtube_watch_url
+from pisniar.resolve.urls import (
+    UrlKind,
+    classify_url,
+    normalize_url,
+    stored_link_url,
+    track_video_id_of,
+    youtube_watch_url,
+)
 
 
 @pytest.mark.parametrize(
@@ -158,3 +165,42 @@ def test_youtube_and_youtube_music_normalize_to_different_urls() -> None:
 def test_the_watch_url_is_the_form_a_youtube_clip_normalises_to() -> None:
     assert youtube_watch_url("n4bPzdIs_nc") == "https://www.youtube.com/watch?v=n4bPzdIs_nc"
     assert normalize_url("https://youtu.be/n4bPzdIs_nc") == youtube_watch_url("n4bPzdIs_nc")
+
+
+def test_stored_link_url_reads_the_url_of_the_named_platform() -> None:
+    links = {
+        "youtubeMusic": {"url": "https://music.youtube.com/watch?v=n4bPzdIs_nc"},
+        "youtube": {"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"},
+    }
+
+    assert stored_link_url(links, "youtubeMusic") == "https://music.youtube.com/watch?v=n4bPzdIs_nc"
+
+
+@pytest.mark.parametrize(
+    "links",
+    [
+        {},
+        {"youtubeMusic": "text"},
+        {"youtubeMusic": {"source": "x"}},
+        {"youtubeMusic": {"url": ""}},
+    ],
+)
+def test_stored_link_url_is_none_without_a_usable_entry(links: dict[str, object]) -> None:
+    assert stored_link_url(links, "youtubeMusic") is None
+
+
+def test_track_video_id_of_returns_the_id_of_a_track_url() -> None:
+    assert track_video_id_of("https://music.youtube.com/watch?v=n4bPzdIs_nc") == "n4bPzdIs_nc"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://music.youtube.com/watch?v=../../etc/passwd",
+        "https://music.youtube.com/playlist",
+        "https://example.com/track/1",
+        "not a url",
+    ],
+)
+def test_track_video_id_of_is_none_unless_a_valid_id_is_found(url: str) -> None:
+    assert track_video_id_of(url) is None

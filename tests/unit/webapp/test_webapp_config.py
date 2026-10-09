@@ -37,6 +37,7 @@ def test_defaults_leave_the_mini_app_off_and_the_windows_at_their_documented_val
     assert settings.webapp_auth_max_age_seconds == 600
     assert settings.webapp_auth_max_future_seconds == 60
     assert settings.webapp_session_ttl_seconds == 3600
+    assert settings.webapp_media_url_ttl_seconds == 900
 
 
 @pytest.mark.parametrize(
@@ -86,7 +87,10 @@ def test_a_relative_static_dir_is_refused() -> None:
         build(webapp_static_dir="webapp-static")
 
 
-@pytest.mark.parametrize("field", ["webapp_auth_max_age_seconds", "webapp_session_ttl_seconds"])
+@pytest.mark.parametrize(
+    "field",
+    ["webapp_auth_max_age_seconds", "webapp_session_ttl_seconds", "webapp_media_url_ttl_seconds"],
+)
 def test_a_non_positive_window_is_refused(field: str) -> None:
     with pytest.raises(pydantic.ValidationError, match=field):
         build(**{field: 0})

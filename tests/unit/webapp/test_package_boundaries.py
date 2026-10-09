@@ -1,5 +1,6 @@
-"""Package boundaries: `webapp` never imports `bot` or `worker`, and neither imports it;
-`bot` reaches `resolve`, `post`, `telegram` and `worker` only through a short list of modules.
+"""Package boundaries: `webapp` never imports `bot` and reaches `worker` only through three leaf
+modules that load neither ffmpeg nor the tasks; nothing imports `webapp`; `bot` reaches
+`resolve`, `post`, `telegram` and `worker` only through a short list of modules.
 """
 
 from __future__ import annotations
@@ -50,6 +51,15 @@ BOT_ALLOWED_MODULES = frozenset(
 )
 
 
+WEBAPP_ALLOWED_WORKER_MODULES = frozenset(
+    {
+        "pisniar.worker.fragment",
+        "pisniar.worker.peaks_format",
+        "pisniar.worker.storage",
+    }
+)
+
+
 def unlisted_imports(
     package: str, restricted: tuple[str, ...], allowed: frozenset[str]
 ) -> list[str]:
@@ -61,8 +71,45 @@ def unlisted_imports(
     return result
 
 
-def test_webapp_does_not_import_bot_or_worker() -> None:
-    assert offenders("webapp", ("pisniar.bot", "pisniar.worker")) == []
+def worker_modules_imported_by(module_name: str) -> set[str]:
+    """`from pisniar.worker import x` counts as importing `pisniar.worker.x`."""
+    path = SOURCE_ROOT.parent / (module_name.replace(".", "/") + ".py")
+    found: set[str] = set()
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.Import):
+            found.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module == "pisniar.worker":
+            found.update(f"pisniar.worker.{alias.name}" for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            found.add(node.module)
+    return {name for name in found if name.startswith("pisniar.worker")}
+
+
+def test_webapp_does_not_import_the_bot() -> None:
+    assert offenders("webapp", ("pisniar.bot",)) == []
+
+
+def test_webapp_imports_only_the_listed_worker_modules() -> None:
+    assert unlisted_imports("webapp", ("pisniar.worker",), WEBAPP_ALLOWED_WORKER_MODULES) == []
+
+
+def test_every_allowed_worker_module_is_still_imported_by_the_webapp() -> None:
+    used = set().union(*imported_modules(SOURCE_ROOT / "webapp").values())
+    assert used >= WEBAPP_ALLOWED_WORKER_MODULES
+
+
+def test_the_allowed_worker_modules_import_no_other_worker_module() -> None:
+    """so the webapp never loads ffmpeg, the tasks, the download or the render."""
+    for module_name in sorted(WEBAPP_ALLOWED_WORKER_MODULES):
+        assert worker_modules_imported_by(module_name) <= WEBAPP_ALLOWED_WORKER_MODULES, module_name
+
+
+def test_the_worker_import_scan_resolves_the_from_import_form() -> None:
+    assert worker_modules_imported_by("pisniar.worker.peaks") >= {
+        "pisniar.worker.storage",
+        "pisniar.worker.ffmpeg",
+        "pisniar.worker.peaks_format",
+    }
 
 
 def test_the_scan_sees_the_webapp_package() -> None:

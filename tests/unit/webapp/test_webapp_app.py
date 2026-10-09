@@ -31,9 +31,10 @@ PUBLIC_ROUTES = {
     ("GET", "/assets/{asset_path:path}"),
     ("POST", "/api/session"),
 }
+SIGNED_ROUTES = {("GET", "/api/posts/{post_id}/audio")}
 EXPECTED_CSP = (
     "default-src 'none'; script-src 'self' https://telegram.org; style-src 'self'; "
-    "img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; "
+    "img-src 'self'; media-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; "
     "frame-ancestors https://web.telegram.org"
 )
 
@@ -48,7 +49,7 @@ def route_table(app: FastAPI) -> list[tuple[str, str, APIRoute]]:
 
 
 def protected_routes(app: FastAPI) -> list[tuple[str, str, APIRoute]]:
-    return [entry for entry in route_table(app) if entry[:2] not in PUBLIC_ROUTES]
+    return [entry for entry in route_table(app) if entry[:2] not in PUBLIC_ROUTES | SIGNED_ROUTES]
 
 
 def protected_method_paths(app: FastAPI) -> list[tuple[str, str]]:
@@ -72,9 +73,23 @@ def test_the_public_routes_are_exactly_the_three_known_ones(webapp: FastAPI) -> 
 def test_every_route_declares_a_response_model_unless_it_is_a_static_one(webapp: FastAPI) -> None:
     app = webapp
     for method, path, route in route_table(app):
-        if (method, path) in PUBLIC_ROUTES - {("POST", "/api/session")}:
+        if (method, path) in (PUBLIC_ROUTES - {("POST", "/api/session")}) | SIGNED_ROUTES:
             continue
         assert route.response_model is not None, f"{method} {path} has no response_model"
+
+
+def test_exactly_one_route_is_signed_and_it_is_hidden_from_the_schema(webapp: FastAPI) -> None:
+    unguarded = {
+        (method, path)
+        for method, path, route in route_table(webapp)
+        if require_admin not in [dependency.call for dependency in route.dependant.dependencies]
+    }
+
+    assert unguarded == PUBLIC_ROUTES | SIGNED_ROUTES
+    signed = [
+        route for method, path, route in route_table(webapp) if (method, path) in SIGNED_ROUTES
+    ]
+    assert [route.include_in_schema for route in signed] == [False]
 
 
 def test_every_protected_route_depends_on_require_admin(webapp: FastAPI) -> None:

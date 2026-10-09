@@ -1,7 +1,8 @@
-"""The read routes of the Mini App: the list of posts, one post and the static facts."""
+"""The post routes of the Mini App: the list, one post, its fragment, the edits and the facts."""
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -16,6 +17,7 @@ from pisniar.webapp.auth import AdminUser, WebappContext, require_admin
 from pisniar.webapp.database import read_from_database, write_to_database
 from pisniar.webapp.editing import POST_NOT_FOUND_MESSAGE, preview_fields, save_fields
 from pisniar.webapp.errors import ApiProblem, FieldsInvalidError
+from pisniar.webapp.fragment_view import build_fragment_view, fetch_fragment_source
 from pisniar.webapp.meta import build_meta
 from pisniar.webapp.schemas import (
     POST_ID_MAX,
@@ -26,6 +28,7 @@ from pisniar.webapp.schemas import (
     FieldsInput,
     FieldsInvalid,
     FieldsUpdate,
+    FragmentView,
     MetaResponse,
     PostDetail,
     PostListResponse,
@@ -176,6 +179,21 @@ async def archive_published_post(
         return archived
 
 
+async def read_fragment(
+    request: Request,
+    admin: Annotated[AdminUser, Depends(require_admin)],
+    post_id: Annotated[int, Path(ge=1, le=POST_ID_MAX)],
+) -> FragmentView:
+    context = cast(WebappContext, request.app.state.context)
+    async with refusals_logged("fragment_view_refused", admin.user_id, post_id):
+        source = await read_from_database(
+            request, lambda session: fetch_fragment_source(session, post_id, admin.user_id)
+        )
+        if source is None:
+            raise ApiProblem(404, "post_not_found", POST_NOT_FOUND_MESSAGE)
+        return await asyncio.to_thread(build_fragment_view, context, source, admin.user_id)
+
+
 async def read_meta() -> MetaResponse:
     return build_meta()
 
@@ -196,6 +214,14 @@ def register_post_routes(app: FastAPI) -> None:
         methods=["GET"],
         response_model=PostDetail,
         responses=READ_ERROR_RESPONSES,
+        dependencies=protected,
+    )
+    app.add_api_route(
+        "/api/posts/{post_id}/fragment",
+        read_fragment,
+        methods=["GET"],
+        response_model=FragmentView,
+        responses=EDIT_ERROR_RESPONSES,
         dependencies=protected,
     )
     app.add_api_route(
