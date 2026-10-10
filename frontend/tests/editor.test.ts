@@ -599,6 +599,29 @@ describe('the YouTube Music warning', () => {
   })
 })
 
+describe('reloadIfClean', () => {
+  it('reloads the post when the form has no unsaved edits', async () => {
+    const server = editorServer(makeDetail())
+    const { editor } = await ready(server)
+
+    expect(await editor.reloadIfClean()).toBe(true)
+
+    expect(server.callsTo('GET /api/posts/7')).toBe(2)
+  })
+
+  it('leaves unsaved edits alone and does not even ask the server', async () => {
+    const server = editorServer(makeDetail())
+    const { editor } = await ready(server)
+    if (editor.form.value === null) throw new Error('form missing')
+    editor.form.value.title = 'Моя назва'
+
+    expect(await editor.reloadIfClean()).toBe(false)
+
+    expect(server.callsTo('GET /api/posts/7')).toBe(1)
+    expect(editor.form.value.title).toBe('Моя назва')
+  })
+})
+
 describe('dispose', () => {
   it('cancels a preview that has not been sent yet', async () => {
     const server = editorServer(makeDetail())

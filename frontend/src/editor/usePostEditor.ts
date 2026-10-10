@@ -125,6 +125,13 @@ export function usePostEditor(client: ApiClient, postId: number, deps: EditorDep
     schedulePreview()
   }
 
+  // a reload replaces the form, so it never runs over unsaved edits
+  async function reloadIfClean(): Promise<boolean> {
+    if (dirty.value || busy.value) return false
+    await load(true)
+    return true
+  }
+
   function schedulePreview(): void {
     clearTimeout(previewTimer)
     previewTimer = setTimeout(() => void refreshPreview(), deps.debounceMs ?? PREVIEW_DEBOUNCE_MS)
@@ -315,6 +322,7 @@ export function usePostEditor(client: ApiClient, postId: number, deps: EditorDep
     canApplyToChannel,
     warning,
     load,
+    reloadIfClean,
     save,
     applyToChannel,
     archive,

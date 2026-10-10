@@ -1,9 +1,12 @@
 import { readdirSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { gzipSync } from 'node:zlib'
 
 export const INITIAL_JS_BUDGET_BYTES = 120 * 1024
+export const EDITOR_JS_BUDGET_BYTES = 40 * 1024
 export const DEV_SHIM_MARKER = '__PISNIAR_DEV_SHIM__'
+// a line of the style wavesurfer writes into its shadow root: present wherever the library is
+export const WAVESURFER_MARKER = ':host .noScrollbar'
 
 const INLINE_SCRIPT = /<script\b(?![^>]*\bsrc=)[^>]*>/i
 const INLINE_STYLE = /<style\b|\sstyle=/i
@@ -43,6 +46,60 @@ export function gzipBytes(source: string | Buffer): number {
   return gzipSync(source).length
 }
 
+export interface BundleSizes {
+  initialBytes: number
+  // the chunks that contain wavesurfer and are not downloaded by the first paint
+  editorBytes: number
+  initialWithWavesurfer: string[]
+  editorChunks: string[]
+}
+
+// the initial set is computed once; a script is wavesurfer's when it carries the marker
+export function measureDist(distDirectory: string): BundleSizes {
+  const html = readFileSync(join(distDirectory, 'index.html'), 'utf-8')
+  const initial = new Set(initialScriptPaths(html).map((path) => basename(path)))
+  const sizes: BundleSizes = {
+    initialBytes: 0,
+    editorBytes: 0,
+    initialWithWavesurfer: [],
+    editorChunks: [],
+  }
+  for (const name of readdirSync(join(distDirectory, 'assets'))) {
+    if (!name.endsWith('.js')) continue
+    const content = readFileSync(join(distDirectory, 'assets', name))
+    const bytes = gzipBytes(content)
+    const hasWavesurfer = content.toString('utf-8').includes(WAVESURFER_MARKER)
+    if (initial.has(name)) {
+      sizes.initialBytes += bytes
+      if (hasWavesurfer) sizes.initialWithWavesurfer.push(name)
+    } else if (hasWavesurfer) {
+      sizes.editorBytes += bytes
+      sizes.editorChunks.push(name)
+    }
+  }
+  return sizes
+}
+
+export function sizeProblems(sizes: BundleSizes): string[] {
+  const problems = sizes.initialWithWavesurfer.map(
+    (name) => `${name} is an initial script and contains wavesurfer`,
+  )
+  if (sizes.editorChunks.length === 0) {
+    problems.push('no lazy script contains wavesurfer: the editor or the marker is gone')
+  }
+  if (sizes.initialBytes > INITIAL_JS_BUDGET_BYTES) {
+    problems.push(
+      `initial JS is ${sizes.initialBytes} bytes gzip, the budget is ${INITIAL_JS_BUDGET_BYTES}`,
+    )
+  }
+  if (sizes.editorBytes > EDITOR_JS_BUDGET_BYTES) {
+    problems.push(
+      `the wavesurfer chunk is ${sizes.editorBytes} bytes gzip, the budget is ${EDITOR_JS_BUDGET_BYTES}`,
+    )
+  }
+  return problems
+}
+
 export function checkDist(distDirectory: string): string[] {
   const html = readFileSync(join(distDirectory, 'index.html'), 'utf-8')
   const problems = htmlProblems(html)
@@ -54,15 +111,7 @@ export function checkDist(distDirectory: string): string[] {
     if (name.endsWith('.css')) problems.push(...styleProblems(name, source))
   }
 
-  const initialBytes = initialScriptPaths(html).reduce(
-    (total, path) => total + gzipBytes(readFileSync(join(distDirectory, path))),
-    0,
-  )
-  if (initialBytes > INITIAL_JS_BUDGET_BYTES) {
-    problems.push(
-      `initial JS is ${initialBytes} bytes gzip, the budget is ${INITIAL_JS_BUDGET_BYTES}`,
-    )
-  }
+  problems.push(...sizeProblems(measureDist(distDirectory)))
   return problems
 }
 
@@ -71,6 +120,11 @@ function main(): void {
   if (distDirectory === undefined) {
     throw new Error('usage: check-bundle.ts <dist directory>')
   }
+  const { initialBytes, editorBytes } = measureDist(distDirectory)
+  console.log(
+    `initial JS ${initialBytes} bytes gzip (budget ${INITIAL_JS_BUDGET_BYTES}), ` +
+      `wavesurfer chunk ${editorBytes} bytes gzip (budget ${EDITOR_JS_BUDGET_BYTES})`,
+  )
   const problems = checkDist(distDirectory)
   for (const problem of problems) console.error(problem)
   process.exitCode = problems.length === 0 ? 0 : 1

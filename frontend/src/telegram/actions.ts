@@ -17,6 +17,13 @@ export function hapticWith(webApp: TelegramWebApp | undefined): Haptic {
   return (kind) => webApp?.HapticFeedback?.notificationOccurred(kind)
 }
 
+// a vertical swipe would close the app while a handle is dragged; returns the call that restores it
+export function lockVerticalSwipes(webApp: TelegramWebApp | undefined): () => void {
+  if (webApp === undefined || !webApp.isVersionAtLeast('7.7')) return () => undefined
+  webApp.disableVerticalSwipes?.()
+  return () => webApp.enableVerticalSwipes?.()
+}
+
 export interface MainButtonState {
   text: string
   visible: boolean

@@ -42,6 +42,8 @@ interface TelegramWebApp {
   offEvent: (eventType: string, handler: () => void) => void
   showAlert: (message: string, callback?: () => void) => void
   showConfirm: (message: string, callback?: (confirmed: boolean) => void) => void
+  disableVerticalSwipes?: () => void
+  enableVerticalSwipes?: () => void
   BackButton: TelegramBackButton
   MainButton: TelegramMainButton
   HapticFeedback?: {

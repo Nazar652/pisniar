@@ -34,8 +34,8 @@ def pcm_of(*samples: int) -> bytes:
     return array("h", samples).tobytes()
 
 
-def bucket_of(*, loudest: int, length: int = peaks.BUCKET_SAMPLES) -> list[int]:
-    return [loudest, *([0] * (length - 1))]
+def constant_pcm(level: int, buckets: int) -> bytes:
+    return pcm_of(*([level] * (peaks.BUCKET_SAMPLES * buckets)))
 
 
 def completed(
@@ -67,45 +67,78 @@ def test_a_bucket_is_400_samples_which_is_twenty_to_the_second() -> None:
     assert peaks.SAMPLE_RATE_HZ // peaks.BUCKET_SAMPLES == peaks.PEAKS_PER_SECOND
 
 
-def test_each_bucket_keeps_its_loudest_sample_scaled_to_the_loudest_bucket() -> None:
-    samples = bucket_of(loudest=1000) + bucket_of(loudest=500) + bucket_of(loudest=250)
+def test_a_bucket_energy_is_the_sum_of_its_squared_samples() -> None:
+    samples = array("h", [3, -4, *([0] * (peaks.BUCKET_SAMPLES - 2)), 5])
 
-    assert peaks.peak_values(pcm_of(*samples)) == [255, 128, 64]
+    assert peaks.bucket_energies(samples) == [25, 25]
 
 
-def test_a_negative_swing_counts_as_loudly_as_a_positive_one() -> None:
-    samples = bucket_of(loudest=-1000) + bucket_of(loudest=1000)
+def test_a_window_averages_the_energy_over_the_samples_it_covers() -> None:
+    energies = [peaks.BUCKET_SAMPLES * 4, 4]
 
-    assert peaks.peak_values(pcm_of(*samples)) == [255, 255]
+    assert peaks.windowed_powers(energies, peaks.BUCKET_SAMPLES + 1) == [4.0, 4.0]
+
+
+def test_a_loud_bucket_is_spread_over_the_smoothing_radius_and_no_further() -> None:
+    far = peaks.SMOOTHING_RADIUS_BUCKETS + 1
+    energies = [0] * (2 * far + 1)
+    energies[far] = peaks.BUCKET_SAMPLES
+
+    powers = peaks.windowed_powers(energies, len(energies) * peaks.BUCKET_SAMPLES)
+
+    assert powers[0] == 0.0
+    assert powers[1] > 0.0
+    assert powers[-1] == 0.0
+
+
+def test_a_constant_level_is_full_height_whatever_the_level() -> None:
+    assert peaks.loudness_values(constant_pcm(40, 3)) == [255, 255, 255]
+    assert peaks.loudness_values(constant_pcm(-20000, 3)) == [255, 255, 255]
+
+
+def test_a_quiet_section_next_to_a_loud_one_stays_visibly_lower() -> None:
+    values = peaks.loudness_values(constant_pcm(1000, 100) + constant_pcm(100, 100))
+
+    assert values[20] == 255
+    assert 25 <= values[180] <= 26
+
+
+def test_a_spike_above_the_99th_percentile_is_clipped_at_the_top() -> None:
+    rising = b"".join(constant_pcm(100 + 50 * step, 1) for step in range(300))
+
+    values = peaks.loudness_values(rising)
+
+    assert values[-1] == values[-2] == values[-3] == 255
+    assert values[-30] < 255
+
+
+def test_values_stay_within_a_byte() -> None:
+    values = peaks.loudness_values(constant_pcm(-32768, 5) + constant_pcm(1, 5))
+
+    assert all(0 <= value <= 255 for value in values)
 
 
 def test_the_most_negative_sample_does_not_overflow() -> None:
-    assert peaks.peak_values(pcm_of(-32768, 0, 0)) == [255]
-
-
-def test_the_last_bucket_may_be_short_and_still_counts() -> None:
-    samples = [*bucket_of(loudest=1000), 500, 0, 0]
-
-    assert peaks.peak_values(pcm_of(*samples)) == [255, 128]
+    assert peaks.loudness_values(pcm_of(-32768, 0, 0)) == [255]
 
 
 def test_silence_is_zeros_not_a_division_by_zero() -> None:
-    assert peaks.peak_values(pcm_of(*([0] * (peaks.BUCKET_SAMPLES * 2)))) == [0, 0]
+    assert peaks.loudness_values(constant_pcm(0, 2)) == [0, 0]
 
 
 def test_a_dangling_byte_is_dropped() -> None:
-    assert peaks.peak_values(pcm_of(10, 20) + b"\x01") == [255]
+    assert peaks.loudness_values(pcm_of(10, 20) + b"\x01") == [255]
 
 
 def test_no_samples_at_all_is_a_failure_not_an_empty_waveform() -> None:
     with pytest.raises(MediaToolError, match="семпла"):
-        peaks.peak_values(b"")
+        peaks.loudness_values(b"")
 
 
 def test_ten_minutes_of_audio_are_twelve_thousand_values() -> None:
     ten_minutes = pcm_of(*([1] * (peaks.SAMPLE_RATE_HZ * 600)))
 
-    assert len(peaks.peak_values(ten_minutes)) == 12_000
+    assert len(peaks.loudness_values(ten_minutes)) == 12_000
 
 
 def test_ffmpeg_is_asked_for_mono_8_khz_s16le_on_stdout(
@@ -173,14 +206,14 @@ def test_a_non_zero_ffmpeg_exit_carries_its_stderr(
 def test_peaks_are_computed_and_published_atomically(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    stub_ffmpeg(monkeypatch, pcm_of(*(bucket_of(loudest=100) + bucket_of(loudest=50))))
+    stub_ffmpeg(monkeypatch, constant_pcm(100, 2))
     temporary = media_storage.task_temporary_directory(tmp_path, 7)
 
     result = peaks.ensure_peaks(tmp_path, 3, VIDEO_ID, tmp_path / "a.opus", temporary)
 
     expected = media_storage.peaks_file_path(tmp_path, 3, VIDEO_ID)
     assert result == expected
-    assert read_peaks(expected) == [255, 128]
+    assert read_peaks(expected) == [255, 255]
     assert list(temporary.iterdir()) == []
 
 
@@ -204,7 +237,7 @@ def test_a_file_of_another_format_version_is_recomputed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     final = media_storage.peaks_file_path(tmp_path, 3, VIDEO_ID)
-    write_document(final, {"format_version": 0, "peaks_per_second": 20, "values": [9]})
+    write_document(final, {"format_version": 1, "peaks_per_second": 20, "values": [9]})
     stub_ffmpeg(monkeypatch, pcm_of(10, 20))
 
     peaks.ensure_peaks(tmp_path, 3, VIDEO_ID, tmp_path / "a.opus", tmp_path / "tmp")
@@ -233,7 +266,7 @@ def test_more_values_than_the_reader_accepts_are_never_written(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, peaks_logger: MagicMock
 ) -> None:
     monkeypatch.setattr(peaks, "MAX_PEAK_VALUES", 1)
-    stub_ffmpeg(monkeypatch, pcm_of(*(bucket_of(loudest=100) + bucket_of(loudest=50))))
+    stub_ffmpeg(monkeypatch, constant_pcm(100, 2))
 
     result = peaks.ensure_peaks(tmp_path, 3, VIDEO_ID, tmp_path / "a.opus", tmp_path / "tmp")
 

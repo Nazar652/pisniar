@@ -10,6 +10,7 @@ import ListEditor from '../components/ListEditor.vue'
 import NoticeBanner from '../components/NoticeBanner.vue'
 import { inputValue } from '../editor/dom'
 import { FIELD_LABELS, releaseTypeOptions } from '../editor/form'
+import FragmentSection from '../fragment/FragmentSection.vue'
 import { usePostEditor } from '../editor/usePostEditor'
 import { applyMainButton, confirmWith, hapticWith } from '../telegram/actions'
 import type { WebApp } from '../telegram/useTelegram'
@@ -204,6 +205,14 @@ watchEffect(() => {
       </FieldBlock>
 
       <CaptionPreview :view="editor.preview.value" :message="editor.previewMessage.value" />
+
+      <FragmentSection
+        :fragment="detail.fragment"
+        :client="client"
+        :post-id="postId"
+        :web-app="webApp"
+        @submitted="editor.reloadIfClean()"
+      />
 
       <div v-if="editor.canApplyToChannel.value" class="card">
         <p class="muted">Підпис у каналі відрізняється від збереженого.</p>

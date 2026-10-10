@@ -45,6 +45,7 @@ make api-types     # regenerate frontend/openapi.json and frontend/src/api/schem
 make frontend-build # vite build into frontend/dist, which the running webapp serves
 make frontend-watch # vite build --watch into frontend/dist: the Telegram dev loop
 make dev-token u=<id> # print a session token for an admin, for a browser outside Telegram (a secret)
+make peaks          # write the waveform file for every stored audio lacking the current version, in the worker
 make funnel-init    # create the external volume holding the Tailscale node state (once)
 make funnel-up      # start the Tailscale Funnel service
 make funnel-down    # remove the Funnel container; the node state stays on its volume
@@ -321,6 +322,20 @@ suggest or introduce either.
   A 409 `stale_data` or `caption_changed` reloads the post, `channel_message_missing` is the only
   thing that shows the archive button, and every server sentence is shown as it came. The caption
   preview renders segments by interpolation, links only for `http(s)`, and never `v-html`.
+  The «Фрагмент» section (`FragmentSection`, in `PostEditor`) offers the fragment editor when
+  `PostDetail.fragment.choosable`, otherwise the reason sentence. `FragmentEditor` loads as its own
+  async chunk (wavesurfer 7.12.12, MediaElement backend, the server's peaks and duration so nothing is
+  decoded, one `RegionsPlugin` region); the instance lives in a `shallowRef` + `markRaw`, is created
+  after the view arrives and destroyed on unmount, and vertical swipes are off while it is open
+  (`isVersionAtLeast('7.7')`). The logic is pure `fragment/bounds.ts` (100 ms grid, the server's
+  limits, ±1 s / ±0.1 s steps that move one edge) and `useFragmentEditor` (`loading -> ready ->
+  submitting -> submitted | failed`); `expected_post_updated_at` is the server's string, never a
+  `Date`. The bundle check also fails when an initial script contains wavesurfer or the lazy scripts
+  exceed 40 KB gzip. wavesurfer writes one `<style>` into a shadow root, so the prod CSP is
+  `style-src 'self' 'sha256-…'` (`webapp.app.WAVESURFER_STYLE_HASH`, valid for
+  `WAVESURFER_VERSION` at `waveform.WAVEFORM_HEIGHT_PX`); `tests/scripts/csp.test.ts` recomputes it
+  from the installed package and a Python test ties the version to `package.json`. Never
+  `'unsafe-inline'`.
 
 ## Resolver conventions (`pisniar/resolve/`)
 
@@ -496,6 +511,15 @@ suggest or introduce either.
 - **The peaks file** `/data/audio/<track_id>/peaks/<video_id>.json` is derived from the
   audio, written (`worker/peaks.py`) after each download, and sits outside the
   `<video_id>.*` mask of `find_existing_audio`. A failure is a warning, never a failed download.
+  The 20 values a second are the **RMS level smoothed over about a second** (10 buckets each side
+  of 50 ms), scaled so the 99th percentile is 255 and clipped: a sample peak on a compressed
+  master touches the ceiling in nearly every bucket and shows no structure. A file carries
+  `format_version` (`peaks_format.FORMAT_VERSION`, 2); `read_peaks` treats a well-formed file of
+  another version as absent (info `audio_peaks_other_version`, not a corrupt-file warning), so the
+  next download or `make peaks` recomputes it. A post with a preview never downloads again, so
+  `make peaks` (`python -m pisniar.worker.peaks`, in the worker) walks every stored audio
+  (`storage.stored_audio_files`), skips current files, stages in `/data/tmp/peaks-backfill/` and
+  is safe to run twice; its exit code is 1 when any file failed.
 - **`scale=...:in_range=pc:out_range=tv` plus `-color_range tv` is required,
   not a refinement.** The cover arrives from the Spotify CDN as
   full-range JPEG, and a naive `format=yuv420p` produces `yuvj420p` *every

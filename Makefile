@@ -10,7 +10,7 @@ COMPOSE := docker compose
 	frontend-sync frontend-typecheck frontend-lint frontend-format frontend-test frontend-bundle \
 	api-types api-types-check frontend-build frontend-watch \
 	build up down ps logs restart clean test-int test-fonts migrate revision downgrade \
-	alembic-check psql shell verify funnel-init funnel-up funnel-down dev-token
+	alembic-check psql shell verify funnel-init funnel-up funnel-down dev-token peaks
 
 help: ## Show this list of targets
 	@grep -h -E '^[a-zA-Z0-9_-]+:.*##' $(MAKEFILE_LIST) | sed 's/:.*##/\t/' | sort
@@ -130,6 +130,9 @@ downgrade: ## alembic downgrade -1 inside the bot container
 
 alembic-check: ## alembic check: model/migration drift
 	$(COMPOSE) run --rm bot alembic check
+
+peaks: ## write the waveform file for every audio on the volume that lacks the current version, inside the worker
+	$(COMPOSE) exec worker python -m pisniar.worker.peaks
 
 psql: ## interactive psql in the postgres container
 	$(COMPOSE) exec postgres psql -U pisniar -d pisniar

@@ -22,8 +22,13 @@ from pisniar.webapp.api import register_api_routes
 from pisniar.webapp.auth import AuthWindow, WebappContext
 from pisniar.webapp.errors import ApiProblem, error_response, register_error_handlers
 
+# the hash allows the one `<style>` wavesurfer writes into a shadow root (at the fixed waveform
+# height); it belongs to this version only
+WAVESURFER_VERSION = "7.12.12"
+WAVESURFER_STYLE_HASH = "sha256-Y/8t1dAKa3ay+RZEiEFEDr8dFiQhpaFvYXXUfT3p6ZU="
 CONTENT_SECURITY_POLICY = (
-    "default-src 'none'; script-src 'self' https://telegram.org; style-src 'self'; "
+    "default-src 'none'; script-src 'self' https://telegram.org; "
+    f"style-src 'self' '{WAVESURFER_STYLE_HASH}'; "
     "img-src 'self'; media-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; "
     "frame-ancestors https://web.telegram.org"
 )

@@ -163,6 +163,25 @@ export function makeMeta(): MetaResponse {
   }
 }
 
+export type FragmentView = Schemas['FragmentView']
+
+// a microsecond stamp: it has to reach the server exactly as the server sent it
+export const MICRO_STAMP = '2026-10-09T12:34:56.123456Z'
+
+export function makeFragmentView(overrides: Partial<FragmentView> = {}): FragmentView {
+  return {
+    post_updated_at: MICRO_STAMP,
+    start_ms: 0,
+    end_ms: 45000,
+    audio_duration_ms: 200000,
+    max_length_ms: 120000,
+    audio_url: '/api/posts/7/audio?token=first',
+    audio_url_expires_at: '2026-10-09T12:49:56Z',
+    peaks: { peaks_per_second: 20, values: [0, 128, 255, 64] },
+    ...overrides,
+  }
+}
+
 // a server with the editor's three reads wired to the given detail
 export function editorServer(detail: PostDetail, extra: Record<string, Handler> = {}): FakeServer {
   return fakeServer({

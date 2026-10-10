@@ -33,7 +33,8 @@ PUBLIC_ROUTES = {
 }
 SIGNED_ROUTES = {("GET", "/api/posts/{post_id}/audio")}
 EXPECTED_CSP = (
-    "default-src 'none'; script-src 'self' https://telegram.org; style-src 'self'; "
+    "default-src 'none'; script-src 'self' https://telegram.org; "
+    "style-src 'self' 'sha256-Y/8t1dAKa3ay+RZEiEFEDr8dFiQhpaFvYXXUfT3p6ZU='; "
     "img-src 'self'; media-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; "
     "frame-ancestors https://web.telegram.org"
 )

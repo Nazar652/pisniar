@@ -19,6 +19,11 @@ from typing import Any
 import pytest
 import yaml
 
+from pisniar.webapp.app import (
+    CONTENT_SECURITY_POLICY,
+    WAVESURFER_STYLE_HASH,
+    WAVESURFER_VERSION,
+)
 from pisniar.webapp.export_openapi import GENERATED_NOTICE, build_openapi_schema
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -111,7 +116,15 @@ def test_dependencies_are_pinned_exactly() -> None:
 
     assert versions
     assert all(re.fullmatch(r"\d+\.\d+\.\d+", version) for version in versions.values())
-    assert set(package["dependencies"]) == {"vue", "openapi-fetch"}
+    assert set(package["dependencies"]) == {"vue", "openapi-fetch", "wavesurfer.js"}
+
+
+def test_the_csp_style_hash_names_the_wavesurfer_version_in_package_json() -> None:
+    package = json.loads((FRONTEND / "package.json").read_text(encoding="utf-8"))
+
+    assert package["dependencies"]["wavesurfer.js"] == WAVESURFER_VERSION
+    assert f"'{WAVESURFER_STYLE_HASH}'" in CONTENT_SECURITY_POLICY
+    assert "unsafe-inline" not in CONTENT_SECURITY_POLICY
 
 
 def test_node_exists_only_in_the_frontend_build_stage() -> None:

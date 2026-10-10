@@ -6,12 +6,15 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   checkDist,
   DEV_SHIM_MARKER,
+  EDITOR_JS_BUDGET_BYTES,
   gzipBytes,
   htmlProblems,
   INITIAL_JS_BUDGET_BYTES,
   initialScriptPaths,
+  measureDist,
   scriptProblems,
   styleProblems,
+  WAVESURFER_MARKER,
 } from '../../scripts/check-bundle.ts'
 
 const CLEAN_HTML = `<!doctype html><html><head>
@@ -97,19 +100,53 @@ describe('gzipBytes', () => {
   })
 })
 
+const LAZY_EDITOR = { 'FragmentEditor-xyz.js': `export const style = "${WAVESURFER_MARKER}"` }
+
+describe('measureDist', () => {
+  it('counts the entry and its preloads as initial and budgets only the wavesurfer chunk', () => {
+    const dist = makeDist({
+      'index-abc.js': 'a'.repeat(3000),
+      'vendor-def.js': 'b'.repeat(3000),
+      'FragmentEditor-xyz.js': `${WAVESURFER_MARKER}${'c'.repeat(3000)}`,
+      'Other-lazy.js': randomBytes(5000),
+    })
+
+    const sizes = measureDist(dist)
+
+    expect(sizes.initialBytes).toBe(gzipBytes('a'.repeat(3000)) + gzipBytes('b'.repeat(3000)))
+    expect(sizes.editorChunks).toEqual(['FragmentEditor-xyz.js'])
+    expect(sizes.editorBytes).toBe(gzipBytes(`${WAVESURFER_MARKER}${'c'.repeat(3000)}`))
+    expect(sizes.initialWithWavesurfer).toEqual([])
+  })
+
+  it('names the initial scripts that contain wavesurfer', () => {
+    const dist = makeDist({
+      'index-abc.js': WAVESURFER_MARKER,
+      'vendor-def.js': 'export {}',
+    })
+
+    expect(measureDist(dist).initialWithWavesurfer).toEqual(['index-abc.js'])
+  })
+})
+
 describe('checkDist', () => {
-  it('passes a clean small bundle', () => {
+  it('passes a clean small bundle with wavesurfer in a lazy chunk', () => {
     const dist = makeDist({
       'index-abc.js': 'console.log(1)',
       'vendor-def.js': 'export {}',
       'index-abc.css': 'a{}',
+      ...LAZY_EDITOR,
     })
 
     expect(checkDist(dist)).toEqual([])
   })
 
   it('reports an eval in any script', () => {
-    const dist = makeDist({ 'index-abc.js': 'eval("1")', 'vendor-def.js': 'export {}' })
+    const dist = makeDist({
+      'index-abc.js': 'eval("1")',
+      'vendor-def.js': 'export {}',
+      ...LAZY_EDITOR,
+    })
 
     expect(checkDist(dist)).toEqual(['index-abc.js uses eval or new Function'])
   })
@@ -118,8 +155,38 @@ describe('checkDist', () => {
     const dist = makeDist({
       'index-abc.js': randomBytes(INITIAL_JS_BUDGET_BYTES + 5000),
       'vendor-def.js': '',
+      ...LAZY_EDITOR,
     })
 
-    expect(checkDist(dist).join(' ')).toContain('the budget is')
+    expect(checkDist(dist).join(' ')).toContain('initial JS is')
+  })
+
+  it('reports wavesurfer inside an initial script, as a static import of the editor makes it', () => {
+    const dist = makeDist({
+      'index-abc.js': `console.log("${WAVESURFER_MARKER}")`,
+      'vendor-def.js': 'export {}',
+      ...LAZY_EDITOR,
+    })
+
+    expect(checkDist(dist)).toEqual(['index-abc.js is an initial script and contains wavesurfer'])
+  })
+
+  it('reports a bundle where wavesurfer is nowhere, so a stale marker cannot pass quietly', () => {
+    const dist = makeDist({ 'index-abc.js': 'console.log(1)', 'vendor-def.js': 'export {}' })
+
+    expect(checkDist(dist).join(' ')).toContain('no lazy script contains wavesurfer')
+  })
+
+  it('reports a wavesurfer chunk over its budget', () => {
+    const dist = makeDist({
+      'index-abc.js': 'console.log(1)',
+      'vendor-def.js': 'export {}',
+      'FragmentEditor-xyz.js': Buffer.concat([
+        Buffer.from(WAVESURFER_MARKER),
+        randomBytes(EDITOR_JS_BUDGET_BYTES + 5000),
+      ]),
+    })
+
+    expect(checkDist(dist).join(' ')).toContain('the wavesurfer chunk is')
   })
 })

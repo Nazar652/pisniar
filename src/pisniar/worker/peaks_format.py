@@ -12,7 +12,7 @@ from pisniar.logging import get_logger
 
 logger = get_logger(__name__)
 
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2
 PEAKS_PER_SECOND = 20
 PEAK_SCALE = 255
 
@@ -29,17 +29,28 @@ def peaks_document(values: list[int]) -> str:
 
 
 def read_peaks(path: Path) -> list[int] | None:
-    """`None` with a warning for a missing, oversized or malformed file; pure, no ffmpeg."""
+    """`None` for a missing or older-version file, `None` with a warning for a malformed one."""
     try:
         if path.stat().st_size > MAX_PEAKS_FILE_BYTES:
             raise ValueError("файл peaks завеликий")
         document = json.loads(path.read_text(encoding="utf-8"))
+        if has_other_version(document):
+            logger.info("audio_peaks_other_version", path=str(path))
+            return None
         return validated_values(document)
     except FileNotFoundError:
         return None
     except (OSError, ValueError):
         logger.warning("audio_peaks_unreadable", path=str(path), exc_info=True)
         return None
+
+
+def has_other_version(document: object) -> bool:
+    """a well-formed file of another version is stale, not corrupt."""
+    if not isinstance(document, dict):
+        return False
+    version = document.get("format_version")
+    return isinstance(version, int) and not isinstance(version, bool) and version != FORMAT_VERSION
 
 
 def validated_values(document: object) -> list[int]:

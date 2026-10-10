@@ -140,8 +140,7 @@ def test_a_corrupt_peaks_file_is_none(tmp_path: Path) -> None:
 def test_a_file_written_by_the_worker_is_read_by_the_webapp(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    samples = [1000, *([0] * 399), 500, *([0] * 399), 250]
-    pcm = array("h", samples).tobytes()
+    pcm = array("h", [1000] * 400 + [500] * 400 + [250] * 400).tobytes()
     monkeypatch.setattr(
         worker_peaks,
         "run_media_tool_bytes",
@@ -157,7 +156,7 @@ def test_a_file_written_by_the_worker_is_read_by_the_webapp(
 
     assert written is not None
     assert peaks_of(make_context(tmp_path), source) == FragmentPeaks(
-        peaks_per_second=20, values=[255, 128, 64]
+        peaks_per_second=20, values=worker_peaks.loudness_values(pcm)
     )
 
 

@@ -79,6 +79,30 @@ def find_existing_audio(media_root: Path, track_id: int, video_id: str) -> Path 
     return None
 
 
+def stored_audio_files(media_root: Path) -> list[tuple[int, str, Path]]:
+    """every finished audio file as (track id, video id, path), by the stem mask of
+    `find_existing_audio`; the peaks subdirectory and stray names never qualify."""
+    root = media_root / AUDIO_DIRECTORY_NAME
+    if not root.is_dir():
+        return []
+
+    found: list[tuple[int, str, Path]] = []
+    for directory in sorted(root.iterdir()):
+        if not directory.is_dir() or not directory.name.isdecimal() or int(directory.name) <= 0:
+            continue
+
+        track_id = int(directory.name)
+        for video_id in sorted({entry.stem for entry in directory.iterdir() if entry.is_file()}):
+            audio = (
+                find_existing_audio(media_root, track_id, video_id)
+                if is_valid_youtube_video_id(video_id)
+                else None
+            )
+            if audio is not None:
+                found.append((track_id, video_id, audio))
+    return found
+
+
 def render_directory(media_root: Path, post_id: int) -> Path:
     return media_root / RENDER_DIRECTORY_NAME / numeric_id(post_id, "post_id")
 

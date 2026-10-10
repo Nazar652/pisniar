@@ -7,6 +7,7 @@ const DEV_CONTENT_SECURITY_POLICY = [
   "script-src 'self' https://telegram.org",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self'",
+  "media-src 'self'",
   "connect-src 'self' ws://127.0.0.1:5173",
   "base-uri 'none'",
   "form-action 'none'",
