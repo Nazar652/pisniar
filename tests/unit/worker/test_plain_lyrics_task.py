@@ -21,9 +21,7 @@ from pisniar.worker.celery_app import FETCH_PLAIN_LYRICS_TASK_NAME
 from pisniar.worker.lyrics import LyricsPersistOutcome, LyricsPersistResult
 
 TRACK_ID = 3
-QUERY = worker_lyrics.LyricsQuery(
-    track_id=TRACK_ID, artist_names=("A",), title="T", duration_ms=1_000, video_id=None
-)
+QUERY = worker_lyrics.LyricsQuery(track_id=TRACK_ID, artist_names=("A",), title="T", duration_ms=1_000, video_id=None)
 
 
 @pytest.fixture
@@ -40,35 +38,29 @@ def send_task(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
     return mock
 
 
-@pytest.mark.parametrize(
-    "reason", ["lyrics_absent", "lyrics_rejected_by_matching", "lyrics_source_unavailable"]
-)
+@pytest.mark.parametrize("reason", ["lyrics_absent", "lyrics_rejected_by_matching", "lyrics_source_unavailable"])
 async def test_a_missing_text_queues_the_lookup_by_track_id(
-    send_task: MagicMock, fake_logger: MagicMock, reason: str
+    send_task: MagicMock,
+    fake_logger: MagicMock,
+    reason: str,
 ) -> None:
     await worker_tasks.queue_plain_lyrics_lookup(TRACK_ID, reason)
 
     send_task.assert_called_once_with(FETCH_PLAIN_LYRICS_TASK_NAME, kwargs={"track_id": TRACK_ID})
-    fake_logger.info.assert_called_once_with(
-        "plain_lyrics_task_dispatched", track_id=TRACK_ID, lyrics_reason=reason
-    )
+    fake_logger.info.assert_called_once_with("plain_lyrics_task_dispatched", track_id=TRACK_ID, lyrics_reason=reason)
 
 
 @pytest.mark.parametrize(
     "reason",
     ["lyrics_synced", "lyrics_instrumental", "lyrics_untimed", "lyrics_removed_by_admin"],
 )
-async def test_a_reason_that_needs_no_lookup_queues_nothing(
-    send_task: MagicMock, reason: str
-) -> None:
+async def test_a_reason_that_needs_no_lookup_queues_nothing(send_task: MagicMock, reason: str) -> None:
     await worker_tasks.queue_plain_lyrics_lookup(TRACK_ID, reason)
 
     send_task.assert_not_called()
 
 
-async def test_a_refused_enqueue_is_a_log_line_and_never_raises(
-    send_task: MagicMock, fake_logger: MagicMock
-) -> None:
+async def test_a_refused_enqueue_is_a_log_line_and_never_raises(send_task: MagicMock, fake_logger: MagicMock) -> None:
     send_task.side_effect = ConnectionError("redis is down")
 
     await worker_tasks.queue_plain_lyrics_lookup(TRACK_ID, "lyrics_absent")
@@ -77,16 +69,12 @@ async def test_a_refused_enqueue_is_a_log_line_and_never_raises(
     assert fake_logger.warning.call_args.args == ("plain_lyrics_task_dispatch_failed",)
 
 
-async def test_the_soft_limit_while_enqueueing_is_logged_apart(
-    send_task: MagicMock, fake_logger: MagicMock
-) -> None:
+async def test_the_soft_limit_while_enqueueing_is_logged_apart(send_task: MagicMock, fake_logger: MagicMock) -> None:
     send_task.side_effect = SoftTimeLimitExceeded()
 
     await worker_tasks.queue_plain_lyrics_lookup(TRACK_ID, "lyrics_absent")
 
-    fake_logger.error.assert_called_once_with(
-        "plain_lyrics_task_dispatch_timed_out", track_id=TRACK_ID
-    )
+    fake_logger.error.assert_called_once_with("plain_lyrics_task_dispatch_timed_out", track_id=TRACK_ID)
 
 
 def test_the_task_carries_its_own_limits() -> None:
@@ -120,9 +108,7 @@ def test_the_soft_limit_out_of_the_loop_is_a_log_line_and_not_a_task_error(
 
     task.run(TRACK_ID)
 
-    fake_logger.error.assert_called_once_with(
-        "fetch_plain_lyrics_soft_time_limit", track_id=TRACK_ID
-    )
+    fake_logger.error.assert_called_once_with("fetch_plain_lyrics_soft_time_limit", track_id=TRACK_ID)
 
 
 def test_any_other_error_propagates(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -166,9 +152,7 @@ async def test_the_body_stores_plain_lyrics_and_closes_the_client(
     assert body.store.await_args is not None
     assert body.store.await_args.args[3] is QUERY
     body.client.aclose.assert_awaited_once()
-    fake_logger.info.assert_called_once_with(
-        "plain_lyrics_task_done", track_id=TRACK_ID, persist_outcome="written"
-    )
+    fake_logger.info.assert_called_once_with("plain_lyrics_task_done", track_id=TRACK_ID, persist_outcome="written")
 
 
 async def test_a_lookup_that_wrote_nothing_is_logged_as_such(
@@ -179,9 +163,7 @@ async def test_a_lookup_that_wrote_nothing_is_logged_as_such(
 
     await worker_tasks.perform_fetch_plain_lyrics(TRACK_ID)
 
-    fake_logger.info.assert_called_once_with(
-        "plain_lyrics_task_done", track_id=TRACK_ID, persist_outcome=None
-    )
+    fake_logger.info.assert_called_once_with("plain_lyrics_task_done", track_id=TRACK_ID, persist_outcome=None)
 
 
 async def test_the_client_is_closed_when_the_writer_fails(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -226,9 +208,7 @@ async def test_the_query_is_read_out_as_plain_values() -> None:
     track.title = "Покаяння"
     track.duration_ms = 212_000
 
-    query = await worker_tasks.load_plain_lyrics_query(
-        cast(Any, lambda: FakeSession(track)), TRACK_ID
-    )
+    query = await worker_tasks.load_plain_lyrics_query(cast(Any, lambda: FakeSession(track)), TRACK_ID)
 
     assert query == worker_lyrics.LyricsQuery(
         track_id=TRACK_ID,
@@ -240,8 +220,6 @@ async def test_the_query_is_read_out_as_plain_values() -> None:
 
 
 async def test_a_missing_track_has_no_query() -> None:
-    query = await worker_tasks.load_plain_lyrics_query(
-        cast(Any, lambda: FakeSession(None)), TRACK_ID
-    )
+    query = await worker_tasks.load_plain_lyrics_query(cast(Any, lambda: FakeSession(None)), TRACK_ID)
 
     assert query is None

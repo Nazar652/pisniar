@@ -18,9 +18,7 @@ SEARCH_RESULTS: list[dict[str, object]] = [
 ]
 
 
-async def test_search_by_name_returns_candidates(
-    monkeypatch: pytest.MonkeyPatch, fake_cache: SourceCache
-) -> None:
+async def test_search_by_name_returns_candidates(monkeypatch: pytest.MonkeyPatch, fake_cache: SourceCache) -> None:
     monkeypatch.setattr(ytmusic, "search_sync", lambda query: SEARCH_RESULTS)
 
     candidates = await ytmusic.search_by_name(fake_cache, "Burned Time Machine", "Покаяння")
@@ -34,9 +32,7 @@ async def test_search_by_name_returns_candidates(
     assert candidate.duration_ms == 225000
 
 
-async def test_search_by_name_caps_at_five(
-    monkeypatch: pytest.MonkeyPatch, fake_cache: SourceCache
-) -> None:
+async def test_search_by_name_caps_at_five(monkeypatch: pytest.MonkeyPatch, fake_cache: SourceCache) -> None:
     many_results = [
         {
             "videoId": f"id{index}",

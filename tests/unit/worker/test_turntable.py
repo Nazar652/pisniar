@@ -1,7 +1,5 @@
-"""The turntable frame: the layout numbers, and the properties of the five drawn layers. The
-layers are drawn once for the module; pixel-level pins of the finished video live in the
-container smoke test.
-"""
+"""The turntable frame: the layout numbers, and the properties of the five drawn layers. The layers are drawn once for
+the module; pixel-level pins of the finished video live in the container smoke test."""
 
 from __future__ import annotations
 
@@ -23,13 +21,21 @@ LAYER_FILE_NAMES = {"bg.png", "vinyl.png", "label-mask.png", "hub.png", "overlay
 BLACK = (0, 0, 0)
 
 
-def pixel(image: Image.Image, x: int, y: int) -> tuple[int, ...]:
+def pixel(
+    image: Image.Image,
+    x: int,
+    y: int,
+) -> tuple[int, ...]:
     value = image.getpixel((x, y))
     assert isinstance(value, tuple)
     return value
 
 
-def level(image: Image.Image, x: int, y: int) -> int:
+def level(
+    image: Image.Image,
+    x: int,
+    y: int,
+) -> int:
     value = image.getpixel((x, y))
     assert isinstance(value, int)
     return value
@@ -44,21 +50,11 @@ def record_up(value: float) -> int:
 
 
 def inside(inner: tuple[int, int, int, int], outer: tuple[int, int, int, int]) -> bool:
-    return (
-        inner[0] >= outer[0]
-        and inner[1] >= outer[1]
-        and inner[2] <= outer[2]
-        and inner[3] <= outer[3]
-    )
+    return inner[0] >= outer[0] and inner[1] >= outer[1] and inner[2] <= outer[2] and inner[3] <= outer[3]
 
 
 def boxes_apart(first: tuple[int, int, int, int], second: tuple[int, int, int, int]) -> bool:
-    return (
-        first[2] <= second[0]
-        or second[2] <= first[0]
-        or first[3] <= second[1]
-        or second[3] <= first[1]
-    )
+    return first[2] <= second[0] or second[2] <= first[0] or first[3] <= second[1] or second[3] <= first[1]
 
 
 def disc_bounds(centre: tuple[int, int], radius: int) -> tuple[int, int, int, int]:
@@ -208,9 +204,7 @@ def test_turntable_imports_only_pil_the_standard_library_and_layout() -> None:
 def test_turntable_opens_no_file_and_decodes_no_outside_bytes() -> None:
     tree = ast.parse((WORKER_DIRECTORY / "turntable.py").read_text(encoding="utf-8"))
     called = {
-        node.func.attr
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        node.func.attr for node in ast.walk(tree) if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
     }
     assert not called & {"open", "frombuffer", "fromarray", "read_bytes", "read_text"}
 
@@ -361,9 +355,7 @@ def test_overlay_leaves_free_points_transparent_and_covers_the_spindle(
     assert pixel(overlay, centre_x - layers.overlay_x, centre_y - layers.overlay_y)[3] == 255
 
 
-def test_overlay_reflection_over_the_record_is_faint(
-    layers: turntable.TurntableLayers, overlay: Image.Image
-) -> None:
+def test_overlay_reflection_over_the_record_is_faint(layers: turntable.TurntableLayers, overlay: Image.Image) -> None:
     centre_x, centre_y = layout.VINYL_CENTER_PX
     alphas = [
         pixel(overlay, centre_x + dx - layers.overlay_x, centre_y + dy - layers.overlay_y)[3]
@@ -387,17 +379,13 @@ def test_write_layers_writes_the_five_files_under_fixed_names(
     assert (layers.overlay_x, layers.overlay_y) == (60, 60)
 
 
-def test_a_second_drawing_gives_the_same_pixels(
-    background: Image.Image, overlay: Image.Image
-) -> None:
+def test_a_second_drawing_gives_the_same_pixels(background: Image.Image, overlay: Image.Image) -> None:
     assert turntable.build_background().tobytes() == background.tobytes()
     drawn, _ = turntable.build_overlay()
     assert drawn.tobytes() == overlay.tobytes()
 
 
-def test_write_layers_replaces_files_already_there(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_write_layers_replaces_files_already_there(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     (tmp_path / "bg.png").write_bytes(b"stale")
     monkeypatch.setattr(turntable, "build_background", lambda: Image.new("RGB", (4, 2)))
     monkeypatch.setattr(turntable, "build_vinyl", lambda: Image.new("RGBA", (4, 2)))
@@ -568,8 +556,7 @@ def test_grooves_mask_has_rings_only_inside_the_groove_band() -> None:
     outer = record_up(turntable.GROOVE_BAND_OUTER_PX + 4)
     assert level(mask, centre + outer, centre) == 0
     samples = [
-        level(mask, centre + record_up(radius), centre)
-        for radius in range(turntable.GROOVE_BAND_INNER_PX + 10, 280)
+        level(mask, centre + record_up(radius), centre) for radius in range(turntable.GROOVE_BAND_INNER_PX + 10, 280)
     ]
     assert max(samples) > 200
     assert min(samples) < 60
@@ -642,9 +629,7 @@ def test_even_bounds_grow_outwards_to_even_numbers_inside_the_frame() -> None:
     assert turntable.even_bounds((0, 0, 721, 1281)) == (0, 0, 720, 1280)
 
 
-def test_build_overlay_crops_to_what_it_draws(
-    layers: turntable.TurntableLayers, overlay: Image.Image
-) -> None:
+def test_build_overlay_crops_to_what_it_draws(layers: turntable.TurntableLayers, overlay: Image.Image) -> None:
     drawn, offset = turntable.build_overlay()
     assert offset == (layers.overlay_x, layers.overlay_y)
     assert drawn.size == overlay.size

@@ -1,6 +1,5 @@
-"""The secret-redaction processor: scrubs a known secret value out of every
-string field in a structlog event dict, and is a no-op when no secret is
-configured or the secret does not appear anywhere."""
+"""The secret-redaction processor: scrubs a known secret value out of every string field in a structlog event dict,
+and is a no-op when no secret is configured or the secret does not appear anywhere."""
 
 from __future__ import annotations
 
@@ -80,8 +79,8 @@ def test_redaction_recurses_into_nested_dict_list_and_tuple() -> None:
 
 
 def test_redaction_stringifies_and_scrubs_unrecognized_values() -> None:
-    """an `Exception` (the `error=exc` pattern) has no branch of its own: it goes
-    through `str()`, or `JSONRenderer` would serialize it unredacted via `repr()`."""
+    """an `Exception` (the `error=exc` pattern) has no branch of its own: it goes through `str()`, or `JSONRenderer`
+    would serialize it unredacted via `repr()`."""
     processor = make_redact_secrets_processor(["super-secret-token"])
 
     event_dict = processor(
@@ -96,9 +95,7 @@ def test_redaction_stringifies_and_scrubs_unrecognized_values() -> None:
 def test_redaction_leaves_non_string_scalars_untouched() -> None:
     processor = make_redact_secrets_processor(["super-secret-token"])
 
-    event_dict = processor(
-        None, "info", {"event": "counted", "count": 3, "ok": True, "missing": None}
-    )
+    event_dict = processor(None, "info", {"event": "counted", "count": 3, "ok": True, "missing": None})
 
     assert event_dict["count"] == 3
     assert event_dict["ok"] is True
@@ -106,8 +103,8 @@ def test_redaction_leaves_non_string_scalars_untouched() -> None:
 
 
 def test_get_logger_returns_a_working_bound_logger() -> None:
-    """through structlog's public `capture_logs()`, not a private attribute like
-    `bound._context`, so it keeps working across structlog versions."""
+    """through structlog's public `capture_logs()`, not a private attribute like `bound._context`, so it keeps working
+    across structlog versions."""
     logger = get_logger("test")
 
     with structlog.testing.capture_logs() as captured_logs:
@@ -120,12 +117,10 @@ def test_configure_logging_redacts_secrets_from_stdlib_logging_too(
     capsys: pytest.CaptureFixture[str],
     preserve_root_logging_state: None,
 ) -> None:
-    """the point of `foreign_pre_chain`: stdlib `logging` calls (aiogram, uvicorn,
-    SQLAlchemy, Celery) get the same redaction as structlog ones."""
+    """the point of `foreign_pre_chain`: stdlib `logging` calls (aiogram, uvicorn, SQLAlchemy, Celery) get the same
+    redaction as structlog ones."""
     configure_logging(log_format="json", log_level="INFO", secrets=["super-secret-token"])
-    logging.getLogger("some.third.party.library").warning(
-        "request failed with token=%s", "super-secret-token"
-    )
+    logging.getLogger("some.third.party.library").warning("request failed with token=%s", "super-secret-token")
 
     output = capsys.readouterr().out
     assert "super-secret-token" not in output
@@ -137,8 +132,8 @@ def test_configure_logging_redacts_secrets_from_stdlib_logging_too(
 def test_a_secret_registered_after_startup_is_redacted_too(
     isolated_runtime_secrets: None,
 ) -> None:
-    """the Spotify access token only exists once the resolver runs, long after
-    `configure_logging()` was handed the static secret list."""
+    """the Spotify access token only exists once the resolver runs, long after `configure_logging()` was handed the
+    static secret list."""
     processor = make_redact_secrets_processor(["configured-secret"])
     register_runtime_secret("spotify_access_token", "runtime-token-xyz")
 
@@ -164,8 +159,8 @@ def test_runtime_secret_registration_replaces_the_previous_value(
 def test_redact_secrets_in_text_scrubs_configured_and_runtime_secrets(
     isolated_runtime_secrets: None,
 ) -> None:
-    """`send_alert` and `post.last_error` are sinks no log processor ever sees, so
-    the redaction has to exist as a plain function too."""
+    """`send_alert` and `post.last_error` are sinks no log processor ever sees, so the redaction has to exist as a plain
+    function too."""
     register_runtime_secret("spotify_token", "runtime-token-value")
 
     redacted = redact_secrets_in_text(

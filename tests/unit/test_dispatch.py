@@ -70,9 +70,7 @@ async def test_dispatch_task_logs_the_callers_event_and_fields_on_a_broker_failu
     )
 
     assert sent is False
-    fake_logger.exception.assert_called_once_with(
-        "some_dispatch_failed", task_name="some.task", post_id=POST_ID
-    )
+    fake_logger.exception.assert_called_once_with("some_dispatch_failed", task_name="some.task", post_id=POST_ID)
 
 
 async def test_mark_dispatch_failure_fails_a_post_still_in_the_expected_status() -> None:
@@ -113,6 +111,4 @@ async def test_mark_dispatch_failure_logs_a_failed_write_instead_of_raising(
         factory_of(session), POST_ID, expected_status=PostStatus.RENDERING, error="no queue"
     )
 
-    fake_logger.exception.assert_called_once_with(
-        "dispatch_failure_status_write_failed", post_id=POST_ID
-    )
+    fake_logger.exception.assert_called_once_with("dispatch_failure_status_write_failed", post_id=POST_ID)

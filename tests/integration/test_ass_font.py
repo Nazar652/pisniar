@@ -1,8 +1,7 @@
-"""The ASS font guard. libass falls back silently: `fc-match` answers a missing family with
-the same file as an installed one, so a wrong name shows up only as Cyrillic rectangles in
-a video. Also pins `noto_sans_widths` to that file. Runs only in the worker image, where the
-fonts live (`make test-fonts`); `fontTools` is a dev dependency the runtime never imports.
-"""
+"""The ASS font guard. libass falls back silently: `fc-match` answers a missing family with the same file as an
+installed one, so a wrong name shows up only as Cyrillic rectangles in a video. Also pins `noto_sans_widths` to that
+file. Runs only in the worker image, where the fonts live (`make test-fonts`); `fontTools` is a dev dependency the
+runtime never imports."""
 
 from __future__ import annotations
 
@@ -22,9 +21,7 @@ def families_covering_ukrainian() -> set[str]:
     executable = shutil.which("fc-list")
     assert executable is not None, "fc-list is missing — run this inside the worker container"
 
-    listing = subprocess.run(
-        [executable, ":lang=uk", "family"], capture_output=True, text=True, check=True
-    )
+    listing = subprocess.run([executable, ":lang=uk", "family"], capture_output=True, text=True, check=True)
 
     families: set[str] = set()
     for line in listing.stdout.splitlines():
@@ -41,17 +38,14 @@ def test_the_music_note_of_an_instrumental_break_comes_from_a_fallback_family() 
     executable = shutil.which("fc-list")
     assert executable is not None, "fc-list is missing — run this inside the worker container"
 
-    listing = subprocess.run(
-        [executable, ":charset=266a", "family"], capture_output=True, text=True, check=True
-    )
+    listing = subprocess.run([executable, ":charset=266a", "family"], capture_output=True, text=True, check=True)
 
     families = {name.strip() for line in listing.stdout.splitlines() for name in line.split(",")}
     assert families & {"Noto Sans Symbols", "Noto Music"}
 
 
 def test_the_family_the_plan_originally_named_is_not_installed_at_all() -> None:
-    """naming `Montserrat` would produce a correct-looking `.ass` and a video
-    rendered in some other font."""
+    """naming `Montserrat` would produce a correct-looking `.ass` and a video rendered in some other font."""
     assert "Montserrat" not in families_covering_ukrainian()
 
 
@@ -60,7 +54,11 @@ def installed_font() -> TTFont:
     return TTFont(noto_sans_widths.SOURCE_FONT_FILE)
 
 
-def table_metric(font: TTFont, table: str, attribute: str) -> int:
+def table_metric(
+    font: TTFont,
+    table: str,
+    attribute: str,
+) -> int:
     """fontTools builds table attributes while parsing, so `ty` cannot see them;
     this is the one place that says so instead of scattered `type: ignore`."""
     value = getattr(font[table], attribute)
@@ -106,9 +104,7 @@ def test_every_baked_advance_width_matches_the_installed_font(installed_font: TT
         for codepoint, baked in noto_sans_widths.ADVANCE_WIDTHS.items()
         if codepoint in character_map and horizontal_metrics[character_map[codepoint]][0] != baked
     }
-    missing = [
-        codepoint for codepoint in noto_sans_widths.ADVANCE_WIDTHS if codepoint not in character_map
-    ]
+    missing = [codepoint for codepoint in noto_sans_widths.ADVANCE_WIDTHS if codepoint not in character_map]
 
     assert not divergent, "regenerate with scripts/generate_glyph_widths.py"
     assert not missing, "regenerate with scripts/generate_glyph_widths.py"
@@ -119,6 +115,4 @@ def test_the_fallback_is_not_narrower_than_anything_it_stands_in_for(
 ) -> None:
     """an under-estimate is the one error that puts text off the frame, so
     the fallback has to be at least a full em of this font."""
-    assert table_metric(installed_font, "head", "unitsPerEm") <= (
-        text_metrics.FALLBACK_ADVANCE_UNITS
-    )
+    assert table_metric(installed_font, "head", "unitsPerEm") <= (text_metrics.FALLBACK_ADVANCE_UNITS)

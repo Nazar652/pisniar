@@ -1,9 +1,8 @@
 """0002 resolve pipeline
 
-Irreversible by data: `downgrade()` drops the whole `source_fetch` cache, and
-`odesli_raw`/`odesli_fetched_at` come back empty. A database stamped at this
-revision may lack `ix_track_isrc` and the draft index: `upgrade head` does not
-add them, and only `alembic check` reports the drift.
+Irreversible by data: `downgrade()` drops the whole `source_fetch` cache, and `odesli_raw`/`odesli_fetched_at` come
+back. A database stamped at this revision may lack `ix_track_isrc` and the draft index: `upgrade head` does not add
+them, and only `alembic check` reports the drift.
 
 Revision ID: d1faad3dd036
 Revises: 080f73d1e7e5
@@ -51,14 +50,10 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_source_fetch")),
-        sa.UniqueConstraint(
-            "source", "request_key", name=op.f("uq_source_fetch_source_request_key")
-        ),
+        sa.UniqueConstraint("source", "request_key", name=op.f("uq_source_fetch_source_request_key")),
     )
     # read on every TTL check.
-    op.create_index(
-        op.f("ix_source_fetch_fetched_at"), "source_fetch", ["fetched_at"], unique=False
-    )
+    op.create_index(op.f("ix_source_fetch_fetched_at"), "source_fetch", ["fetched_at"], unique=False)
     op.add_column("post", sa.Column("draft_chat_id", sa.BigInteger(), nullable=True))
     op.add_column("post", sa.Column("draft_message_id", sa.BigInteger(), nullable=True))
     # same one-sided-pair CHECK as `channel_ref_complete`.
@@ -74,11 +69,8 @@ def upgrade() -> None:
         unique=True,
         postgresql_where=sa.text("draft_chat_id IS NOT NULL AND draft_message_id IS NOT NULL"),
     )
-    op.add_column(
-        "track", sa.Column("resolved_at", postgresql.TIMESTAMP(timezone=True), nullable=True)
-    )
-    # non-unique: a repost a year later is a legitimate second row; the
-    # index only serves the ISRC duplicate warning.
+    op.add_column("track", sa.Column("resolved_at", postgresql.TIMESTAMP(timezone=True), nullable=True))
+    # non-unique: a repost a year later is a legitimate second row; the index only serves the ISRC duplicate warning.
     op.create_index(op.f("ix_track_isrc"), "track", ["isrc"], unique=False)
     op.drop_column("track", "odesli_raw")
     op.drop_column("track", "odesli_fetched_at")

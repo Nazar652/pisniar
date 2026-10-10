@@ -1,7 +1,6 @@
-"""`send_alert`: a delivery failure must never raise into the caller's
-business logic — this is the contract `pisniar.worker.tasks` and
-`pisniar.bot.handlers` both depend on — and an alert carrying a URL must
-not drag a full-screen link preview into the operational channel."""
+"""`send_alert`: a delivery failure must never raise into the caller's business logic — this is the contract
+`pisniar.worker.tasks` and `pisniar.bot.handlers` both depend on — and an alert carrying a URL must not drag a
+full-screen link preview into the operational channel."""
 
 from __future__ import annotations
 
@@ -63,14 +62,12 @@ async def test_send_alert_never_raises(side_effect: Exception) -> None:
     bot = AsyncMock()
     bot.send_message.side_effect = side_effect
 
-    # the point of the test: no `pytest.raises` needed — falling through to
-    # this line at all is the assertion.
+    # the point of the test: no `pytest.raises` needed — falling through to this line at all is the assertion.
     await send_alert(bot, chat_id=123, text="hello")
 
 
 async def test_an_alert_can_answer_a_message_and_survives_its_deletion() -> None:
-    """a notice sits under the preview it explains; a preview deleted meanwhile
-    must not cost the notice."""
+    """a notice sits under the preview it explains; a preview deleted meanwhile must not cost the notice."""
     bot = AsyncMock()
 
     await send_alert(bot, chat_id=123, text="hello", reply_to_message_id=77)
@@ -90,9 +87,7 @@ async def test_a_plain_alert_answers_nothing() -> None:
 
 async def test_send_alert_passes_the_keyboard_through() -> None:
     bot = AsyncMock()
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="x", callback_data="publish:1")]]
-    )
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="x", callback_data="publish:1")]])
 
     await send_alert(bot, chat_id=123, text="hello", reply_markup=keyboard)
 
@@ -111,8 +106,6 @@ async def test_a_rejected_keyboard_still_costs_nothing_but_the_alert() -> None:
     """a 400 on the keyboard is swallowed like any delivery failure."""
     bot = AsyncMock()
     bot.send_message.side_effect = make_telegram_api_error()
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="x", callback_data="publish:1")]]
-    )
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="x", callback_data="publish:1")]])
 
     assert await send_alert(bot, chat_id=-5, text="hello", reply_markup=keyboard) is False

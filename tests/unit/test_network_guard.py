@@ -1,6 +1,4 @@
-"""Self-check: the autouse `block_network_access` fixture actually blocks a
-real (non-loopback) connection attempt.
-"""
+"""Self-check: the autouse `block_network_access` fixture actually blocks a real (non-loopback) connection attempt."""
 
 from __future__ import annotations
 

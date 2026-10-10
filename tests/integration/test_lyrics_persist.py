@@ -62,9 +62,7 @@ async def stored_lines(
     session_factory: async_sessionmaker[AsyncSession], track_id: int
 ) -> list[tuple[int, int | None, str, str]]:
     async with session_factory() as session:
-        rows = await session.scalars(
-            select(Lyric).where(Lyric.track_id == track_id).order_by(Lyric.line_index)
-        )
+        rows = await session.scalars(select(Lyric).where(Lyric.track_id == track_id).order_by(Lyric.line_index))
         return [(row.line_index, row.start_ms, row.text, row.source) for row in rows]
 
 
@@ -103,9 +101,7 @@ async def test_synced_lines_are_written_in_order_as_lrclib(
 ) -> None:
     track_id = await make_track(session_factory)
 
-    result = await persist_lyrics_in_own_transaction(
-        session_factory, track_id, SYNCED_RESULT, source="lrclib"
-    )
+    result = await persist_lyrics_in_own_transaction(session_factory, track_id, SYNCED_RESULT, source="lrclib")
 
     assert result.outcome is LyricsPersistOutcome.WRITTEN
     assert result.written_line_count == 3
@@ -122,9 +118,7 @@ async def test_an_existing_automatic_text_is_never_written_over(
     track_id = await make_track(session_factory)
     await add_line(session_factory, track_id, source="lrclib", text="старий рядок")
 
-    result = await persist_lyrics_in_own_transaction(
-        session_factory, track_id, SYNCED_RESULT, source="lrclib"
-    )
+    result = await persist_lyrics_in_own_transaction(session_factory, track_id, SYNCED_RESULT, source="lrclib")
 
     assert result.outcome is LyricsPersistOutcome.KEPT_EXISTING
     assert await stored_lines(session_factory, track_id) == [(0, 0, "старий рядок", "lrclib")]
@@ -138,9 +132,7 @@ async def test_a_manual_text_is_never_written_over(
     track_id = await make_track(session_factory)
     await add_line(session_factory, track_id, source="manual", text="правка адміна", line_index=5)
 
-    result = await persist_lyrics_in_own_transaction(
-        session_factory, track_id, SYNCED_RESULT, source="lrclib"
-    )
+    result = await persist_lyrics_in_own_transaction(session_factory, track_id, SYNCED_RESULT, source="lrclib")
 
     assert result.outcome is LyricsPersistOutcome.KEPT_EXISTING
     assert await stored_lines(session_factory, track_id) == [(5, 0, "правка адміна", "manual")]
@@ -152,9 +144,7 @@ async def test_untimed_lines_alone_are_never_written_over(
     track_id = await make_track(session_factory)
     await add_line(session_factory, track_id, source="manual", text="без часу", start_ms=None)
 
-    result = await persist_lyrics_in_own_transaction(
-        session_factory, track_id, SYNCED_RESULT, source="lrclib"
-    )
+    result = await persist_lyrics_in_own_transaction(session_factory, track_id, SYNCED_RESULT, source="lrclib")
 
     assert result.outcome is LyricsPersistOutcome.KEPT_EXISTING
     assert await stored_lines(session_factory, track_id) == [(0, None, "без часу", "manual")]
@@ -167,9 +157,7 @@ async def test_a_saved_empty_text_is_never_written_over(
     track_id = await make_track(session_factory)
     await mark_edited(session_factory, track_id)
 
-    result = await persist_lyrics_in_own_transaction(
-        session_factory, track_id, SYNCED_RESULT, source="lrclib"
-    )
+    result = await persist_lyrics_in_own_transaction(session_factory, track_id, SYNCED_RESULT, source="lrclib")
 
     assert result.outcome is LyricsPersistOutcome.KEPT_EXISTING
     assert await stored_lines(session_factory, track_id) == []
@@ -250,9 +238,7 @@ async def test_a_line_past_the_check_is_stored_cut_instead_of_failing_the_write(
         lines=(LyricsLine(start_ms=1_000, text="й" * (MAX_LYRIC_TEXT_LENGTH + 1)),),
     )
 
-    result = await persist_lyrics_in_own_transaction(
-        session_factory, track_id, long_result, source="lrclib"
-    )
+    result = await persist_lyrics_in_own_transaction(session_factory, track_id, long_result, source="lrclib")
 
     assert result.outcome is LyricsPersistOutcome.WRITTEN
     assert result.truncated_line_count == 1
@@ -269,15 +255,11 @@ async def test_a_second_writer_waits_for_the_first_and_then_writes_nothing(
 
     async with session_factory() as first_writer:
         await first_writer.get(Track, track_id, with_for_update={"key_share": True})
-        first_writer.add(
-            Lyric(track_id=track_id, line_index=0, start_ms=0, text="перший", source="manual")
-        )
+        first_writer.add(Lyric(track_id=track_id, line_index=0, start_ms=0, text="перший", source="manual"))
         await first_writer.flush()
 
         second_writer = asyncio.create_task(
-            persist_lyrics_in_own_transaction(
-                session_factory, track_id, SYNCED_RESULT, source="lrclib"
-            )
+            persist_lyrics_in_own_transaction(session_factory, track_id, SYNCED_RESULT, source="lrclib")
         )
         await asyncio.sleep(0.3)
         assert not second_writer.done(), "the second writer must be blocked on the track lock"

@@ -63,14 +63,9 @@ class Environment:
         detail = await self.detail(post_id)
         body: dict[str, Any] = {
             "title": detail["title"],
-            "artists": [
-                {"name": artist["name"], "hashtag": artist["hashtag"]}
-                for artist in detail["artists"]
-            ],
+            "artists": [{"name": artist["name"], "hashtag": artist["hashtag"]} for artist in detail["artists"]],
             "languages": detail["languages"],
-            "genres": [
-                {"name": genre["name"], "hashtag": genre["hashtag"]} for genre in detail["genres"]
-            ],
+            "genres": [{"name": genre["name"], "hashtag": genre["hashtag"]} for genre in detail["genres"]],
             "year": detail["year"],
             "release_type": detail["release_type"],
             "release_title": detail["release_title"],
@@ -83,9 +78,7 @@ class Environment:
         return body
 
     async def save(self, post_id: int, body: dict[str, Any]) -> httpx.Response:
-        return await self.http.put(
-            f"/api/posts/{post_id}/fields", json=body, headers=self.headers()
-        )
+        return await self.http.put(f"/api/posts/{post_id}/fields", json=body, headers=self.headers())
 
 
 @dataclass
@@ -144,10 +137,7 @@ async def seeded(environment: Environment) -> AsyncIterator[Seeded]:
         post = Post(track_id=track.id, created_by_user_id=1, status=PostStatus.RESOLVED)
         publishing = Post(track_id=track.id, created_by_user_id=1, status=PostStatus.PUBLISHING)
         session.add_all([post, publishing])
-        siblings = {
-            status: Post(track_id=track.id, created_by_user_id=1, status=status)
-            for status in MEDIA_STATUSES
-        }
+        siblings = {status: Post(track_id=track.id, created_by_user_id=1, status=status) for status in MEDIA_STATUSES}
         session.add_all(siblings.values())
         await session.flush()
         await session.commit()
@@ -219,9 +209,7 @@ async def test_a_save_without_changes_writes_nothing_and_keeps_both_stamps(
     assert after["manual_fields"] == []
 
 
-async def test_a_stale_post_version_is_a_409_and_nothing_is_written(
-    environment: Environment, seeded: Seeded
-) -> None:
+async def test_a_stale_post_version_is_a_409_and_nothing_is_written(environment: Environment, seeded: Seeded) -> None:
     body = await environment.form_of(seeded.post_id)
     async with environment.session_factory() as session:
         await session.execute(
@@ -237,9 +225,7 @@ async def test_a_stale_post_version_is_a_409_and_nothing_is_written(
     assert (await stored_track(environment, seeded.track_id)).title == "Тема"
 
 
-async def test_a_stale_track_version_is_a_409_and_nothing_is_written(
-    environment: Environment, seeded: Seeded
-) -> None:
+async def test_a_stale_track_version_is_a_409_and_nothing_is_written(environment: Environment, seeded: Seeded) -> None:
     body = await environment.form_of(seeded.post_id)
     async with environment.session_factory() as session:
         track = await session.get(Track, seeded.track_id)
@@ -254,9 +240,7 @@ async def test_a_stale_track_version_is_a_409_and_nothing_is_written(
     assert (await stored_track(environment, seeded.track_id)).title == "Тема"
 
 
-async def test_a_post_locked_elsewhere_is_refused_at_once(
-    environment: Environment, seeded: Seeded
-) -> None:
+async def test_a_post_locked_elsewhere_is_refused_at_once(environment: Environment, seeded: Seeded) -> None:
     body = await environment.form_of(seeded.post_id, title="Нова")
 
     async with environment.session_factory() as holder:
@@ -271,15 +255,11 @@ async def test_a_post_locked_elsewhere_is_refused_at_once(
     assert (await stored_track(environment, seeded.track_id)).title == "Тема"
 
 
-async def test_a_track_locked_elsewhere_gives_up_at_the_lock_timeout(
-    environment: Environment, seeded: Seeded
-) -> None:
+async def test_a_track_locked_elsewhere_gives_up_at_the_lock_timeout(environment: Environment, seeded: Seeded) -> None:
     body = await environment.form_of(seeded.post_id, title="Нова")
 
     async with environment.session_factory() as holder:
-        await holder.execute(
-            select(Track).where(Track.id == seeded.track_id).with_for_update(key_share=True)
-        )
+        await holder.execute(select(Track).where(Track.id == seeded.track_id).with_for_update(key_share=True))
         response = await environment.save(seeded.post_id, body)
 
     assert response.status_code == 409
@@ -287,9 +267,7 @@ async def test_a_track_locked_elsewhere_gives_up_at_the_lock_timeout(
     assert (await stored_track(environment, seeded.track_id)).title == "Тема"
 
 
-async def test_the_database_is_usable_after_a_refused_lock(
-    environment: Environment, seeded: Seeded
-) -> None:
+async def test_the_database_is_usable_after_a_refused_lock(environment: Environment, seeded: Seeded) -> None:
     body = await environment.form_of(seeded.post_id, title="Нова")
     async with environment.session_factory() as holder:
         await holder.execute(select(Post).where(Post.id == seeded.post_id).with_for_update())
@@ -300,7 +278,9 @@ async def test_the_database_is_usable_after_a_refused_lock(
 
 @pytest.mark.parametrize("status", MEDIA_STATUSES)
 async def test_the_youtube_music_link_is_held_while_a_post_of_the_track_is_in_media(
-    environment: Environment, seeded: Seeded, status: PostStatus
+    environment: Environment,
+    seeded: Seeded,
+    status: PostStatus,
 ) -> None:
     for other_status, post_id in seeded.sibling_ids.items():
         if other_status is not status:
@@ -347,9 +327,7 @@ async def test_the_youtube_music_link_is_free_again_once_the_prepared_audio_is_g
     assert links_of(track)["youtubeMusic"]["url"] == OTHER_MUSIC_URL
 
 
-async def test_removing_the_youtube_music_link_is_held_too(
-    environment: Environment, seeded: Seeded
-) -> None:
+async def test_removing_the_youtube_music_link_is_held_too(environment: Environment, seeded: Seeded) -> None:
     body = await environment.form_of(seeded.post_id)
     del body["platform_links"]["youtubeMusic"]
 
@@ -410,9 +388,7 @@ async def test_a_removed_platform_is_remembered_and_adding_it_back_lifts_the_rem
     }
 
 
-async def test_going_back_to_automatic_takes_the_name_off_the_list(
-    environment: Environment, seeded: Seeded
-) -> None:
+async def test_going_back_to_automatic_takes_the_name_off_the_list(environment: Environment, seeded: Seeded) -> None:
     first = await environment.form_of(seeded.post_id, year=2000)
     assert (await environment.save(seeded.post_id, first)).json()["manual_fields"] == ["year"]
 
@@ -458,9 +434,7 @@ async def test_a_missing_post_is_a_404(environment: Environment, seeded: Seeded)
     assert response.status_code == 404
 
 
-async def test_a_preview_shows_the_new_caption_and_writes_nothing(
-    environment: Environment, seeded: Seeded
-) -> None:
+async def test_a_preview_shows_the_new_caption_and_writes_nothing(environment: Environment, seeded: Seeded) -> None:
     before = await environment.detail(seeded.post_id)
     body = await environment.form_of(seeded.post_id, title="Попередній перегляд")
     for stamp in ("expected_post_updated_at", "expected_track_updated_at"):
@@ -473,9 +447,7 @@ async def test_a_preview_shows_the_new_caption_and_writes_nothing(
     assert response.status_code == 200
     preview = response.json()
     assert preview["differs_from_stored"] is True
-    assert "Попередній перегляд" in "".join(
-        segment["text"] or "" for segment in preview["caption"]["segments"]
-    )
+    assert "Попередній перегляд" in "".join(segment["text"] or "" for segment in preview["caption"]["segments"])
     after = await environment.detail(seeded.post_id)
     assert after["title"] == before["title"]
     assert after["expected_track_updated_at"] == before["expected_track_updated_at"]

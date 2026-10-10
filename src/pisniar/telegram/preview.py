@@ -1,6 +1,5 @@
-"""Video preview delivery, the mirror of `draft.py` and the only safeguard before
-publication, which cannot be revoked: the admin sees the exact file first.
-`editMessageMedia` cannot turn a text draft into media, hence a new message.
+"""Video preview delivery, the mirror of `draft.py` and the only safeguard before publication, which cannot be revoked:
+the admin sees the exact file first. `editMessageMedia` cannot turn a text draft into media, hence a new message.
 """
 
 from __future__ import annotations
@@ -25,8 +24,8 @@ async def deliver_preview(
     video: RenderedVideo,
     webapp_public_url: str | None = None,
 ) -> None:
-    """always sends a new message and points the post at it: the caller's status under the
-    post lock is the guard. A failure propagates: the preview is the product."""
+    """always sends a new message and points the post at it: the caller's status under the post lock is the guard. A
+    failure propagates: the preview is the product."""
     if post.caption is None:
         raise ValueError(f"post {post.id} has no caption to preview")
 
@@ -48,8 +47,8 @@ async def remove_preview_keyboard(
     post_id: int,
     request_timeout: int | None = None,
 ) -> None:
-    """a superseded preview must not offer publication. Cosmetic, so a Telegram refusal is logged
-    with the post and never raised."""
+    """a superseded preview must not offer publication. Cosmetic, so a Telegram refusal is logged with the post and
+    never raised."""
     try:
         await bot.edit_message_reply_markup(
             chat_id=chat_id,
@@ -82,8 +81,8 @@ async def restore_draft_keyboard(
     reply_markup: InlineKeyboardMarkup | None,
     request_timeout: int | None = None,
 ) -> None:
-    """a draft that went back from a cancelled preparation gets its buttons again. Cosmetic: an
-    unchanged keyboard is a success and a Telegram refusal is logged, never raised."""
+    """a draft that went back from a cancelled preparation gets its buttons again. Cosmetic: an unchanged keyboard is a
+    success and a Telegram refusal is logged, never raised."""
     try:
         await bot.edit_message_reply_markup(
             chat_id=chat_id,
@@ -110,8 +109,8 @@ async def remove_draft_keyboard(
     post_id: int,
     request_timeout: int | None = None,
 ) -> None:
-    """otherwise the cover photo could still go out instead of the video.
-    Cosmetic (the status transition is the real guard), so it never raises."""
+    """otherwise the cover photo could still go out instead of the video. Cosmetic (the status transition is the real
+    guard), so it never raises."""
     try:
         await bot.edit_message_reply_markup(
             chat_id=chat_id,

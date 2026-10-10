@@ -1,6 +1,5 @@
-"""Preparing the audio before the first fragment choice: the locked database part with its
-refusals, the steps after the commit, and the route that orders them (database, then the queue,
-then the draft's keyboard).
+"""Preparing the audio before the first fragment choice: the locked database part with its refusals, the steps after the
+commit, and the route that orders them (database, then the queue, then the draft's keyboard).
 """
 
 from __future__ import annotations
@@ -95,9 +94,7 @@ async def refusal_of() -> ApiProblem:
     return refusal.value
 
 
-async def test_a_draft_goes_to_downloading_and_remembers_its_keyboard(
-    locks: Locks, logger: RecordingLogger
-) -> None:
+async def test_a_draft_goes_to_downloading_and_remembers_its_keyboard(locks: Locks, logger: RecordingLogger) -> None:
     preparation = await prepare_audio(MagicMock(), POST_ID, ADMIN_ID)
 
     assert preparation == PREPARATION
@@ -179,7 +176,9 @@ async def test_a_post_that_cannot_be_prepared_is_409_with_a_sentence_and_no_stat
     [{}, {"youtubeMusic": {"url": "https://music.youtube.com/watch?v=bad"}}],
 )
 async def test_a_track_without_a_usable_youtube_music_link_is_409_and_unchanged(
-    locks: Locks, logger: RecordingLogger, platform_links: dict[str, Any]
+    locks: Locks,
+    logger: RecordingLogger,
+    platform_links: dict[str, Any],
 ) -> None:
     locks.track = Track(id=3, platform_links=platform_links)
 
@@ -261,9 +260,7 @@ async def test_without_a_draft_nothing_is_edited(monkeypatch: pytest.MonkeyPatch
 async def test_a_failed_keyboard_removal_is_logged_and_never_raised(
     monkeypatch: pytest.MonkeyPatch, logger: RecordingLogger
 ) -> None:
-    monkeypatch.setattr(
-        audio_preparation, "remove_draft_keyboard", AsyncMock(side_effect=TimeoutError("slow"))
-    )
+    monkeypatch.setattr(audio_preparation, "remove_draft_keyboard", AsyncMock(side_effect=TimeoutError("slow")))
 
     await release_draft_keyboard(MagicMock(), DRAFT, POST_ID, ADMIN_ID)
 
@@ -273,8 +270,8 @@ async def test_a_failed_keyboard_removal_is_logged_and_never_raised(
 
 
 class Journal:
-    """one ordered record of the commit, the queue and the keyboard, plus what Telegram and the
-    broker were asked while the transaction was open."""
+    """one ordered record of the commit, the queue and the keyboard, plus what Telegram and the broker were asked while
+    the transaction was open."""
 
     def __init__(self) -> None:
         self.order: list[str] = []
@@ -284,14 +281,25 @@ class Journal:
         self.preparation: AudioPreparation | None = PREPARATION
         self.prepare_error: Exception | None = None
 
-    async def prepare(self, session: object, post_id: int, user_id: int) -> Any:
+    async def prepare(
+        self,
+        session: object,
+        post_id: int,
+        user_id: int,
+    ) -> Any:
         self.order.append("prepare")
         self.asked_inside_transaction += [*self.bot.mock_calls, *self.celery_client.mock_calls]
         if self.prepare_error is not None:
             raise self.prepare_error
         return self.preparation
 
-    async def release(self, bot: object, draft: object, post_id: int, user_id: int) -> None:
+    async def release(
+        self,
+        bot: object,
+        draft: object,
+        post_id: int,
+        user_id: int,
+    ) -> None:
         self.order.append("keyboard")
 
     async def enqueue(self, *arguments: object) -> None:
@@ -316,7 +324,11 @@ def journal(monkeypatch: pytest.MonkeyPatch) -> Journal:
 
 
 def make_client(
-    settings: Settings, recorded: Journal, *, with_bot: bool = True, with_queue: bool = True
+    settings: Settings,
+    recorded: Journal,
+    *,
+    with_bot: bool = True,
+    with_queue: bool = True,
 ) -> tuple[TestClient, MagicMock]:
     session_factory = MagicMock(side_effect=lambda: JournalSession(recorded))
     app = create_webapp(
@@ -356,9 +368,7 @@ def test_the_database_commits_then_the_task_is_enqueued_then_the_draft_keyboard_
     assert journal.asked_inside_transaction == []
 
 
-def test_a_missing_post_is_404_and_nothing_follows_the_transaction(
-    settings: Settings, journal: Journal
-) -> None:
+def test_a_missing_post_is_404_and_nothing_follows_the_transaction(settings: Settings, journal: Journal) -> None:
     journal.preparation = None
     client, _ = make_client(settings, journal)
 
@@ -408,11 +418,13 @@ def test_a_busy_post_answers_with_the_busy_sentence(settings: Settings, journal:
     [(False, True, "telegram_unavailable"), (True, False, "queue_unavailable")],
 )
 def test_a_missing_bot_or_queue_is_503_before_the_database_is_touched(
-    settings: Settings, journal: Journal, with_bot: bool, with_queue: bool, code: str
+    settings: Settings,
+    journal: Journal,
+    with_bot: bool,
+    with_queue: bool,
+    code: str,
 ) -> None:
-    client, session_factory = make_client(
-        settings, journal, with_bot=with_bot, with_queue=with_queue
-    )
+    client, session_factory = make_client(settings, journal, with_bot=with_bot, with_queue=with_queue)
 
     response = client.post(PATH, headers=bearer())
 
@@ -420,9 +432,7 @@ def test_a_missing_bot_or_queue_is_503_before_the_database_is_touched(
     session_factory.assert_not_called()
 
 
-def test_a_post_id_beyond_bigint_is_422_before_the_database(
-    settings: Settings, journal: Journal
-) -> None:
+def test_a_post_id_beyond_bigint_is_422_before_the_database(settings: Settings, journal: Journal) -> None:
     client, session_factory = make_client(settings, journal)
 
     response = client.post("/api/posts/9223372036854775808/fragment/audio", headers=bearer())
@@ -432,11 +442,11 @@ def test_a_post_id_beyond_bigint_is_422_before_the_database(
 
 
 def test_a_refused_queue_fails_the_post_through_the_route(
-    settings: Settings, monkeypatch: pytest.MonkeyPatch, journal: Journal
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+    journal: Journal,
 ) -> None:
-    monkeypatch.setattr(
-        posts_module, "enqueue_audio_preparation", audio_preparation.enqueue_audio_preparation
-    )
+    monkeypatch.setattr(posts_module, "enqueue_audio_preparation", audio_preparation.enqueue_audio_preparation)
     monkeypatch.setattr(audio_preparation, "dispatch_task", AsyncMock(return_value=False))
     mark = AsyncMock()
     monkeypatch.setattr(audio_preparation, "mark_dispatch_failure", mark)
@@ -450,7 +460,9 @@ def test_a_refused_queue_fails_the_post_through_the_route(
 
 
 def test_the_route_logs_the_request_with_the_user_and_the_post(
-    settings: Settings, monkeypatch: pytest.MonkeyPatch, journal: Journal
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+    journal: Journal,
 ) -> None:
     recorder = RecordingLogger()
     monkeypatch.setattr(posts_module, "logger", recorder)
@@ -469,7 +481,9 @@ def test_the_route_logs_the_request_with_the_user_and_the_post(
 
 
 def test_a_refusal_the_route_alone_can_see_is_logged_once_with_its_reason(
-    settings: Settings, monkeypatch: pytest.MonkeyPatch, journal: Journal
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+    journal: Journal,
 ) -> None:
     recorder = RecordingLogger()
     monkeypatch.setattr(posts_module, "logger", recorder)
@@ -478,7 +492,5 @@ def test_a_refusal_the_route_alone_can_see_is_logged_once_with_its_reason(
 
     client.post(PATH, headers=bearer())
 
-    refusals = [
-        entry for entry in recorder.entries if entry["event"] == "audio_preparation_refused"
-    ]
+    refusals = [entry for entry in recorder.entries if entry["event"] == "audio_preparation_refused"]
     assert [(entry["reason"], entry["post_id"]) for entry in refusals] == [("post_busy", POST_ID)]

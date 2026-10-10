@@ -1,6 +1,5 @@
-"""The `RESOLVING` window of `handlers.stage_has_gone_stale()`: the only exit from
-`RESOLVING` after a worker dies mid-task. Pure clock arithmetic, no database.
-"""
+"""The `RESOLVING` window of `handlers.stage_has_gone_stale()`: the only exit from `RESOLVING` after a worker dies
+mid-task. Pure clock arithmetic, no database."""
 
 from __future__ import annotations
 
@@ -18,23 +17,18 @@ def make_post_updated_seconds_ago(seconds: float) -> Post:
 
 
 def test_a_post_younger_than_the_celery_hard_limit_is_not_stale() -> None:
-    """a live task is always fresher than the hard limit that kills it, so
-    `/retry` can never race one into a second draft."""
+    """a live task is always fresher than the hard limit that kills it, so `/retry` can never race one into a second
+    draft."""
     assert stage_has_gone_stale(make_post_updated_seconds_ago(5), TASK_TIME_LIMIT_SECONDS) is False
     assert (
-        stage_has_gone_stale(
-            make_post_updated_seconds_ago(TASK_TIME_LIMIT_SECONDS - 1), TASK_TIME_LIMIT_SECONDS
-        )
+        stage_has_gone_stale(make_post_updated_seconds_ago(TASK_TIME_LIMIT_SECONDS - 1), TASK_TIME_LIMIT_SECONDS)
         is False
     )
 
 
 def test_a_post_older_than_the_celery_hard_limit_is_stale() -> None:
-    """without this branch a `RESOLVING` post whose worker died could leave only
-    through a manual `UPDATE` in psql."""
+    """without this branch a `RESOLVING` post whose worker died could leave only through a manual `UPDATE` in psql."""
     assert (
-        stage_has_gone_stale(
-            make_post_updated_seconds_ago(TASK_TIME_LIMIT_SECONDS + 1), TASK_TIME_LIMIT_SECONDS
-        )
+        stage_has_gone_stale(make_post_updated_seconds_ago(TASK_TIME_LIMIT_SECONDS + 1), TASK_TIME_LIMIT_SECONDS)
         is True
     )

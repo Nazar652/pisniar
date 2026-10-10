@@ -1,7 +1,6 @@
-"""The pure helpers `worker.tasks` decides with: what counts as a resolve that
-found something, how a source failure is worded for the admin, what `persist_track`
-writes and in which order it merges, the degraded-draft alert, and redaction.
-"""
+"""The pure helpers `worker.tasks` decides with: what counts as a resolve that found something, how a source failure is
+worded for the admin, what `persist_track` writes and in which order it merges, the degraded-draft alert, and
+redaction."""
 
 from __future__ import annotations
 
@@ -34,14 +33,11 @@ def make_track() -> Track:
 
 
 def make_link(source: str) -> PlatformLink:
-    return PlatformLink(
-        url="https://www.youtube.com/watch?v=n4bPzdIs_nc", source=source, match=MatchClass.MANUAL
-    )
+    return PlatformLink(url="https://www.youtube.com/watch?v=n4bPzdIs_nc", source=source, match=MatchClass.MANUAL)
 
 
 def test_a_user_input_link_alone_is_not_a_successful_resolve() -> None:
-    """the admin's clip is written before any network call, so it must not count
-    as proof that a source answered."""
+    """the admin's clip is written before any network call, so it must not count as proof that a source answered."""
     resolved = ResolvedTrack(platform_links={"youtube": make_link(USER_INPUT_SOURCE)})
 
     assert worker_tasks.resolve_found_anything(resolved) is False
@@ -55,9 +51,7 @@ def test_a_link_a_source_actually_returned_counts_as_found() -> None:
 
 def test_a_title_or_an_artist_alone_counts_as_found() -> None:
     assert worker_tasks.resolve_found_anything(ResolvedTrack(title="Creep")) is True
-    assert (
-        worker_tasks.resolve_found_anything(ResolvedTrack(artists=[ArtistInfo(name="X")])) is True
-    )
+    assert worker_tasks.resolve_found_anything(ResolvedTrack(artists=[ArtistInfo(name="X")])) is True
 
 
 def test_source_failure_note_is_empty_when_every_source_answered() -> None:
@@ -72,8 +66,7 @@ def test_source_failure_note_names_every_failed_source() -> None:
 
 
 def test_persist_track_writes_the_album_id_into_its_own_column() -> None:
-    """the caption is rebuilt from the row, so the album id cannot live only
-    inside a rendered `href`."""
+    """the caption is rebuilt from the row, so the album id cannot live only inside a rendered `href`."""
     track = make_track()
     resolved = ResolvedTrack(title="Сумніви", album_id_spotify="4yYXqedvSKuJlgI2IWsB0j")
 
@@ -129,9 +122,7 @@ def test_persist_track_merges_in_the_documented_order_with_manual_fields_last(
         "merge_stored_scalars",
         "apply_manual_fields",
     ):
-        monkeypatch.setattr(
-            worker_tasks.merge, name, lambda *args, step=name, **kwargs: calls.append(step)
-        )
+        monkeypatch.setattr(worker_tasks.merge, name, lambda *args, step=name, **kwargs: calls.append(step))
 
     worker_tasks.persist_track(make_track(), ResolvedTrack(title="Creep"))
 
@@ -162,9 +153,7 @@ def test_persist_track_keeps_a_manual_title_and_artists_with_their_hashtags() ->
     track.title = "Свій заголовок"
     track.artists = [{"name": "Свій артист", "hashtag": "own", "spotify_id": None}]
     track.manual_fields = ["title", "artists"]
-    resolved = ResolvedTrack(
-        title="Fresh", artists=[ArtistInfo(name="Fresh Artist", spotify_id="abc")]
-    )
+    resolved = ResolvedTrack(title="Fresh", artists=[ArtistInfo(name="Fresh Artist", spotify_id="abc")])
 
     worker_tasks.persist_track(track, resolved)
 
@@ -193,9 +182,7 @@ def test_persist_track_does_not_bring_back_a_removed_platform() -> None:
             "match": "aggregator",
         }
     }
-    fresh_link = PlatformLink(
-        url="https://listen.tidal.com/track/2", source="songlink", match=MatchClass.AGGREGATOR
-    )
+    fresh_link = PlatformLink(url="https://listen.tidal.com/track/2", source="songlink", match=MatchClass.AGGREGATOR)
     resolved = ResolvedTrack(title="Creep", platform_links={"tidal": fresh_link})
 
     worker_tasks.persist_track(track, resolved)
@@ -205,16 +192,10 @@ def test_persist_track_does_not_bring_back_a_removed_platform() -> None:
 
 def test_persist_track_keeps_a_manual_link_over_an_automatic_one() -> None:
     track = make_track()
-    track.platform_links = {
-        "tidal": {"url": "https://tidal.com/track/9", "source": "manual", "match": "manual"}
-    }
-    fresh_link = PlatformLink(
-        url="https://listen.tidal.com/track/2", source="songlink", match=MatchClass.AGGREGATOR
-    )
+    track.platform_links = {"tidal": {"url": "https://tidal.com/track/9", "source": "manual", "match": "manual"}}
+    fresh_link = PlatformLink(url="https://listen.tidal.com/track/2", source="songlink", match=MatchClass.AGGREGATOR)
 
-    worker_tasks.persist_track(
-        track, ResolvedTrack(title="Creep", platform_links={"tidal": fresh_link})
-    )
+    worker_tasks.persist_track(track, ResolvedTrack(title="Creep", platform_links={"tidal": fresh_link}))
 
     assert track.platform_links["tidal"] == {
         "url": "https://tidal.com/track/9",
@@ -271,8 +252,7 @@ def test_redacted_scrubs_a_configured_secret_from_an_admin_facing_message() -> N
 async def test_a_task_arriving_at_a_settled_post_says_so_in_the_logs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """the system's main failure mode is silence, so the early return of
-    `redeliver_if_resolved` must log too."""
+    """the system's main failure mode is silence, so the early return of `redeliver_if_resolved` must log too."""
     fake_logger = MagicMock()
     monkeypatch.setattr(worker_tasks, "logger", fake_logger)
 

@@ -1,6 +1,5 @@
-"""MusicBrainz recording ISRC lookup: EXACT_ISRC class, no `matching` needed.
-Disabled without a contact: MusicBrainz's usage policy requires an identifiable
-`User-Agent`.
+"""MusicBrainz recording ISRC lookup: EXACT_ISRC class, no `matching` needed. Disabled without a contact: MusicBrainz's
+usage policy requires an identifiable `User-Agent`.
 """
 
 from __future__ import annotations
@@ -40,7 +39,10 @@ class MusicBrainzRecordingResult:
 
 
 async def fetch_by_isrc(
-    client: httpx.AsyncClient, cache: SourceCache, isrc: str, contact: str | None
+    client: httpx.AsyncClient,
+    cache: SourceCache,
+    isrc: str,
+    contact: str | None,
 ) -> MusicBrainzRecordingResult:
     if not contact or not is_valid_isrc(isrc):
         return MusicBrainzRecordingResult(found=False)
@@ -94,12 +96,12 @@ def result_from_payload(payload: dict[str, object]) -> MusicBrainzRecordingResul
 
 
 def host_or_none(url: str) -> str | None:
-    """MusicBrainz is publicly editable, and one bad url-rel must not fail the post.
-    `ValueError` covers idna's `InvalidCodepoint`, which httpx does not wrap."""
+    """MusicBrainz is publicly editable, and one bad url-rel must not fail the post. `ValueError` covers idna's
+    `InvalidCodepoint`, which httpx does not wrap."""
     try:
         return httpx.URL(url).host
     except (httpx.InvalidURL, ValueError):
-        # sanitized: a control character in the url-rel is exactly what
-        # gets it here, and the raw value would go into the log line.
+        # sanitized: a control character in the url-rel is exactly what gets it here, and the raw value would go into
+        # the log line.
         logger.warning("musicbrainz_url_rel_unparsable", url=sanitize_metadata_text(url))
         return None

@@ -50,10 +50,12 @@ async def session_factory(migrated_test_database_url: str) -> AsyncIterator[Any]
     await engine.dispose()
 
 
-def request_for(post: Post, start_ms: int, end_ms: int) -> FragmentRequest:
-    return FragmentRequest(
-        start_ms=start_ms, end_ms=end_ms, expected_post_updated_at=post.updated_at
-    )
+def request_for(
+    post: Post,
+    start_ms: int,
+    end_ms: int,
+) -> FragmentRequest:
+    return FragmentRequest(start_ms=start_ms, end_ms=end_ms, expected_post_updated_at=post.updated_at)
 
 
 async def make_previewed_post(
@@ -139,9 +141,7 @@ async def test_the_choice_holds_the_post_and_the_track_but_lets_a_new_post_of_th
         assert choice is not None
 
         with pytest.raises(DBAPIError) as post_lock:
-            await other.execute(
-                text("SELECT id FROM post WHERE id = :id FOR UPDATE NOWAIT"), {"id": post_id}
-            )
+            await other.execute(text("SELECT id FROM post WHERE id = :id FOR UPDATE NOWAIT"), {"id": post_id})
         await other.rollback()
         with pytest.raises(DBAPIError) as track_lock:
             await other.execute(
@@ -208,16 +208,12 @@ async def test_a_track_held_by_another_transaction_times_out_as_a_lock_failure_a
 async def test_a_failed_render_is_started_again_from_failed(
     session_factory: async_sessionmaker[AsyncSession], failed_from: PostStatus
 ) -> None:
-    post_id = await make_previewed_post(
-        session_factory, status=PostStatus.FAILED, failed_from=failed_from
-    )
+    post_id = await make_previewed_post(session_factory, status=PostStatus.FAILED, failed_from=failed_from)
     post = await load_post(session_factory, post_id)
     assert (post.status, post.failed_from_status) == (PostStatus.FAILED, failed_from)
 
     async with session_factory() as session:
-        choice = await choose_fragment(
-            session, post_id, request_for(post, 60_000, 105_000), USER_ID
-        )
+        choice = await choose_fragment(session, post_id, request_for(post, 60_000, 105_000), USER_ID)
         await session.commit()
 
     assert choice is not None
@@ -273,9 +269,7 @@ async def test_a_refused_queue_fails_the_post_at_rendering_and_retry_renders(
     post_id = await make_previewed_post(session_factory)
     post = await load_post(session_factory, post_id)
     async with session_factory() as session:
-        choice = await choose_fragment(
-            session, post_id, request_for(post, 60_000, 105_000), USER_ID
-        )
+        choice = await choose_fragment(session, post_id, request_for(post, 60_000, 105_000), USER_ID)
         await session.commit()
     assert choice is not None
 
@@ -300,9 +294,7 @@ async def test_a_refused_queue_fails_the_post_at_rendering_and_retry_renders(
     queue = MagicMock()
     await handle_retry(message, session_factory, queue)
 
-    queue.send_task.assert_called_once_with(
-        RENDER_POST_VIDEO_TASK_NAME, kwargs={"post_id": post_id}
-    )
+    queue.send_task.assert_called_once_with(RENDER_POST_VIDEO_TASK_NAME, kwargs={"post_id": post_id})
     assert (await load_post(session_factory, post_id)).status is PostStatus.RENDERING
 
 
@@ -312,18 +304,14 @@ async def test_a_working_queue_receives_the_render_task_and_the_post_stays_rende
     post_id = await make_previewed_post(session_factory)
     post = await load_post(session_factory, post_id)
     async with session_factory() as session:
-        choice = await choose_fragment(
-            session, post_id, request_for(post, 60_000, 105_000), USER_ID
-        )
+        choice = await choose_fragment(session, post_id, request_for(post, 60_000, 105_000), USER_ID)
         await session.commit()
     assert choice is not None
     queue = MagicMock()
 
     await enqueue_render(queue, session_factory, choice, USER_ID)
 
-    queue.send_task.assert_called_once_with(
-        RENDER_POST_VIDEO_TASK_NAME, kwargs={"post_id": post_id}
-    )
+    queue.send_task.assert_called_once_with(RENDER_POST_VIDEO_TASK_NAME, kwargs={"post_id": post_id})
     assert (await load_post(session_factory, post_id)).status is PostStatus.RENDERING
 
 
@@ -341,7 +329,9 @@ class CountingPreview:
 
 @pytest.fixture
 def pipeline(
-    monkeypatch: pytest.MonkeyPatch, migrated_test_database_url: str, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch,
+    migrated_test_database_url: str,
+    tmp_path: Path,
 ) -> tuple[StubRenderer, CountingPreview]:
     """nothing here may reach Telegram or the network: `.env` carries real credentials in Docker."""
     monkeypatch.setattr(worker_tasks.settings, "database_url", migrated_test_database_url)
@@ -377,12 +367,8 @@ async def test_a_new_choice_renders_a_new_preview_and_only_its_button_publishes(
     async with session_factory() as session:
         session.add_all(
             [
-                Lyric(
-                    track_id=track_id, line_index=0, start_ms=10_000, text="Рано", source="manual"
-                ),
-                Lyric(
-                    track_id=track_id, line_index=1, start_ms=70_000, text="Пізно", source="manual"
-                ),
+                Lyric(track_id=track_id, line_index=0, start_ms=10_000, text="Рано", source="manual"),
+                Lyric(track_id=track_id, line_index=1, start_ms=70_000, text="Пізно", source="manual"),
             ]
         )
         await session.commit()
@@ -394,9 +380,7 @@ async def test_a_new_choice_renders_a_new_preview_and_only_its_button_publishes(
     assert first.preview_params_hash is not None
 
     async with session_factory() as session:
-        choice = await choose_fragment(
-            session, post_id, request_for(first, 60_000, 105_000), USER_ID
-        )
+        choice = await choose_fragment(session, post_id, request_for(first, 60_000, 105_000), USER_ID)
         await session.commit()
     assert choice is not None
     assert choice.superseded_preview == old_preview
@@ -413,9 +397,7 @@ async def test_a_new_choice_renders_a_new_preview_and_only_its_button_publishes(
     assert "current,,0,0,0,,{\\pos(360,1050)}Рано" in renderer.subtitles[0]
     assert "current,,0,0,0,,{\\pos(360,1050)}Пізно" in renderer.subtitles[1]
     async with session_factory() as session:
-        renders = await session.scalar(
-            select(func.count()).select_from(Render).where(Render.post_id == post_id)
-        )
+        renders = await session.scalar(select(func.count()).select_from(Render).where(Render.post_id == post_id))
     assert renders == 2
 
     stale_tap = SimpleNamespace(chat=SimpleNamespace(id=old_preview[0]), message_id=old_preview[1])

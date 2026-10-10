@@ -1,6 +1,5 @@
-"""`ffmpeg`/`ffprobe` as subprocesses: argument lists, never a shell, always a
-hard timeout. ffmpeg can exit 0 on an unusable file, so `verify_media()`, not
-the exit code, is what says a render succeeded.
+"""`ffmpeg`/`ffprobe` as subprocesses: argument lists, never a shell, always a hard timeout. ffmpeg can exit 0 on an
+unusable file, so `verify_media()`, not the exit code, is what says a render succeeded.
 """
 
 from __future__ import annotations
@@ -45,7 +44,12 @@ class MediaToolTimeoutError(MediaToolError):
 
 
 class MediaToolFailedError(MediaToolError):
-    def __init__(self, binary: str, exit_code: int, stderr_tail: str) -> None:
+    def __init__(
+        self,
+        binary: str,
+        exit_code: int,
+        stderr_tail: str,
+    ) -> None:
         self.binary = binary
         self.exit_code = exit_code
         self.stderr_tail = stderr_tail
@@ -83,21 +87,31 @@ class MediaProbe:
 
 
 def run_media_tool(
-    binary: str, arguments: list[str], *, timeout_seconds: float
+    binary: str,
+    arguments: list[str],
+    *,
+    timeout_seconds: float,
 ) -> subprocess.CompletedProcess[str]:
     """every value in `arguments` is built from validated ids, never concatenated."""
     return run_media_command(binary, arguments, timeout_seconds=timeout_seconds, text=True)
 
 
 def run_media_tool_bytes(
-    binary: str, arguments: list[str], *, timeout_seconds: float
+    binary: str,
+    arguments: list[str],
+    *,
+    timeout_seconds: float,
 ) -> subprocess.CompletedProcess[bytes]:
     """the same discipline as `run_media_tool`, with stdout and stderr left as bytes."""
     return run_media_command(binary, arguments, timeout_seconds=timeout_seconds, text=False)
 
 
 def run_media_command(
-    binary: str, arguments: list[str], *, timeout_seconds: float, text: bool
+    binary: str,
+    arguments: list[str],
+    *,
+    timeout_seconds: float,
+    text: bool,
 ) -> subprocess.CompletedProcess[Any]:
     """the one subprocess call behind both tool runners; `text` picks str or bytes output."""
     command = [binary, *arguments]
@@ -125,7 +139,10 @@ def run_media_command(
 
 
 def run_media_tool_checked(
-    binary: str, arguments: list[str], *, timeout_seconds: float
+    binary: str,
+    arguments: list[str],
+    *,
+    timeout_seconds: float,
 ) -> subprocess.CompletedProcess[str]:
     completed = run_media_tool(binary, arguments, timeout_seconds=timeout_seconds)
     if completed.returncode != 0:
@@ -192,8 +209,7 @@ def verify_media(
         if difference_ms > duration_tolerance_ms:
             raise MediaProbeError(
                 f"тривалість {probe.duration_ms} мс не збігається з очікуваною "
-                f"{expected_duration_ms} мс (розбіжність {difference_ms} мс, "
-                f"допуск {duration_tolerance_ms} мс): {path}"
+                f"{expected_duration_ms} мс (розбіжність {difference_ms} мс, допуск {duration_tolerance_ms} мс): {path}"
             )
 
     return probe
@@ -234,7 +250,12 @@ def parse_streams(streams_payload: object) -> tuple[StreamInfo, ...]:
     return tuple(streams)
 
 
-def parse_duration_ms(payload: dict[str, object], *, streams_payload: object, path: Path) -> int:
+def parse_duration_ms(
+    payload: dict[str, object],
+    *,
+    streams_payload: object,
+    path: Path,
+) -> int:
     format_payload = payload.get("format")
     if isinstance(format_payload, dict):
         duration_ms = seconds_to_ms(format_payload.get("duration"))

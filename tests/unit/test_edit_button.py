@@ -33,12 +33,7 @@ GROUP_CHAT = -1001234567890
 def web_app_urls(keyboard: InlineKeyboardMarkup | None) -> list[str]:
     if keyboard is None:
         return []
-    return [
-        button.web_app.url
-        for row in keyboard.inline_keyboard
-        for button in row
-        if button.web_app is not None
-    ]
+    return [button.web_app.url for row in keyboard.inline_keyboard for button in row if button.web_app is not None]
 
 
 def test_the_editor_url_of_a_post_and_the_list_url() -> None:
@@ -70,9 +65,7 @@ def test_the_draft_keyboard_adds_the_edit_row_after_the_render_trigger() -> None
     keyboard = draft_keyboard(7, PRIVATE_CHAT, URL)
 
     assert len(keyboard.inline_keyboard) == 2
-    assert [button.callback_data for row in keyboard.inline_keyboard[:1] for button in row] == [
-        "render:7"
-    ]
+    assert [button.callback_data for row in keyboard.inline_keyboard[:1] for button in row] == ["render:7"]
     assert web_app_urls(keyboard) == [f"{URL}/?post_id=7"]
 
 

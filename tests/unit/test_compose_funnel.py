@@ -16,9 +16,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 COMPOSE_FILE = REPOSITORY_ROOT / "compose.yaml"
 SERVE_FILE = REPOSITORY_ROOT / "deploy" / "tailscale" / "serve.json"
 
-pytestmark = pytest.mark.skipif(
-    not COMPOSE_FILE.is_file(), reason="compose.yaml is not available in this container"
-)
+pytestmark = pytest.mark.skipif(not COMPOSE_FILE.is_file(), reason="compose.yaml is not available in this container")
 
 
 @pytest.fixture(scope="module")

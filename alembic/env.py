@@ -18,8 +18,8 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
-# not pisniar.config.Settings: migrations only need a DSN. Required, not
-# optional — fail fast instead of a confusing NoSuchModuleError.
+# not pisniar.config.Settings: migrations only need a DSN. Required, not optional — fail fast instead of a confusing
+# NoSuchModuleError.
 database_url = os.environ.get("DATABASE_URL")
 if not database_url:
     raise RuntimeError(
@@ -37,8 +37,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
-        # compare_server_default defaults to False; without it, alembic
-        # check never catches a server_default drift.
+        # compare_server_default defaults to False; without it, alembic check never catches a server_default drift.
         compare_type=True,
         compare_server_default=True,
     )
@@ -48,8 +47,8 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection: Connection) -> None:
-    # configure() must run before any execute() on this connection, or Alembic
-    # thinks an external caller owns the transaction and silently skips its commit.
+    # configure() must run before any execute() on this connection, or Alembic thinks an external caller owns the
+    # transaction and silently skips its commit.
     context.configure(
         connection=connection,
         target_metadata=target_metadata,
@@ -58,8 +57,8 @@ def do_run_migrations(connection: Connection) -> None:
     )
 
     with context.begin_transaction():
-        # SET LOCAL, scoped to this transaction: a migration that can't
-        # take its lock fails fast instead of hanging the whole service.
+        # SET LOCAL, scoped to this transaction: a migration that can't take its lock fails fast instead of hanging the
+        # whole service.
         connection.execute(text("SET LOCAL lock_timeout = '5s'"))
         connection.execute(text("SET LOCAL statement_timeout = '60s'"))
         context.run_migrations()

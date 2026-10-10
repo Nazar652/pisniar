@@ -1,6 +1,5 @@
-"""The 720x1280 filtergraph and the assertions that make its output
-trustworthy. `in_range=pc:out_range=tv` plus `-color_range tv` is required:
-Spotify covers are full-range JPEG, and a plain `format=yuv420p` yields `yuvj420p`.
+"""The 720x1280 filtergraph and the assertions that make its output trustworthy. `in_range=pc:out_range=tv` plus
+`-color_range tv` is required: Spotify covers are full-range JPEG, and a plain `format=yuv420p` yields `yuvj420p`.
 """
 
 from __future__ import annotations
@@ -79,8 +78,7 @@ class RenderParameters:
     cover_path: Path
     fragment_start_ms: int
     fragment_end_ms: int
-    # passed in from outside, never decided here: subtitles stay an optional
-    # layer over the same filtergraph.
+    # passed in from outside, never decided here: subtitles stay an optional layer over the same filtergraph.
     subtitles_path: Path | None = None
 
     @property
@@ -149,7 +147,10 @@ def build_filter_complex(subtitles_path: Path | None = None) -> str:
 
 
 def build_ffmpeg_arguments(
-    parameters: RenderParameters, output_path: Path, *, quality: EncoderQuality = DEFAULT_QUALITY
+    parameters: RenderParameters,
+    output_path: Path,
+    *,
+    quality: EncoderQuality = DEFAULT_QUALITY,
 ) -> list[str]:
     """`-f mp4` is explicit because the output is written under a `.partial`
     name, which no muxer would recognize from the extension."""
@@ -273,9 +274,7 @@ def render_fragment_within_size_limit(
         size_limit_bytes=size_limit_bytes,
         attempt="default",
     )
-    probe = render_fragment(
-        parameters, output_path, timeout_seconds=timeout_seconds, quality=REDUCED_QUALITY
-    )
+    probe = render_fragment(parameters, output_path, timeout_seconds=timeout_seconds, quality=REDUCED_QUALITY)
     if probe.size_bytes <= size_limit_bytes:
         return probe, REDUCED_QUALITY
 
@@ -301,7 +300,10 @@ def build_thumbnail_arguments(video_path: Path, output_path: Path) -> list[str]:
 
 
 def render_thumbnail(
-    video_path: Path, output_path: Path, *, timeout_seconds: float = THUMBNAIL_TIMEOUT_SECONDS
+    video_path: Path,
+    output_path: Path,
+    *,
+    timeout_seconds: float = THUMBNAIL_TIMEOUT_SECONDS,
 ) -> Path | None:
     """cosmetic, so it returns `None` instead of raising: Telegram builds its own
     preview, and that is no reason to fail a post with a verified video."""
@@ -330,7 +332,9 @@ def render_thumbnail(
 
 
 async def download_cover(
-    http_client: httpx.AsyncClient, cover_url: str | None, destination_directory: Path
+    http_client: httpx.AsyncClient,
+    cover_url: str | None,
+    destination_directory: Path,
 ) -> Path:
     """product-critical, so not wrapped in `isolated_source_call`: without the
     cover there is no frame, and the post has no video to show."""
@@ -347,9 +351,7 @@ async def download_cover(
     if not content:
         raise MissingCoverError(f"обкладинка завантажилась порожньою: {cover_url}")
     if len(content) > COVER_MAX_BYTES:
-        raise MissingCoverError(
-            f"обкладинка важить {len(content)} байт, ліміт {COVER_MAX_BYTES}: {cover_url}"
-        )
+        raise MissingCoverError(f"обкладинка важить {len(content)} байт, ліміт {COVER_MAX_BYTES}: {cover_url}")
 
     destination.write_bytes(content)
     logger.info("render_cover_downloaded", size_bytes=len(content), path=str(destination))

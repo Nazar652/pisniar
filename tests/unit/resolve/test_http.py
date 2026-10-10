@@ -1,6 +1,5 @@
-"""`http.build_http_client`: the shared client's redirect cap and response size
-ceiling, plus the timeout every adapter inherits.
-"""
+"""`http.build_http_client`: the shared client's redirect cap and response size ceiling, plus the timeout every adapter
+inherits."""
 
 from __future__ import annotations
 
@@ -26,11 +25,8 @@ async def test_client_carries_timeout_redirect_cap_and_size_hook() -> None:
 
 
 async def test_oversized_advertised_body_is_refused() -> None:
-    """the hook runs on headers, so a hostile `Content-Length` costs no
-    memory — the body is never downloaded at all."""
-    response = httpx.Response(
-        200, headers={"Content-Length": str(MAX_RESPONSE_BYTES + 1)}, content=b""
-    )
+    """the hook runs on headers, so a hostile `Content-Length` costs no memory — the body is never downloaded at all."""
+    response = httpx.Response(200, headers={"Content-Length": str(MAX_RESPONSE_BYTES + 1)}, content=b"")
 
     with pytest.raises(ResponseTooLargeError):
         await resolve_http.reject_oversized_response(response)

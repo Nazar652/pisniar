@@ -1,6 +1,5 @@
-"""Deezer: ISRC-exact track lookup, name-search fallback, and album genres.
-**Pitfall**: a not-found lookup answers `HTTP 200` with `{"error": {...}}` in
-the body, so the status code alone is never trusted.
+"""Deezer: ISRC-exact track lookup, name-search fallback, and album genres. **Pitfall**: a not-found lookup answers
+`HTTP 200` with `{"error": {...}}` in the body, so the status code alone is never trusted.
 """
 
 from __future__ import annotations
@@ -67,13 +66,14 @@ def is_not_found_body(data: object) -> bool:
         return True
 
     raise DeezerApiError(
-        f"deezer error response: type={error_type}, code={error_code}, "
-        f"message={as_str(error.get('message'))}"
+        f"deezer error response: type={error_type}, code={error_code}, message={as_str(error.get('message'))}"
     )
 
 
 async def send_request(
-    client: httpx.AsyncClient, url: str, query_parameters: dict[str, str | int]
+    client: httpx.AsyncClient,
+    url: str,
+    query_parameters: dict[str, str | int],
 ) -> dict[str, object]:
     await THROTTLE.wait()
     response = await client.get(url, params=query_parameters)
@@ -83,7 +83,9 @@ async def send_request(
 
 
 async def fetch_by_isrc(
-    client: httpx.AsyncClient, cache: SourceCache, isrc: str
+    client: httpx.AsyncClient,
+    cache: SourceCache,
+    isrc: str,
 ) -> DeezerTrackResult:
     if not is_valid_isrc(isrc):
         return DeezerTrackResult(found=False)
@@ -101,7 +103,10 @@ async def fetch_by_isrc(
 
 
 async def search_by_name(
-    client: httpx.AsyncClient, cache: SourceCache, artist: str, title: str
+    client: httpx.AsyncClient,
+    cache: SourceCache,
+    artist: str,
+    title: str,
 ) -> list[TrackCandidate]:
     cache_key = build_request_key("deezer:search:", artist, title)
 
@@ -126,7 +131,9 @@ async def search_by_name(
 
 
 async def fetch_album(
-    client: httpx.AsyncClient, cache: SourceCache, album_id: int
+    client: httpx.AsyncClient,
+    cache: SourceCache,
+    album_id: int,
 ) -> DeezerAlbumResult:
     cache_key = build_request_key("deezer:album:", str(album_id), casefold=False)
 

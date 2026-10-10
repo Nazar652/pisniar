@@ -29,9 +29,7 @@ VIDEO_ID = "n4bPzdIs_nc"
 
 
 def access_record(*arguments: object) -> logging.LogRecord:
-    return logging.LogRecord(
-        ACCESS_LOGGER_NAME, logging.INFO, __file__, 1, '%s - "%s %s HTTP/%s" %d', arguments, None
-    )
+    return logging.LogRecord(ACCESS_LOGGER_NAME, logging.INFO, __file__, 1, '%s - "%s %s HTTP/%s" %d', arguments, None)
 
 
 @pytest.fixture
@@ -68,14 +66,16 @@ def test_install_adds_the_filter_once(clean_access_logger: logging.Logger) -> No
     install_access_log_filter()
     install_access_log_filter()
 
-    installed = [
-        item for item in clean_access_logger.filters if isinstance(item, QueryStrippingFilter)
-    ]
+    installed = [item for item in clean_access_logger.filters if isinstance(item, QueryStrippingFilter)]
     assert len(installed) == 1
 
 
 @pytest.fixture
-def live_server(settings: Settings, clock: Callable[[], float], tmp_path: Path) -> Iterator[str]:
+def live_server(
+    settings: Settings,
+    clock: Callable[[], float],
+    tmp_path: Path,
+) -> Iterator[str]:
     audio = tmp_path / "audio" / "3" / f"{VIDEO_ID}.webm"
     audio.parent.mkdir(parents=True)
     audio.write_bytes(b"x" * 64)
@@ -106,7 +106,9 @@ def wait_for_access_line(caplog: pytest.LogCaptureFixture) -> None:
 
 
 def test_a_real_request_with_a_token_leaves_the_token_in_no_log_once_the_filter_is_installed(
-    live_server: str, caplog: pytest.LogCaptureFixture, clean_access_logger: logging.Logger
+    live_server: str,
+    caplog: pytest.LogCaptureFixture,
+    clean_access_logger: logging.Logger,
 ) -> None:
     claims = MediaClaims(user_id=ADMIN_ID, post_id=7, track_id=3, video_id=VIDEO_ID)
     token = issue_media_token(claims, BOT_TOKEN, NOW, 900)

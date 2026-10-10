@@ -34,8 +34,8 @@ if TYPE_CHECKING:
 VALID_POST_STATUSES = tuple(status.value for status in PostStatus)
 VALID_POST_STATUSES_SQL_LIST = ", ".join(f"'{value}'" for value in VALID_POST_STATUSES)
 
-# language belongs to the recording, not a publication, and no source reports
-# it — so it is stored with a default and edited by hand.
+# language belongs to the recording, not a publication, and no source reports it — so it is stored with a default and
+# edited by hand.
 DEFAULT_LANGUAGES = ["українська"]
 DEFAULT_LANGUAGES_SQL = f"'{json.dumps(DEFAULT_LANGUAGES, ensure_ascii=False)}'::jsonb"
 
@@ -57,8 +57,8 @@ CHANNEL_MESSAGE_KINDS_SQL_LIST = ", ".join(f"'{value}'" for value in CHANNEL_MES
 # a karaoke line, not a verse: anything longer is a parser that lost the line
 # breaks, and the CHECK is where that stops being silent.
 MAX_LYRIC_TEXT_LENGTH = 500
-# a stored text is ~50 lines and ~1 000 characters; the ceilings leave room for a
-# pasted whole song and stop a paste of a book.
+# a stored text is ~50 lines and ~1 000 characters; the ceilings leave room for a pasted whole song and stop a paste of
+# a book.
 MAX_LYRIC_LINES = 300
 MAX_LYRICS_TOTAL_CHARACTERS = 20_000
 # a saved set's JSON body: 20 000 four-byte characters plus ~40 bytes of keys per line.
@@ -94,23 +94,19 @@ class Track(IdAndTimestampsMixin, Base):
             f"manual_fields <@ '{MANUAL_FIELD_NAMES_JSON}'::jsonb",
             name="manual_fields_known_names",
         ),
-        CheckConstraint(
-            "jsonb_typeof(removed_platforms) = 'array'", name="removed_platforms_is_array"
-        ),
+        CheckConstraint("jsonb_typeof(removed_platforms) = 'array'", name="removed_platforms_is_array"),
     )
 
     source_url: Mapped[str] = mapped_column(Text, nullable=False)
     source_url_normalized: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
 
-    # indexed for the duplicate warning: the same recording submitted through
-    # another platform's URL is otherwise invisible.
+    # indexed for the duplicate warning: the same recording submitted through another platform's URL is otherwise
+    # invisible.
     isrc: Mapped[str | None] = mapped_column(Text, index=True)
     title: Mapped[str | None] = mapped_column(Text)
     # form: [{"name": str, "hashtag": str | None, "spotify_id": str | None}];
     # `hashtag` stays null until a human overrides it.
-    artists: Mapped[list[object]] = mapped_column(
-        JSONB, nullable=False, server_default=text("'[]'::jsonb")
-    )
+    artists: Mapped[list[object]] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     year: Mapped[int | None] = mapped_column(SmallInteger)
     release_type: Mapped[str | None] = mapped_column(Text)
     release_title: Mapped[str | None] = mapped_column(Text)
@@ -121,28 +117,19 @@ class Track(IdAndTimestampsMixin, Base):
     # it (hence its place in `STORED_SCALAR_FIELDS`).
     duration_ms: Mapped[int | None] = mapped_column(BigInteger)
     # form: ["українська", ...]; the first is the primary language, the order is the admin's.
-    languages: Mapped[list[object]] = mapped_column(
-        JSONB, nullable=False, server_default=text(DEFAULT_LANGUAGES_SQL)
-    )
-    platform_links: Mapped[dict[str, object]] = mapped_column(
-        JSONB, nullable=False, server_default=text("'{}'::jsonb")
-    )
+    languages: Mapped[list[object]] = mapped_column(JSONB, nullable=False, server_default=text(DEFAULT_LANGUAGES_SQL))
+    platform_links: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     resolved_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     # names from `MANUAL_FIELD_NAMES` a human changed; a re-resolve keeps those values, an
     # empty one included (the value is NULL in its own column, the name is listed here).
-    manual_fields: Mapped[list[object]] = mapped_column(
-        JSONB, nullable=False, server_default=text("'[]'::jsonb")
-    )
+    manual_fields: Mapped[list[object]] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     # platform keys a human removed; a re-resolve must not bring them back.
-    removed_platforms: Mapped[list[object]] = mapped_column(
-        JSONB, nullable=False, server_default=text("'[]'::jsonb")
-    )
+    removed_platforms: Mapped[list[object]] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     # set when a human saved the text, an empty set included: no automatic source
     # writes or asks again. NULL means nobody edited it.
     lyrics_edited_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
 
-    # passive_deletes="all": without it, SQLAlchemy nulls track_id before
-    # delete, so ON DELETE RESTRICT never fires.
+    # passive_deletes="all": without it, SQLAlchemy nulls track_id before delete, so ON DELETE RESTRICT never fires.
     posts: Mapped[list[Post]] = relationship(back_populates="track", passive_deletes="all")
 
 
@@ -173,8 +160,7 @@ class Post(IdAndTimestampsMixin, Base):
             name="channel_ref_complete",
         ),
         CheckConstraint(
-            f"channel_message_kind IS NULL OR channel_message_kind IN "
-            f"({CHANNEL_MESSAGE_KINDS_SQL_LIST})",
+            f"channel_message_kind IS NULL OR channel_message_kind IN ({CHANNEL_MESSAGE_KINDS_SQL_LIST})",
             name="channel_message_kind_valid",
         ),
         CheckConstraint(
@@ -229,9 +215,7 @@ class Post(IdAndTimestampsMixin, Base):
         index=True,
     )
     caption: Mapped[str | None] = mapped_column(Text)
-    genres: Mapped[list[object]] = mapped_column(
-        JSONB, nullable=False, server_default=text("'[]'::jsonb")
-    )
+    genres: Mapped[list[object]] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     fragment_start_ms: Mapped[int | None] = mapped_column(BigInteger)
     fragment_end_ms: Mapped[int | None] = mapped_column(BigInteger)
 
@@ -274,9 +258,7 @@ class AudioAsset(IdAndTimestampsMixin, Base):
 
     # CASCADE, unlike `post.track_id`: an artifact of a deleted track is not a
     # reason to refuse the delete, and a file without a row is the safe side.
-    track_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("track.id", ondelete="CASCADE"), nullable=False
-    )
+    track_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("track.id", ondelete="CASCADE"), nullable=False)
     # from `platform_links["youtubeMusic"]` and never `["youtube"]` — stored so
     # a wrong download can be told apart from a wrong choice of source.
     video_id: Mapped[str] = mapped_column(Text, nullable=False)
@@ -285,8 +267,8 @@ class AudioAsset(IdAndTimestampsMixin, Base):
     # measured by `ffprobe` on the file itself, never copied from the resolve:
     # that is what makes it evidence yt-dlp returned the track we asked for.
     duration_ms: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    # yt-dlp's extraction path is deprecated upstream: the version tells a broken
-    # extractor apart from one missing track.
+    # yt-dlp's extraction path is deprecated upstream: the version tells a broken extractor apart from one
+    # missing track.
     ytdlp_version: Mapped[str] = mapped_column(Text, nullable=False)
 
 
@@ -301,17 +283,14 @@ class Render(IdAndTimestampsMixin, Base):
         CheckConstraint("duration_ms > 0", name="duration_positive"),
     )
 
-    post_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("post.id", ondelete="CASCADE"), nullable=False
-    )
+    post_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("post.id", ondelete="CASCADE"), nullable=False)
     params_hash: Mapped[str] = mapped_column(Text, nullable=False)
     # a digest of the `.ass` file, null for a video without text. It is an input
     # to `params_hash`, so the column keeps that hash auditable.
     text_version: Mapped[str | None] = mapped_column(Text)
     path: Mapped[str] = mapped_column(Text, nullable=False)
     size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    # `ffprobe` of the output, against which the fragment length is asserted:
-    # ffmpeg can exit 0 on an unusable file.
+    # `ffprobe` of the output, against which the fragment length is asserted: ffmpeg can exit 0 on an unusable file.
     duration_ms: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
 
@@ -326,16 +305,12 @@ class Lyric(IdAndTimestampsMixin, Base):
         CheckConstraint(f"length(text) <= {MAX_LYRIC_TEXT_LENGTH}", name="text_length_bounded"),
     )
 
-    # CASCADE like `audio_asset.track_id`: a stored lyric is not a reason to
-    # refuse deleting its track.
-    track_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("track.id", ondelete="CASCADE"), nullable=False
-    )
+    # CASCADE like `audio_asset.track_id`: a stored lyric is not a reason to refuse deleting its track.
+    track_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("track.id", ondelete="CASCADE"), nullable=False)
     # the only source of render order — `start_ms` orders nothing.
     line_index: Mapped[int] = mapped_column(Integer, nullable=False)
     start_ms: Mapped[int | None] = mapped_column(BigInteger)
-    # raw as the source gave it; the ASS substitution happens at render time
-    # (`worker.ass`), so nothing lossy is stored.
+    # raw as the source gave it; the ASS substitution happens at render time (`worker.ass`), so nothing lossy is stored.
     text: Mapped[str] = mapped_column(Text, nullable=False)
     # `'lrclib'`, `'ytmusic'`, `'genius'` or `'manual'` (hand-edited text).
     source: Mapped[str] = mapped_column(Text, nullable=False)
@@ -343,16 +318,11 @@ class Lyric(IdAndTimestampsMixin, Base):
 
 def renderable_lyrics_statement(track_id: int) -> Select[tuple[Lyric]]:
     """the render path's only read of `lyric`: a line not yet timed never reaches it."""
-    return (
-        select(Lyric)
-        .where(Lyric.track_id == track_id, Lyric.start_ms.is_not(None))
-        .order_by(Lyric.line_index)
-    )
+    return select(Lyric).where(Lyric.track_id == track_id, Lyric.start_ms.is_not(None)).order_by(Lyric.line_index)
 
 
 class SourceFetch(IdAndTimestampsMixin, Base):
-    """`payload` is `{"found": bool, "data": ... | None}`: a miss is cached too,
-    so a retry never re-hits it."""
+    """`payload` is `{"found": bool, "data": ... | None}`: a miss is cached too, so a retry never re-hits it."""
 
     __tablename__ = "source_fetch"
     __table_args__ = (UniqueConstraint("source", "request_key"),)
@@ -360,8 +330,7 @@ class SourceFetch(IdAndTimestampsMixin, Base):
     source: Mapped[str] = mapped_column(Text, nullable=False)
     request_key: Mapped[str] = mapped_column(Text, nullable=False)
     payload: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
-    # set from the clock at fetch time: `now()` is the transaction's start.
-    # Indexed for the TTL read.
+    # set from the clock at fetch time: `now()` is the transaction's start. Indexed for the TTL read.
     fetched_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False, server_default=text("now()"), index=True
     )

@@ -47,8 +47,7 @@ def webapp_routes(webapp: FastAPI) -> list[str]:
 
 @pytest.fixture
 def client_for(settings: Settings, clock: Callable[[], float]) -> Callable[..., TestClient]:
-    """builds a client; `model_copy` skips the absolute-path validator, which rejects a
-    Windows temp directory."""
+    """builds a client; `model_copy` skips the absolute-path validator, which rejects a Windows temp directory."""
 
     def build(static_directory: Path | None = None) -> TestClient:
         configured = settings

@@ -1,7 +1,5 @@
-"""The `videoId` source, id validation, argument lists, the duration check
-against a stub or a different recording, and the distinction between "the
-extractor broke" and "this track is gone".
-"""
+"""The `videoId` source, id validation, argument lists, the duration check against a stub or a different recording,
+and the distinction between "the extractor broke" and "this track is gone"."""
 
 from __future__ import annotations
 
@@ -19,10 +17,7 @@ CLIP_VIDEO_ID = "dQw4w9WgXcQ"
 
 
 def links(**platforms: str) -> dict[str, object]:
-    return {
-        platform: {"url": url, "source": "ytmusic", "match": "confirmed"}
-        for platform, url in platforms.items()
-    }
+    return {platform: {"url": url, "source": "ytmusic", "match": "confirmed"} for platform, url in platforms.items()}
 
 
 def test_the_video_id_comes_from_youtube_music() -> None:
@@ -81,10 +76,7 @@ def test_an_id_that_fails_validation_never_reaches_yt_dlp(stored_url: str) -> No
 
 
 def test_the_watch_url_is_built_here_from_the_validated_id() -> None:
-    assert (
-        audio_download.build_watch_url(MUSIC_VIDEO_ID)
-        == f"https://www.youtube.com/watch?v={MUSIC_VIDEO_ID}"
-    )
+    assert audio_download.build_watch_url(MUSIC_VIDEO_ID) == f"https://www.youtube.com/watch?v={MUSIC_VIDEO_ID}"
 
 
 def test_the_watch_url_refuses_an_id_that_did_not_pass_validation() -> None:
@@ -93,8 +85,7 @@ def test_the_watch_url_refuses_an_id_that_did_not_pass_validation() -> None:
 
 
 def test_the_arguments_are_a_list_with_the_url_last_and_no_self_update() -> None:
-    """a runtime self-update is prohibited, so `--no-update` is passed rather
-    than merely not asked for."""
+    """a runtime self-update is prohibited, so `--no-update` is passed rather than merely not asked for."""
     arguments = audio_download.build_ytdlp_arguments(
         "https://www.youtube.com/watch?v=n4bPzdIs_nc", "/data/tmp/7/audio.%(ext)s"
     )
@@ -157,10 +148,12 @@ def test_an_unrecognized_failure_is_still_an_error_never_a_success() -> None:
     assert type(error) is audio_download.AudioDownloadError
 
 
-def completed(returncode: int = 0, stdout: str = "", stderr: str = "") -> Any:
-    return subprocess.CompletedProcess(
-        args=["yt-dlp"], returncode=returncode, stdout=stdout, stderr=stderr
-    )
+def completed(
+    returncode: int = 0,
+    stdout: str = "",
+    stderr: str = "",
+) -> Any:
+    return subprocess.CompletedProcess(args=["yt-dlp"], returncode=returncode, stdout=stdout, stderr=stderr)
 
 
 def stub_ytdlp(
@@ -172,7 +165,11 @@ def stub_ytdlp(
 ) -> list[list[str]]:
     calls: list[list[str]] = []
 
-    def fake_run(binary: str, arguments: list[str], **kwargs: Any) -> Any:
+    def fake_run(
+        binary: str,
+        arguments: list[str],
+        **kwargs: Any,
+    ) -> Any:
         calls.append([binary, *arguments])
         if produces is not None:
             produces.write_bytes(b"audio bytes")
@@ -194,18 +191,14 @@ def test_a_download_returns_the_file_and_the_version_that_made_it(
     assert version == "2025.12.8"
 
 
-def test_a_failed_download_raises_the_classified_error(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_failed_download_raises_the_classified_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     stub_ytdlp(monkeypatch, returncode=1, stderr="ERROR: Unable to extract player response")
 
     with pytest.raises(audio_download.YtdlpExtractorBrokenError):
         audio_download.download_audio(MUSIC_VIDEO_ID, tmp_path, timeout_seconds=30)
 
 
-def test_exit_zero_with_no_file_on_disk_is_still_a_failure(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_exit_zero_with_no_file_on_disk_is_still_a_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     stub_ytdlp(monkeypatch)
 
     with pytest.raises(audio_download.AudioDownloadError, match="файлу"):
@@ -261,9 +254,7 @@ def test_a_duration_far_from_the_resolve_fails_rather_than_being_accepted(
         audio_download.verify_downloaded_audio(tmp_path / "audio.opus", 212_000)
 
 
-def test_a_duration_inside_the_matching_tolerance_is_accepted(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_duration_inside_the_matching_tolerance_is_accepted(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     stub_probe(monkeypatch, duration_ms=212_900)
 
     probe = audio_download.verify_downloaded_audio(tmp_path / "audio.opus", 212_000)
@@ -273,10 +264,11 @@ def test_a_duration_inside_the_matching_tolerance_is_accepted(
 
 @pytest.mark.parametrize("stored_duration", [None, 0])
 def test_an_unknown_stored_duration_skips_the_comparison_explicitly(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stored_duration: int | None
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    stored_duration: int | None,
 ) -> None:
-    """rows resolved before `duration_ms` existed hold NULL; that branch is
-    handled, not crashed through."""
+    """rows resolved before `duration_ms` existed hold NULL; that branch is handled, not crashed through."""
     stub_probe(monkeypatch, duration_ms=212_900)
 
     probe = audio_download.verify_downloaded_audio(tmp_path / "audio.opus", stored_duration)

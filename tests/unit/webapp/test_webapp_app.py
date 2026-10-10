@@ -1,7 +1,5 @@
-"""The Mini App server end to end over `TestClient`: every route is classified, every
-non-public route refuses an anonymous, expired or non-admin caller, and the headers and
-the CSP are pinned verbatim.
-"""
+"""The Mini App server end to end over `TestClient`: every route is classified, every non-public route refuses an
+anonymous, expired or non-admin caller, and the headers and the CSP are pinned verbatim."""
 
 from __future__ import annotations
 
@@ -61,7 +59,12 @@ def concrete(path: str) -> str:
     return re.sub(r"\{[^}]+\}", "1", path)
 
 
-def bearer(user_id: int, now: int = NOW, ttl: int = 3600, token: str = BOT_TOKEN) -> dict[str, str]:
+def bearer(
+    user_id: int,
+    now: int = NOW,
+    ttl: int = 3600,
+    token: str = BOT_TOKEN,
+) -> dict[str, str]:
     return {"Authorization": f"Bearer {issue_session_token(user_id, token, now, ttl)}"}
 
 
@@ -87,9 +90,7 @@ def test_exactly_one_route_is_signed_and_it_is_hidden_from_the_schema(webapp: Fa
     }
 
     assert unguarded == PUBLIC_ROUTES | SIGNED_ROUTES
-    signed = [
-        route for method, path, route in route_table(webapp) if (method, path) in SIGNED_ROUTES
-    ]
+    signed = [route for method, path, route in route_table(webapp) if (method, path) in SIGNED_ROUTES]
     assert [route.include_in_schema for route in signed] == [False]
 
 
@@ -101,9 +102,7 @@ def test_every_protected_route_depends_on_require_admin(webapp: FastAPI) -> None
         assert require_admin in calls, f"{method} {path} is not behind require_admin"
 
 
-def test_every_protected_route_answers_401_without_a_valid_token(
-    client: TestClient, webapp: FastAPI
-) -> None:
+def test_every_protected_route_answers_401_without_a_valid_token(client: TestClient, webapp: FastAPI) -> None:
     expired = bearer(ADMIN_ID, now=NOW - 7200)
     forged = bearer(ADMIN_ID, token="999:other")
     cases: list[dict[str, str]] = [
@@ -121,9 +120,7 @@ def test_every_protected_route_answers_401_without_a_valid_token(
             assert response.json()["code"] == "unauthorized"
 
 
-def test_every_protected_route_answers_403_to_a_valid_non_admin(
-    client: TestClient, webapp: FastAPI
-) -> None:
+def test_every_protected_route_answers_403_to_a_valid_non_admin(client: TestClient, webapp: FastAPI) -> None:
     for method, path in protected_method_paths(webapp):
         response = client.request(method, concrete(path), headers=bearer(999))
         assert response.status_code == 403, (method, path)
@@ -151,9 +148,7 @@ def test_a_session_is_issued_for_genuine_init_data_of_an_admin(client: TestClien
     assert response.status_code == 200
     body = response.json()
     assert body["expires_in"] == 3600
-    assert client.get("/api/me", headers={"Authorization": f"Bearer {body['token']}"}).json() == {
-        "user_id": ADMIN_ID
-    }
+    assert client.get("/api/me", headers={"Authorization": f"Bearer {body['token']}"}).json() == {"user_id": ADMIN_ID}
 
 
 def test_a_session_is_refused_with_403_for_genuine_init_data_of_a_stranger(
@@ -173,9 +168,7 @@ def test_a_session_is_refused_with_403_for_genuine_init_data_of_a_stranger(
         "garbage",
     ],
 )
-def test_a_session_is_refused_with_401_for_bad_init_data(
-    client: TestClient, init_data: str
-) -> None:
+def test_a_session_is_refused_with_401_for_bad_init_data(client: TestClient, init_data: str) -> None:
     response = client.post("/api/session", json={"init_data": init_data})
     assert response.status_code == 401
     assert response.json()["code"] == "invalid_init_data"
@@ -235,18 +228,14 @@ def test_the_csp_constant_is_the_contract_text() -> None:
     assert "unsafe-eval" not in CONTENT_SECURITY_POLICY
 
 
-def test_index_is_503_while_the_frontend_is_not_built(
-    client_for: Callable[..., TestClient], tmp_path: Path
-) -> None:
+def test_index_is_503_while_the_frontend_is_not_built(client_for: Callable[..., TestClient], tmp_path: Path) -> None:
     response = client_for(tmp_path).get("/")
     assert response.status_code == 503
     assert response.json()["code"] == "frontend_missing"
     assert response.headers["Content-Security-Policy"] == EXPECTED_CSP
 
 
-def test_index_is_served_with_the_headers_pinned(
-    client_for: Callable[..., TestClient], tmp_path: Path
-) -> None:
+def test_index_is_served_with_the_headers_pinned(client_for: Callable[..., TestClient], tmp_path: Path) -> None:
     (tmp_path / "index.html").write_text("<!doctype html><title>x</title>", encoding="utf-8")
 
     response = client_for(tmp_path).get("/")
@@ -260,9 +249,7 @@ def test_index_is_served_with_the_headers_pinned(
     assert "X-Frame-Options" not in response.headers
 
 
-def test_an_asset_is_served_immutable(
-    client_for: Callable[..., TestClient], tmp_path: Path
-) -> None:
+def test_an_asset_is_served_immutable(client_for: Callable[..., TestClient], tmp_path: Path) -> None:
     (tmp_path / "assets").mkdir()
     (tmp_path / "assets" / "app-abc123.js").write_text("export {}", encoding="utf-8")
 
@@ -278,7 +265,9 @@ def test_an_asset_is_served_immutable(
     ["/assets/missing.js", "/assets/../secret.txt", "/assets/%2e%2e/secret.txt", "/assets/%00"],
 )
 def test_an_asset_path_cannot_leave_the_assets_directory(
-    client_for: Callable[..., TestClient], tmp_path: Path, path: str
+    client_for: Callable[..., TestClient],
+    tmp_path: Path,
+    path: str,
 ) -> None:
     (tmp_path / "assets").mkdir()
     (tmp_path / "secret.txt").write_text("hidden", encoding="utf-8")

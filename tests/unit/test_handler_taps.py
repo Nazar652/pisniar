@@ -30,7 +30,12 @@ DRAFT_REFERENCE = (555, 41)
 
 
 class FakeSession:
-    def __init__(self, post: Post | None, lock_error: bool, order: list[str]) -> None:
+    def __init__(
+        self,
+        post: Post | None,
+        lock_error: bool,
+        order: list[str],
+    ) -> None:
         self.post = post
         self.lock_error = lock_error
         self.order = order
@@ -42,7 +47,12 @@ class FakeSession:
     async def __aexit__(self, *exception_info: object) -> None:
         return None
 
-    async def get(self, model: type, identifier: int, **options: Any) -> Post | None:
+    async def get(
+        self,
+        model: type,
+        identifier: int,
+        **options: Any,
+    ) -> Post | None:
         assert options == {"with_for_update": {"nowait": True}}
         if self.lock_error:
             raise DBAPIError("SELECT ... FOR UPDATE NOWAIT", {}, Exception("lock not available"))
@@ -74,9 +84,7 @@ def tap(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     bot = MagicMock()
     bot.edit_message_reply_markup = AsyncMock(side_effect=lambda **kwargs: order.append("keyboard"))
     celery_client = MagicMock()
-    celery_client.send_task = MagicMock(
-        side_effect=lambda *args, **kwargs: order.append("dispatch")
-    )
+    celery_client.send_task = MagicMock(side_effect=lambda *args, **kwargs: order.append("dispatch"))
     mark_failure = AsyncMock()
     monkeypatch.setattr(handlers, "mark_dispatch_failure", mark_failure)
 
@@ -89,15 +97,11 @@ def tap(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
 
 
 async def tap_publish(tap: SimpleNamespace) -> None:
-    await handlers.handle_publish_tap(
-        tap.callback, POST_ID, USER_ID, tap.bot, tap.session_factory, tap.celery_client
-    )
+    await handlers.handle_publish_tap(tap.callback, POST_ID, USER_ID, tap.bot, tap.session_factory, tap.celery_client)
 
 
 async def tap_render(tap: SimpleNamespace) -> None:
-    await handlers.handle_render_tap(
-        tap.callback, POST_ID, USER_ID, tap.bot, tap.session_factory, tap.celery_client
-    )
+    await handlers.handle_render_tap(tap.callback, POST_ID, USER_ID, tap.bot, tap.session_factory, tap.celery_client)
 
 
 PREVIEW_REFERENCE = (777, 88)
@@ -210,9 +214,7 @@ async def test_a_publish_tap_on_a_draft_is_refused_with_the_editor_pointer(
     assert tap.order == ["commit", "answer"]
     tap.bot.edit_message_reply_markup.assert_not_awaited()
     tap.celery_client.send_task.assert_not_called()
-    assert tap.callback.answer.await_args.args[0] == handlers.COVER_IN_EDITOR_ANSWER.format(
-        post_id=POST_ID
-    )
+    assert tap.callback.answer.await_args.args[0] == handlers.COVER_IN_EDITOR_ANSWER.format(post_id=POST_ID)
 
 
 async def test_a_render_tap_runs_database_then_keyboard_then_dispatch(
@@ -222,9 +224,7 @@ async def test_a_render_tap_runs_database_then_keyboard_then_dispatch(
 
     assert tap.post.status is PostStatus.DOWNLOADING
     assert tap.order == ["commit", "keyboard", "dispatch", "answer"]
-    tap.celery_client.send_task.assert_called_once_with(
-        DOWNLOAD_POST_AUDIO_TASK_NAME, kwargs={"post_id": POST_ID}
-    )
+    tap.celery_client.send_task.assert_called_once_with(DOWNLOAD_POST_AUDIO_TASK_NAME, kwargs={"post_id": POST_ID})
     assert "Роблю відео" in tap.callback.answer.await_args.args[0]
 
 
@@ -235,9 +235,7 @@ async def test_a_refused_render_tap_keeps_its_button(tap: SimpleNamespace) -> No
 
     tap.bot.edit_message_reply_markup.assert_not_awaited()
     tap.celery_client.send_task.assert_not_called()
-    assert tap.callback.answer.await_args.args[0] == handlers.VIDEO_READY_ANSWER.format(
-        post_id=POST_ID
-    )
+    assert tap.callback.answer.await_args.args[0] == handlers.VIDEO_READY_ANSWER.format(post_id=POST_ID)
 
 
 @pytest.mark.parametrize("tap_button", [tap_publish, tap_render])
@@ -252,9 +250,7 @@ async def test_a_tap_on_a_post_awaiting_its_fragment_choice_is_refused_and_chang
     assert tap.order == ["commit", "answer"]
     tap.bot.edit_message_reply_markup.assert_not_awaited()
     tap.celery_client.send_task.assert_not_called()
-    assert tap.callback.answer.await_args.args[0] == handlers.AUDIO_READY_ANSWER.format(
-        post_id=POST_ID
-    )
+    assert tap.callback.answer.await_args.args[0] == handlers.AUDIO_READY_ANSWER.format(post_id=POST_ID)
     assert "editing" not in tap.callback.answer.await_args.args[0]
 
 
@@ -290,9 +286,7 @@ async def test_the_resolve_dispatch_sends_the_task_by_name_and_reports_success()
 
     assert await handlers.dispatch_resolve_task(celery_client, POST_ID) is True
 
-    celery_client.send_task.assert_called_once_with(
-        RESOLVE_POST_TASK_NAME, kwargs={"post_id": POST_ID}
-    )
+    celery_client.send_task.assert_called_once_with(RESOLVE_POST_TASK_NAME, kwargs={"post_id": POST_ID})
 
 
 async def test_the_resolve_dispatch_reports_a_broker_failure() -> None:
@@ -323,10 +317,7 @@ async def test_the_media_dispatch_reports_a_broker_failure() -> None:
     celery_client = MagicMock()
     celery_client.send_task.side_effect = ConnectionError("redis is down")
 
-    assert (
-        await handlers.dispatch_media_task(celery_client, DOWNLOAD_POST_AUDIO_TASK_NAME, POST_ID)
-        is False
-    )
+    assert await handlers.dispatch_media_task(celery_client, DOWNLOAD_POST_AUDIO_TASK_NAME, POST_ID) is False
 
 
 def test_a_too_long_link_is_refused_with_the_byte_counts() -> None:

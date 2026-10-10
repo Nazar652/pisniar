@@ -98,9 +98,7 @@ def test_the_draft_reference_is_both_ids_or_nothing() -> None:
     assert draft_of(Post(id=1, draft_chat_id=5)) is None
 
 
-async def test_prepared_audio_goes_back_to_a_draft_under_both_locks(
-    locks: Locks, logger: RecordingLogger
-) -> None:
+async def test_prepared_audio_goes_back_to_a_draft_under_both_locks(locks: Locks, logger: RecordingLogger) -> None:
     cancelled = await cancel_preparation(MagicMock(), POST_ID, REQUEST, ADMIN_ID)
 
     assert cancelled == CANCELLED
@@ -110,9 +108,7 @@ async def test_prepared_audio_goes_back_to_a_draft_under_both_locks(
     assert logger.entries == []
 
 
-async def test_an_older_stamp_is_stale_and_changes_nothing(
-    locks: Locks, logger: RecordingLogger
-) -> None:
+async def test_an_older_stamp_is_stale_and_changes_nothing(locks: Locks, logger: RecordingLogger) -> None:
     stale = CancelPreparationRequest(expected_post_updated_at=STAMP - timedelta(seconds=1))
 
     with pytest.raises(ApiProblem) as refusal:
@@ -214,9 +210,7 @@ async def test_without_a_draft_nothing_is_restored(monkeypatch: pytest.MonkeyPat
 async def test_a_failed_restore_is_logged_and_never_raised(
     monkeypatch: pytest.MonkeyPatch, logger: RecordingLogger
 ) -> None:
-    monkeypatch.setattr(
-        audio_preparation, "restore_draft_keyboard", AsyncMock(side_effect=TimeoutError("slow"))
-    )
+    monkeypatch.setattr(audio_preparation, "restore_draft_keyboard", AsyncMock(side_effect=TimeoutError("slow")))
 
     await restore_draft(MagicMock(), CANCELLED, URL, ADMIN_ID)
 
@@ -237,14 +231,26 @@ class Journal:
         self.cancelled: CancelledPreparation | None = CANCELLED
         self.error: Exception | None = None
 
-    async def cancel(self, session: object, post_id: int, request: object, user_id: int) -> Any:
+    async def cancel(
+        self,
+        session: object,
+        post_id: int,
+        request: object,
+        user_id: int,
+    ) -> Any:
         self.order.append("cancel")
         self.asked_inside_transaction += [*self.bot.mock_calls, *self.celery_client.mock_calls]
         if self.error is not None:
             raise self.error
         return self.cancelled
 
-    async def restore(self, bot: object, cancelled: object, url: object, user_id: int) -> None:
+    async def restore(
+        self,
+        bot: object,
+        cancelled: object,
+        url: object,
+        user_id: int,
+    ) -> None:
         self.order.append("keyboard")
 
 
@@ -265,7 +271,10 @@ def journal(monkeypatch: pytest.MonkeyPatch) -> Journal:
 
 
 def make_client(
-    settings: Settings, recorded: Journal, *, with_bot: bool = True
+    settings: Settings,
+    recorded: Journal,
+    *,
+    with_bot: bool = True,
 ) -> tuple[TestClient, MagicMock]:
     session_factory = MagicMock(side_effect=lambda: JournalSession(recorded))
     app = create_webapp(
@@ -278,9 +287,7 @@ def make_client(
     return TestClient(app), session_factory
 
 
-def test_an_anonymous_or_foreign_caller_is_refused_before_the_database(
-    settings: Settings, journal: Journal
-) -> None:
+def test_an_anonymous_or_foreign_caller_is_refused_before_the_database(settings: Settings, journal: Journal) -> None:
     client, session_factory = make_client(settings, journal)
 
     anonymous = client.post(PATH, json=BODY)
@@ -318,7 +325,9 @@ def test_a_body_without_the_stamp_or_with_extra_fields_is_422_before_the_databas
 
 
 def test_the_cancellation_is_logged_once_and_only_after_the_commit(
-    settings: Settings, monkeypatch: pytest.MonkeyPatch, journal: Journal
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+    journal: Journal,
 ) -> None:
     recorder = RecordingLogger()
     monkeypatch.setattr(posts_module, "logger", recorder)
@@ -341,7 +350,9 @@ def test_the_cancellation_is_logged_once_and_only_after_the_commit(
 
 
 def test_a_refused_cancellation_is_not_logged_as_cancelled(
-    settings: Settings, monkeypatch: pytest.MonkeyPatch, journal: Journal
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+    journal: Journal,
 ) -> None:
     recorder = RecordingLogger()
     monkeypatch.setattr(posts_module, "logger", recorder)
@@ -353,9 +364,7 @@ def test_a_refused_cancellation_is_not_logged_as_cancelled(
     assert "audio_preparation_cancelled" not in [entry["event"] for entry in recorder.entries]
 
 
-def test_a_missing_post_is_404_and_no_keyboard_is_touched(
-    settings: Settings, journal: Journal
-) -> None:
+def test_a_missing_post_is_404_and_no_keyboard_is_touched(settings: Settings, journal: Journal) -> None:
     journal.cancelled = None
     client, _ = make_client(settings, journal)
 
@@ -376,7 +385,11 @@ def test_a_missing_post_is_404_and_no_keyboard_is_touched(
     ],
 )
 def test_a_busy_post_a_database_failure_and_a_refusal_stop_before_the_keyboard(
-    settings: Settings, journal: Journal, error: Exception, status_code: int, code: str
+    settings: Settings,
+    journal: Journal,
+    error: Exception,
+    status_code: int,
+    code: str,
 ) -> None:
     journal.error = error
     client, _ = make_client(settings, journal)
@@ -387,9 +400,7 @@ def test_a_busy_post_a_database_failure_and_a_refusal_stop_before_the_keyboard(
     assert journal.order == ["cancel"]
 
 
-def test_a_missing_bot_is_503_before_the_database_is_touched(
-    settings: Settings, journal: Journal
-) -> None:
+def test_a_missing_bot_is_503_before_the_database_is_touched(settings: Settings, journal: Journal) -> None:
     client, session_factory = make_client(settings, journal, with_bot=False)
 
     response = client.post(PATH, json=BODY, headers=bearer())
@@ -399,7 +410,9 @@ def test_a_missing_bot_is_503_before_the_database_is_touched(
 
 
 def test_the_route_logs_the_request_and_the_refusals_it_alone_sees(
-    settings: Settings, monkeypatch: pytest.MonkeyPatch, journal: Journal
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+    journal: Journal,
 ) -> None:
     recorder = RecordingLogger()
     monkeypatch.setattr(posts_module, "logger", recorder)

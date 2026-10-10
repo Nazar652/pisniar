@@ -22,7 +22,7 @@
       },
       "ApplyRequest": {
         "additionalProperties": false,
-        "description": "the hash of the caption the editor showed: the caption is rebuilt and compared before\nanything is sent.",
+        "description": "the hash of the caption the editor showed: the caption is rebuilt and compared before anything is sent.",
         "properties": {
           "expected_caption_sha256": {
             "pattern": "^[0-9a-f]{64}$",
@@ -648,7 +648,7 @@
         "type": "object"
       },
       "FragmentAvailability": {
-        "description": "whether the fragment can be chosen now, or the audio can be prepared for it, judged from\nthe status alone; at most one of the first three flags is true.",
+        "description": "whether the fragment can be chosen now, or the audio can be prepared for it, judged from the status alone; at\nmost one of the first three flags is true.",
         "properties": {
           "cancellable": {
             "title": "Cancellable",
@@ -763,7 +763,7 @@
       },
       "FragmentRequest": {
         "additionalProperties": false,
-        "description": "the bounds the admin chose, in whole ms from the start of the full track, and the\nversion of the post the editor was opened with.",
+        "description": "the bounds the admin chose, in whole ms from the start of the full track, and the version of the post the editor\nwas opened with.",
         "properties": {
           "end_ms": {
             "maximum": 9.223372036854776e+18,

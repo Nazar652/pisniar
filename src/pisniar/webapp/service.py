@@ -57,7 +57,9 @@ HIDDEN_STATUSES = (PostStatus.ARCHIVED, PostStatus.DRAFT)
 
 
 async def fetch_post_page(
-    session: AsyncSession, before_id: int | None, limit: int
+    session: AsyncSession,
+    before_id: int | None,
+    limit: int,
 ) -> PostListResponse:
     """newest first, keyed on the id: one query that asks for one row more than the page
     to know whether another page exists."""
@@ -107,9 +109,7 @@ async def fetch_post_page(
 
 async def fetch_post_detail(session: AsyncSession, post_id: int) -> PostDetail | None:
     row = (
-        await session.execute(
-            select(Post, Track).join(Track, Track.id == Post.track_id).where(Post.id == post_id)
-        )
+        await session.execute(select(Post, Track).join(Track, Track.id == Post.track_id).where(Post.id == post_id))
     ).one_or_none()
     if row is None:
         return None
@@ -117,7 +117,11 @@ async def fetch_post_detail(session: AsyncSession, post_id: int) -> PostDetail |
     return await detail_of(session, post, track)
 
 
-async def detail_of(session: AsyncSession, post: Post, track: Track) -> PostDetail:
+async def detail_of(
+    session: AsyncSession,
+    post: Post,
+    track: Track,
+) -> PostDetail:
     other_post_ids = list(
         await session.scalars(
             select(Post.id)
@@ -129,14 +133,14 @@ async def detail_of(session: AsyncSession, post: Post, track: Track) -> PostDeta
     return build_post_detail(post, track, other_post_ids)
 
 
-def build_post_detail(post: Post, track: Track, other_post_ids: list[int]) -> PostDetail:
+def build_post_detail(
+    post: Post,
+    track: Track,
+    other_post_ids: list[int],
+) -> PostDetail:
     editability = editability_of(post.status, post.failed_from_status)
-    choosability = choosability_of(
-        post.status, post.failed_from_status, post.preview_message_id is not None
-    )
-    cover = cover_publication_of(
-        post.status, post.failed_from_status, post.preview_message_id is not None
-    )
+    choosability = choosability_of(post.status, post.failed_from_status, post.preview_message_id is not None)
+    cover = cover_publication_of(post.status, post.failed_from_status, post.preview_message_id is not None)
     caption_view, rebuilt_html = rebuild_caption(post, track)
 
     return PostDetail(
@@ -278,9 +282,7 @@ def stored_platform_links(stored: dict[str, object]) -> dict[str, PlatformLinkDe
     for platform, raw_link in stored.items():
         link = platform_link_from_stored(raw_link)
         if link is not None:
-            links[platform] = PlatformLinkDetail(
-                url=link.url, source=link.source, match=link.match.value
-            )
+            links[platform] = PlatformLinkDetail(url=link.url, source=link.source, match=link.match.value)
     return links
 
 

@@ -1,6 +1,5 @@
-"""`yt-dlp` as a subprocess. The `videoId` comes only from
-`platform_links["youtubeMusic"]`, with no fallback: `["youtube"]` may hold a clip
-with an intro, an outro or a different mastering. The watch URL is built from the
+"""`yt-dlp` as a subprocess. The `videoId` comes only from `platform_links["youtubeMusic"]`, with no fallback:
+`["youtube"]` may hold a clip with an intro, an outro or a different mastering. The watch URL is built from the
 validated id, never taken as a string out of the database.
 """
 
@@ -94,9 +93,7 @@ def youtube_music_video_id(platform_links: dict[str, object]) -> str:
 
     video_id = track_video_id_of(url)
     if video_id is None:
-        raise InvalidYouTubeVideoIdError(
-            f"посилання youtubeMusic не дає валідного videoId: {url!r}"
-        )
+        raise InvalidYouTubeVideoIdError(f"посилання youtubeMusic не дає валідного videoId: {url!r}")
     return video_id
 
 
@@ -149,14 +146,16 @@ def classify_ytdlp_failure(exit_code: int, stderr: str) -> AudioDownloadError:
         )
     if any(marker in lowered for marker in VIDEO_UNAVAILABLE_MARKERS):
         return YtdlpVideoUnavailableError(
-            f"запис на YouTube недоступний (видалений, приватний або заблокований "
-            f"за регіоном). Код {exit_code}: {tail}"
+            f"запис на YouTube недоступний (видалений, приватний або заблокований за регіоном). Код {exit_code}: {tail}"
         )
     return AudioDownloadError(f"yt-dlp завершився з кодом {exit_code}: {tail}")
 
 
 def download_audio(
-    video_id: str, destination_directory: Path, *, timeout_seconds: float
+    video_id: str,
+    destination_directory: Path,
+    *,
+    timeout_seconds: float,
 ) -> tuple[Path, str]:
     """only downloads into the tmp dir; publishing the file is the caller's job."""
     url = build_watch_url(video_id)
@@ -231,7 +230,5 @@ def locate_downloaded_file(destination_directory: Path) -> Path:
         if path.is_file() and not path.name.endswith(".part")
     )
     if not candidates:
-        raise AudioDownloadError(
-            f"yt-dlp завершився успішно, але файлу в {destination_directory} немає"
-        )
+        raise AudioDownloadError(f"yt-dlp завершився успішно, але файлу в {destination_directory} немає")
     return candidates[0]

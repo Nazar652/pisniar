@@ -30,9 +30,7 @@ ROUTES = [
 ]
 
 
-def make_client(
-    settings: Settings, with_bot: bool = True
-) -> tuple[TestClient, MagicMock, MagicMock]:
+def make_client(settings: Settings, with_bot: bool = True) -> tuple[TestClient, MagicMock, MagicMock]:
     session_factory = MagicMock(return_value=FakeSession())
     bot = MagicMock()
     app = create_webapp(
@@ -52,7 +50,10 @@ def applied(*remaining: str) -> AppliedCaption:
 
 @pytest.mark.parametrize(("path", "name", "body"), ROUTES)
 def test_an_anonymous_or_foreign_caller_is_refused_before_the_database_and_telegram(
-    settings: Settings, path: str, name: str, body: dict[str, str] | None
+    settings: Settings,
+    path: str,
+    name: str,
+    body: dict[str, str] | None,
 ) -> None:
     client, session_factory, bot = make_client(settings)
 
@@ -70,9 +71,7 @@ def test_an_apply_returns_the_result_and_the_failed_extra_messages(
     apply = AsyncMock(return_value=applied("draft"))
     monkeypatch.setattr(posts_module, "apply_caption", apply)
     remaining = AsyncMock(
-        return_value=ApplyResponse(
-            caption_sha256=SHA, result="edited", other_messages_failed=["draft"]
-        )
+        return_value=ApplyResponse(caption_sha256=SHA, result="edited", other_messages_failed=["draft"])
     )
     monkeypatch.setattr(posts_module, "edit_remaining", remaining)
     client, _, bot = make_client(settings)
@@ -99,7 +98,11 @@ def test_the_extra_messages_are_edited_only_after_the_database_work(
         order.append("apply")
         return applied("draft")
 
-    async def remaining(bot: Any, result: AppliedCaption, *args: Any) -> ApplyResponse:
+    async def remaining(
+        bot: Any,
+        result: AppliedCaption,
+        *args: Any,
+    ) -> ApplyResponse:
         order.append("remaining")
         return result.response
 
@@ -112,9 +115,7 @@ def test_the_extra_messages_are_edited_only_after_the_database_work(
     assert order == ["apply", "remaining"]
 
 
-def test_a_refused_apply_never_edits_the_extra_messages(
-    settings: Settings, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_refused_apply_never_edits_the_extra_messages(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
     problem = ApiProblem(409, "caption_changed", "Підпис змінився.")
     monkeypatch.setattr(posts_module, "apply_caption", AsyncMock(side_effect=problem))
     remaining = AsyncMock()
@@ -127,9 +128,7 @@ def test_a_refused_apply_never_edits_the_extra_messages(
     remaining.assert_not_awaited()
 
 
-def test_an_archive_returns_the_new_label(
-    settings: Settings, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_an_archive_returns_the_new_label(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
     result = ArchiveResponse(post_id=7, status_label="Архівовано")
     archive = AsyncMock(return_value=result)
     monkeypatch.setattr(posts_module, "archive_post", archive)
@@ -178,9 +177,7 @@ def test_a_refusal_keeps_its_status_code_and_sentence(
     status: int,
     code: str,
 ) -> None:
-    monkeypatch.setattr(
-        posts_module, name, AsyncMock(side_effect=ApiProblem(status, code, "Речення."))
-    )
+    monkeypatch.setattr(posts_module, name, AsyncMock(side_effect=ApiProblem(status, code, "Речення.")))
     client, _, _ = make_client(settings)
 
     response = client.post(path, json=body, headers=bearer())
@@ -201,9 +198,7 @@ def test_a_held_lock_is_a_409_and_another_database_failure_a_503(
 
     monkeypatch.setattr(posts_module, name, AsyncMock(side_effect=database_error("55P03")))
     busy = client.post(path, json=body, headers=bearer())
-    monkeypatch.setattr(
-        posts_module, name, AsyncMock(side_effect=DBAPIError("x", {}, Exception("secret-dsn")))
-    )
+    monkeypatch.setattr(posts_module, name, AsyncMock(side_effect=DBAPIError("x", {}, Exception("secret-dsn"))))
     down = client.post(path, json=body, headers=bearer())
 
     assert (busy.status_code, busy.json()["code"]) == (409, "post_busy")
@@ -243,7 +238,9 @@ def test_without_a_telegram_client_the_routes_are_a_503_before_any_work(
     ],
 )
 def test_a_malformed_apply_body_is_a_422_and_never_a_500(
-    settings: Settings, monkeypatch: pytest.MonkeyPatch, body: dict[str, Any]
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+    body: dict[str, Any],
 ) -> None:
     apply = AsyncMock()
     monkeypatch.setattr(posts_module, "apply_caption", apply)
@@ -258,7 +255,10 @@ def test_a_malformed_apply_body_is_a_422_and_never_a_500(
 @pytest.mark.parametrize("post_id", ["0", "-1", "abc", str(POST_ID_MAX + 1), "9" * 30])
 @pytest.mark.parametrize("path", ["apply", "archive"])
 def test_a_bad_post_id_is_a_422_before_any_work(
-    settings: Settings, monkeypatch: pytest.MonkeyPatch, post_id: str, path: str
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+    post_id: str,
+    path: str,
 ) -> None:
     work = AsyncMock()
     monkeypatch.setattr(posts_module, "apply_caption", work)

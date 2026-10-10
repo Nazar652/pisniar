@@ -1,6 +1,5 @@
-"""`telegram.video`: the single `send_video` call both the preview and the
-channel publication go through. Sharing it is what makes "the admin sees the
-exact file that reaches the channel" structural instead of a promise."""
+"""`telegram.video`: the single `send_video` call both the preview and the channel publication go through. Sharing it is
+what makes "the admin sees the exact file that reaches the channel" structural instead of a promise."""
 
 from __future__ import annotations
 
@@ -32,12 +31,8 @@ def make_video(tmp_path: Path, *, with_thumbnail: bool) -> RenderedVideo:
     )
 
 
-@pytest.mark.parametrize(
-    ("duration_ms", "expected_seconds"), [(45_000, 45), (45_400, 45), (45_600, 46), (31_000, 31)]
-)
-def test_the_duration_reaches_telegram_in_whole_seconds(
-    duration_ms: int, expected_seconds: int
-) -> None:
+@pytest.mark.parametrize(("duration_ms", "expected_seconds"), [(45_000, 45), (45_400, 45), (45_600, 46), (31_000, 31)])
+def test_the_duration_reaches_telegram_in_whole_seconds(duration_ms: int, expected_seconds: int) -> None:
     video = RenderedVideo(path=Path("x.mp4"), width=720, height=1280, duration_ms=duration_ms)
 
     assert video.duration_seconds == expected_seconds

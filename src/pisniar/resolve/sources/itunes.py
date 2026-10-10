@@ -1,6 +1,5 @@
-"""The iTunes Search API: name-search only, no ISRC lookup.
-Requires an explicit `country` (default storefront is US) and a slower
-throttle (~20 req/min unofficial community limit -> >=3s between calls).
+"""The iTunes Search API: name-search only, no ISRC lookup. Requires an explicit `country` (default storefront is US)
+and a slower throttle (~20 req/min unofficial community limit -> >=3s between calls).
 """
 
 from __future__ import annotations
@@ -19,10 +18,14 @@ SOURCE_NAME = "itunes"
 
 
 async def search_by_name(
-    client: httpx.AsyncClient, cache: SourceCache, artist: str, title: str, country: str
+    client: httpx.AsyncClient,
+    cache: SourceCache,
+    artist: str,
+    title: str,
+    country: str,
 ) -> list[TrackCandidate]:
-    # `country` in the key: it changes both the result set and the
-    # storefront URL, so two storefronts must never share a row.
+    # `country` in the key: it changes both the result set and the storefront URL, so two storefronts must never share
+    # a row.
     cache_key = build_request_key("itunes:search:", country, artist, title)
 
     async def do_fetch() -> dict[str, object]:
@@ -50,8 +53,8 @@ async def search_by_name(
 
 
 def candidate_from_result(raw_item: object) -> TrackCandidate:
-    """every field through `json_utils`, so a `null` `trackViewUrl` never becomes
-    the string `"None"` and survives the emptiness filter."""
+    """every field through `json_utils`, so a `null` `trackViewUrl` never becomes the string `"None"` and survives the
+    emptiness filter."""
     item = as_dict(raw_item)
     return TrackCandidate(
         platform="appleMusic",

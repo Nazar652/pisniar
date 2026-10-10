@@ -1,6 +1,5 @@
-"""The fragment rule: start at zero, 45 seconds, a shorter track taken whole,
-and the bounds absolute from the start of the full track, which is what the
-subtitle timing and hand-set bounds both read.
+"""The fragment rule: start at zero, 45 seconds, a shorter track taken whole, and the bounds absolute from the start of
+the full track, which is what the subtitle timing and hand-set bounds both read.
 """
 
 from __future__ import annotations
@@ -30,9 +29,7 @@ def test_a_track_exactly_as_long_as_the_fragment_is_not_truncated() -> None:
 
 
 def test_the_rule_is_deterministic_for_the_same_duration() -> None:
-    assert fragment_rule.choose_fragment_bounds(212_000) == fragment_rule.choose_fragment_bounds(
-        212_000
-    )
+    assert fragment_rule.choose_fragment_bounds(212_000) == fragment_rule.choose_fragment_bounds(212_000)
 
 
 def test_the_start_is_always_absolute_zero_never_a_percentage() -> None:
@@ -76,8 +73,7 @@ def test_bounds_inside_the_file_are_accepted() -> None:
 
 
 def test_bounds_past_the_end_of_the_file_are_rejected() -> None:
-    """the bounds must fit the audio that is actually on disk, not the duration
-    some source once reported."""
+    """the bounds must fit the audio that is actually on disk, not the duration some source once reported."""
     bounds = fragment_rule.FragmentBounds(start_ms=0, end_ms=45_000)
 
     assert fragment_rule.bounds_within_track(bounds, 31_000) is False
@@ -90,9 +86,7 @@ AUDIO_MS = 200_000
     ("start_ms", "end_ms"),
     [(0, 1), (0, 45_000), (10_000, 130_000), (80_000, 200_000), (199_999, 200_000)],
 )
-def test_validate_chosen_bounds_accepts_whole_ms_inside_the_audio(
-    start_ms: int, end_ms: int
-) -> None:
+def test_validate_chosen_bounds_accepts_whole_ms_inside_the_audio(start_ms: int, end_ms: int) -> None:
     bounds = fragment_rule.validate_chosen_bounds(start_ms, end_ms, AUDIO_MS)
 
     assert (bounds.start_ms, bounds.end_ms) == (start_ms, end_ms)
@@ -110,7 +104,9 @@ def test_validate_chosen_bounds_accepts_whole_ms_inside_the_audio(
     ],
 )
 def test_validate_chosen_bounds_refuses_with_a_sentence_that_has_the_numbers(
-    start_ms: int, end_ms: int, expected_numbers: list[str]
+    start_ms: int,
+    end_ms: int,
+    expected_numbers: list[str],
 ) -> None:
     with pytest.raises(fragment_rule.FragmentBoundsError) as error:
         fragment_rule.validate_chosen_bounds(start_ms, end_ms, AUDIO_MS)
@@ -132,12 +128,8 @@ def test_the_maximum_length_is_two_minutes_and_exact() -> None:
         fragment_rule.validate_chosen_bounds(0, 120_001, AUDIO_MS)
 
 
-@pytest.mark.parametrize(
-    "duration_ms", [1, 999, 1_000, 30_000, 44_999, 45_000, 45_001, 120_000, 600_000, 1_200_000]
-)
+@pytest.mark.parametrize("duration_ms", [1, 999, 1_000, 30_000, 44_999, 45_000, 45_001, 120_000, 600_000, 1_200_000])
 def test_the_default_fragment_always_satisfies_the_chosen_bounds_rule(duration_ms: int) -> None:
     default = fragment_rule.choose_fragment_bounds(duration_ms)
 
-    assert fragment_rule.validate_chosen_bounds(default.start_ms, default.end_ms, duration_ms) == (
-        default
-    )
+    assert fragment_rule.validate_chosen_bounds(default.start_ms, default.end_ms, duration_ms) == (default)

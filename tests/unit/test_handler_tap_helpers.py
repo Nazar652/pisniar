@@ -39,7 +39,12 @@ class FakeSession:
     async def commit(self) -> None:
         self.order.append("commit")
 
-    async def get(self, model: type, identifier: int, **options: Any) -> object:
+    async def get(
+        self,
+        model: type,
+        identifier: int,
+        **options: Any,
+    ) -> object:
         assert options == {"with_for_update": {"nowait": True}}
         if self.lock_error:
             raise DBAPIError("SELECT ... FOR UPDATE NOWAIT", {}, Exception("lock not available"))
@@ -94,9 +99,7 @@ def tap(monkeypatch: pytest.MonkeyPatch) -> Tap:
     return Tap(monkeypatch)
 
 
-async def test_handle_tap_commits_then_removes_the_keyboard_then_dispatches(
-    tap: Tap, fake_logger: MagicMock
-) -> None:
+async def test_handle_tap_commits_then_removes_the_keyboard_then_dispatches(tap: Tap, fake_logger: MagicMock) -> None:
     claim = MagicMock(return_value=(None, (555, 41)))
 
     await tap.run(claim)
@@ -117,26 +120,18 @@ async def test_handle_tap_keeps_the_keyboard_and_dispatches_nothing_after_a_refu
     tap.callback.answer.assert_awaited_once_with("Refused.", show_alert=True)
 
 
-async def test_handle_tap_refuses_a_locked_post_with_the_busy_sentence(
-    tap: Tap, fake_logger: MagicMock
-) -> None:
+async def test_handle_tap_refuses_a_locked_post_with_the_busy_sentence(tap: Tap, fake_logger: MagicMock) -> None:
     tap.lock_error = True
     claim = MagicMock()
 
     await tap.run(claim)
 
     claim.assert_not_called()
-    tap.callback.answer.assert_awaited_once_with(
-        handlers.POST_BUSY_ANSWER.format(post_id=POST_ID), show_alert=True
-    )
-    fake_logger.warning.assert_called_once_with(
-        "some_refused", reason="post_locked", user_id=USER_ID, post_id=POST_ID
-    )
+    tap.callback.answer.assert_awaited_once_with(handlers.POST_BUSY_ANSWER.format(post_id=POST_ID), show_alert=True)
+    fake_logger.warning.assert_called_once_with("some_refused", reason="post_locked", user_id=USER_ID, post_id=POST_ID)
 
 
-async def test_handle_tap_fails_the_post_when_the_dispatch_fails(
-    tap: Tap, fake_logger: MagicMock
-) -> None:
+async def test_handle_tap_fails_the_post_when_the_dispatch_fails(tap: Tap, fake_logger: MagicMock) -> None:
     tap.dispatch_result = False
 
     await tap.run(MagicMock(return_value=(None, None)))

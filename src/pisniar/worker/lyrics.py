@@ -49,8 +49,7 @@ PLAIN_LOOKUP_REASONS = frozenset(
     }
 )
 
-# the reason class beside the adapter's own: the lines were already stored, so
-# LRCLIB was never asked.
+# the reason class beside the adapter's own: the lines were already stored, so LRCLIB was never asked.
 LYRICS_ALREADY_STORED = "lyrics_already_stored"
 # timed lines exist, yet the fragment has none of them, so the `.ass` is empty.
 LYRICS_OUTSIDE_FRAGMENT = "lyrics_outside_fragment"
@@ -61,20 +60,13 @@ LYRICS_REMOVED_BY_ADMIN = "lyrics_removed_by_admin"
 # a source had text, but too much of it to store, and no other source had any.
 LYRICS_OVER_LIMITS = "lyrics_over_limits"
 
-# one sentence per class: "LRCLIB did not answer" and "LRCLIB has no text" call
-# for different things from the admin.
+# one sentence per class: "LRCLIB did not answer" and "LRCLIB has no text" call for different things from the admin.
 NO_TEXT_NOTICES = {
-    LyricsOutcome.ABSENT.value: (
-        "Тексту цього треку немає ні на YouTube Music, ні в LRCLIB — відео без тексту."
-    ),
+    LyricsOutcome.ABSENT.value: ("Тексту цього треку немає ні на YouTube Music, ні в LRCLIB — відео без тексту."),
     LyricsOutcome.UNSYNCED.value: "Текст знайдено, але без таймкодів — у відео його немає.",
     LyricsOutcome.INSTRUMENTAL.value: "Трек інструментальний — відео без тексту, так і має бути.",
-    LyricsOutcome.SOURCE_UNAVAILABLE.value: (
-        "Джерело тексту не відповіло — відео зібрано без тексту."
-    ),
-    LyricsOutcome.REJECTED_BY_MATCHING.value: (
-        "Знайдений текст належить іншому треку — не використано."
-    ),
+    LyricsOutcome.SOURCE_UNAVAILABLE.value: ("Джерело тексту не відповіло — відео зібрано без тексту."),
+    LyricsOutcome.REJECTED_BY_MATCHING.value: ("Знайдений текст належить іншому треку — не використано."),
     LYRICS_OUTSIDE_FRAGMENT: "Текст є, але жоден рядок не потрапляє у вибраний фрагмент.",
     LYRICS_UNTIMED: "Текст є, але ще не відстукано — відкрийте «Текст» у редакторі поста.",
     LYRICS_REMOVED_BY_ADMIN: "Текст прибрано вручну — відео без тексту.",
@@ -180,9 +172,7 @@ async def persist_lyrics_in_own_transaction(
 
     if not rows:
         logger.info("lyrics_persist_nothing", track_id=track_id, source_outcome=result.outcome)
-        return LyricsPersistResult(
-            outcome=LyricsPersistOutcome.NOTHING_TO_WRITE, source_outcome=result.outcome
-        )
+        return LyricsPersistResult(outcome=LyricsPersistOutcome.NOTHING_TO_WRITE, source_outcome=result.outcome)
 
     async with session_scope(session_factory) as session:
         persisted = await persist_under_track_lock(
@@ -204,15 +194,11 @@ async def persist_under_track_lock(
     # FOR NO KEY UPDATE, the lock `persist_track_in_own_transaction` takes:
     # `INSERT INTO post` (FOR KEY SHARE) still passes. Any other lyric writer must take it too.
     # populate_existing: a track already in the identity map must not hand back a stale marker.
-    track = await session.get(
-        Track, track_id, with_for_update={"key_share": True}, populate_existing=True
-    )
+    track = await session.get(Track, track_id, with_for_update={"key_share": True}, populate_existing=True)
     if track is None:
         raise LyricsPersistError(f"трек {track_id} не знайдено — текст нікуди писати")
 
-    existing_count = await session.scalar(
-        select(func.count()).select_from(Lyric).where(Lyric.track_id == track_id)
-    )
+    existing_count = await session.scalar(select(func.count()).select_from(Lyric).where(Lyric.track_id == track_id))
     if existing_count or track.lyrics_edited_at is not None:
         logger.info(
             "lyrics_persist_kept_existing",
@@ -220,9 +206,7 @@ async def persist_under_track_lock(
             existing=existing_count,
             edited_by_admin=track.lyrics_edited_at is not None,
         )
-        return LyricsPersistResult(
-            outcome=LyricsPersistOutcome.KEPT_EXISTING, source_outcome=source_outcome
-        )
+        return LyricsPersistResult(outcome=LyricsPersistOutcome.KEPT_EXISTING, source_outcome=source_outcome)
 
     statement = (
         insert(Lyric)
@@ -246,9 +230,7 @@ async def persist_under_track_lock(
     # under the lock this cannot fall short; if it does, a writer skipped the
     # lock, and a partial set must roll back rather than commit quietly.
     if inserted_count != len(rows):
-        raise LyricsPersistError(
-            f"трек {track_id}: записано {inserted_count} рядків із {len(rows)}"
-        )
+        raise LyricsPersistError(f"трек {track_id}: записано {inserted_count} рядків із {len(rows)}")
 
     logger.info("lyrics_persisted", track_id=track_id, line_count=inserted_count)
     return LyricsPersistResult(
@@ -280,30 +262,24 @@ class PreparedLyrics:
 
 @dataclass(frozen=True)
 class StoredLyrics:
-    """`total_count` counts every stored line, timed or not; the render sees only
-    `renderable_lines`."""
+    """`total_count` counts every stored line, timed or not; the render sees only `renderable_lines`."""
 
     renderable_lines: tuple[LyricLine, ...]
     total_count: int
     edited_by_admin: bool
 
 
-async def load_stored_lyrics(
-    session_factory: async_sessionmaker[AsyncSession], track_id: int
-) -> StoredLyrics:
+async def load_stored_lyrics(session_factory: async_sessionmaker[AsyncSession], track_id: int) -> StoredLyrics:
     """plain values out of a session closed on return, read at REPEATABLE READ so the rows,
     the count and the marker are one snapshot."""
     async with session_factory() as session:
         await session.connection(execution_options={"isolation_level": "REPEATABLE READ"})
         rows = (await session.scalars(renderable_lyrics_statement(track_id))).all()
-        total_count = await session.scalar(
-            select(func.count()).select_from(Lyric).where(Lyric.track_id == track_id)
-        )
+        total_count = await session.scalar(select(func.count()).select_from(Lyric).where(Lyric.track_id == track_id))
         edited_at = await session.scalar(select(Track.lyrics_edited_at).where(Track.id == track_id))
         return StoredLyrics(
             renderable_lines=tuple(
-                LyricLine(line_index=row.line_index, start_ms=row.start_ms, text=row.text)
-                for row in rows
+                LyricLine(line_index=row.line_index, start_ms=row.start_ms, text=row.text) for row in rows
             ),
             total_count=total_count or 0,
             edited_by_admin=edited_at is not None,
@@ -360,7 +336,9 @@ class SourceAnswer:
 
 
 async def ask_source(
-    source: str, track_id: int, fetch: Callable[[], Awaitable[LyricsResult]]
+    source: str,
+    track_id: int,
+    fetch: Callable[[], Awaitable[LyricsResult]],
 ) -> LyricsResult:
     """a failing source answers `SOURCE_UNAVAILABLE`, logged by name; the soft limit and a
     database error pass through."""
@@ -390,7 +368,9 @@ async def ask_youtube_music(cache: SourceCache, query: LyricsQuery) -> LyricsRes
 
 
 async def ask_lrclib(
-    http_client: httpx.AsyncClient, cache: SourceCache, query: LyricsQuery
+    http_client: httpx.AsyncClient,
+    cache: SourceCache,
+    query: LyricsQuery,
 ) -> LyricsResult | None:
     return await ask_source(
         LRCLIB_SOURCE,
@@ -448,15 +428,14 @@ def no_text_reason(youtube: LyricsResult | None, lrclib: LyricsResult | None) ->
 
 
 def reason_after_persist(
-    persisted: LyricsPersistResult, result: LyricsResult, reloaded: StoredLyrics
+    persisted: LyricsPersistResult,
+    result: LyricsResult,
+    reloaded: StoredLyrics,
 ) -> str:
     """what the table holds after the write decides the class, not what was found."""
     if persisted.outcome is LyricsPersistOutcome.KEPT_EXISTING:
         return reason_for_stored(reloaded) or LYRICS_ALREADY_STORED
-    if (
-        persisted.outcome is LyricsPersistOutcome.WRITTEN
-        and result.outcome is LyricsOutcome.UNSYNCED
-    ):
+    if persisted.outcome is LyricsPersistOutcome.WRITTEN and result.outcome is LyricsOutcome.UNSYNCED:
         return LYRICS_UNTIMED
     return result.outcome.value
 
@@ -466,7 +445,9 @@ def wants_plain_lookup(reason: str) -> bool:
 
 
 async def fetch_plain_lines(
-    http_client: httpx.AsyncClient, cache: SourceCache, query: LyricsQuery
+    http_client: httpx.AsyncClient,
+    cache: SourceCache,
+    query: LyricsQuery,
 ) -> SourceAnswer | None:
     """the first source with plain lines wins; one that fails or has none is passed over."""
     for source in PLAIN_LYRICS_SOURCES:
@@ -506,16 +487,15 @@ async def store_plain_lyrics(
         logger.info("plain_lyrics_not_found", track_id=query.track_id)
         return None
 
-    return await persist_lyrics_in_own_transaction(
-        session_factory, query.track_id, found.result, source=found.source
-    )
+    return await persist_lyrics_in_own_transaction(session_factory, query.track_id, found.result, source=found.source)
 
 
 def reason_after_subtitles(
-    track_id: int, prepared: PreparedLyrics, subtitles_text: str | None
+    track_id: int,
+    prepared: PreparedLyrics,
+    subtitles_text: str | None,
 ) -> str:
-    """decided where the `.ass` is built: only there is it known whether the
-    fragment holds any of the lines."""
+    """decided where the `.ass` is built: only there is it known whether the fragment holds any of the lines."""
     if subtitles_text is not None or not prepared.lines:
         return prepared.reason
 
@@ -528,7 +508,11 @@ def reason_after_subtitles(
     return LYRICS_OUTSIDE_FRAGMENT
 
 
-def no_text_notice(post_id: int, reason: str, text_version: str | None) -> str | None:
+def no_text_notice(
+    post_id: int,
+    reason: str,
+    text_version: str | None,
+) -> str | None:
     """`None` while the video carries text: the subtitle digest decides that, not
     the reason, which only explains an absence."""
     if text_version is not None:
@@ -537,7 +521,9 @@ def no_text_notice(post_id: int, reason: str, text_version: str | None) -> str |
 
 
 def build_prepared_lyrics(
-    track_id: int, lines: tuple[LyricLine, ...], reason: str
+    track_id: int,
+    lines: tuple[LyricLine, ...],
+    reason: str,
 ) -> PreparedLyrics:
     logger.info("lyrics_prepared", track_id=track_id, reason=reason, line_count=len(lines))
     return PreparedLyrics(lines=lines, reason=reason)

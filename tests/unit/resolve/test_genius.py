@@ -1,6 +1,6 @@
-"""`genius`: the page parser on an untrusted HTML shape modelled on a real song page, the
-search-hit checks (our track, not a translation, a path that cannot leave `genius.com`)
-and what must never be cached. Every response is an `httpx.MockTransport`.
+"""`genius`: the page parser on an untrusted HTML shape modelled on a real song page, the search-hit checks (our track,
+not a translation, a path that cannot leave `genius.com`) and what must never be cached.
+Every response is an `httpx.MockTransport`.
 """
 
 from __future__ import annotations
@@ -56,9 +56,7 @@ def client_for(handler: Callable[[httpx.Request], httpx.Response]) -> httpx.Asyn
     return httpx.AsyncClient(transport=httpx.MockTransport(handler))
 
 
-def site(
-    search: dict[str, Any] | None = None, page: str = PAGE_HTML
-) -> Callable[[httpx.Request], httpx.Response]:
+def site(search: dict[str, Any] | None = None, page: str = PAGE_HTML) -> Callable[[httpx.Request], httpx.Response]:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/api/search/song":
             return httpx.Response(200, json=search if search is not None else search_body(hit()))
@@ -131,10 +129,7 @@ def test_translation_pages_are_recognised(fields: tuple[str, str, str], expected
 
 def test_the_result_of_the_search_is_our_track() -> None:
     assert (
-        genius.path_if_ours(
-            hit()["result"], artist_query="Робаний Йот", title=TITLE, duration_ms=158_000
-        )
-        == PAGE_PATH
+        genius.path_if_ours(hit()["result"], artist_query="Робаний Йот", title=TITLE, duration_ms=158_000) == PAGE_PATH
     )
 
 
@@ -149,10 +144,7 @@ def test_a_duo_page_is_ours_through_the_primary_artist() -> None:
     )["result"]
 
     assert (
-        genius.path_if_ours(
-            result, artist_query="хейтспіч", title="День мій ворог", duration_ms=195_941
-        )
-        == PAGE_PATH
+        genius.path_if_ours(result, artist_query="хейтспіч", title="День мій ворог", duration_ms=195_941) == PAGE_PATH
     )
 
 
@@ -179,36 +171,27 @@ def test_a_hit_that_is_not_our_track_or_has_a_hostile_path_is_refused(
 ) -> None:
     result = hit(**overrides)["result"]
 
-    assert (
-        genius.path_if_ours(result, artist_query="Робаний Йот", title=TITLE, duration_ms=None)
-        is None
-    )
+    assert genius.path_if_ours(result, artist_query="Робаний Йот", title=TITLE, duration_ms=None) is None
 
 
 async def test_a_search_picks_the_first_hit_that_is_ours() -> None:
     body = search_body(hit(title="Не та"), hit(path="/second-lyrics"), hit())
     async with client_for(site(body)) as client:
-        path = await genius.search_for_path(
-            client, artist_query="Робаний Йот", title=TITLE, duration_ms=None
-        )
+        path = await genius.search_for_path(client, artist_query="Робаний Йот", title=TITLE, duration_ms=None)
 
     assert path == "/second-lyrics"
 
 
 async def test_a_search_with_no_hit_of_ours_finds_nothing() -> None:
     async with client_for(site(search_body(hit(title="Не та")))) as client:
-        path = await genius.search_for_path(
-            client, artist_query="Робаний Йот", title=TITLE, duration_ms=None
-        )
+        path = await genius.search_for_path(client, artist_query="Робаний Йот", title=TITLE, duration_ms=None)
 
     assert path is None
 
 
 async def test_a_search_without_sections_finds_nothing() -> None:
     async with client_for(site({"response": {"sections": []}})) as client:
-        path = await genius.search_for_path(
-            client, artist_query="Робаний Йот", title=TITLE, duration_ms=None
-        )
+        path = await genius.search_for_path(client, artist_query="Робаний Йот", title=TITLE, duration_ms=None)
 
     assert path is None
 
@@ -221,9 +204,7 @@ async def test_the_search_is_one_get_with_the_artist_and_title_as_the_query() ->
         return httpx.Response(200, json=search_body())
 
     async with client_for(handler) as client:
-        await genius.search_for_path(
-            client, artist_query="Робаний Йот", title=TITLE, duration_ms=None
-        )
+        await genius.search_for_path(client, artist_query="Робаний Йот", title=TITLE, duration_ms=None)
 
     assert len(seen) == 1
     assert seen[0].url.host == "genius.com"
@@ -237,9 +218,7 @@ async def test_a_non_json_search_body_raises() -> None:
 
     async with client_for(handler) as client:
         with pytest.raises(GeniusApiError, match="не-JSON"):
-            await genius.search_for_path(
-                client, artist_query="Робаний Йот", title=TITLE, duration_ms=None
-            )
+            await genius.search_for_path(client, artist_query="Робаний Йот", title=TITLE, duration_ms=None)
 
 
 @pytest.mark.parametrize("status_code", [403, 404, 429, 500, 503])
@@ -330,9 +309,7 @@ async def test_the_page_is_fetched_from_genius_by_the_validated_path() -> None:
 
 async def test_a_found_page_is_plain_lines(fake_cache: SourceCache) -> None:
     async with client_for(site()) as client:
-        result = await genius.fetch_lyrics(
-            client, fake_cache, artist_names=ARTISTS, title=TITLE, duration_ms=158_000
-        )
+        result = await genius.fetch_lyrics(client, fake_cache, artist_names=ARTISTS, title=TITLE, duration_ms=158_000)
 
     assert result.outcome is LyricsOutcome.UNSYNCED
     assert result.lines == tuple(LyricsLine(start_ms=None, text=text) for text in EXPECTED_LINES)
@@ -343,9 +320,7 @@ async def test_a_found_page_is_plain_lines(fake_cache: SourceCache) -> None:
 
 async def test_no_matching_hit_is_absent(fake_cache: SourceCache) -> None:
     async with client_for(site(search_body())) as client:
-        result = await genius.fetch_lyrics(
-            client, fake_cache, artist_names=ARTISTS, title=TITLE, duration_ms=None
-        )
+        result = await genius.fetch_lyrics(client, fake_cache, artist_names=ARTISTS, title=TITLE, duration_ms=None)
 
     assert result.outcome is LyricsOutcome.ABSENT
 
@@ -355,22 +330,20 @@ async def test_a_page_without_lyrics_raises_and_so_is_never_cached(
 ) -> None:
     async with client_for(site(page="<html><body>captcha</body></html>")) as client:
         with pytest.raises(GeniusApiError, match="немає тексту"):
-            await genius.fetch_lyrics(
-                client, fake_cache, artist_names=ARTISTS, title=TITLE, duration_ms=None
-            )
+            await genius.fetch_lyrics(client, fake_cache, artist_names=ARTISTS, title=TITLE, duration_ms=None)
 
 
 @pytest.mark.parametrize(("artist_names", "title"), [([], TITLE), (ARTISTS, "  "), ([" "], TITLE)])
 async def test_an_incomplete_query_is_absent_without_a_request(
-    fake_cache: SourceCache, artist_names: list[str], title: str
+    fake_cache: SourceCache,
+    artist_names: list[str],
+    title: str,
 ) -> None:
     def refuse(request: httpx.Request) -> httpx.Response:
         raise AssertionError("no request may be made")
 
     async with client_for(refuse) as client:
-        result = await genius.fetch_lyrics(
-            client, fake_cache, artist_names=artist_names, title=title, duration_ms=None
-        )
+        result = await genius.fetch_lyrics(client, fake_cache, artist_names=artist_names, title=title, duration_ms=None)
 
     assert result.outcome is LyricsOutcome.ABSENT
 

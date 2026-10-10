@@ -98,15 +98,9 @@ def test_the_detail_carries_every_editable_field() -> None:
 
 def test_the_detail_says_whether_the_post_has_a_video() -> None:
     plain = build_post_detail(make_post(), make_track(), [])
-    previewed = build_post_detail(
-        make_post(PostStatus.RENDERED, preview_message_id=5), make_track(), []
-    )
-    published = build_post_detail(
-        make_post(PostStatus.PUBLISHED, channel_message_kind="video"), make_track(), []
-    )
-    photo = build_post_detail(
-        make_post(PostStatus.PUBLISHED, channel_message_kind="photo"), make_track(), []
-    )
+    previewed = build_post_detail(make_post(PostStatus.RENDERED, preview_message_id=5), make_track(), [])
+    published = build_post_detail(make_post(PostStatus.PUBLISHED, channel_message_kind="video"), make_track(), [])
+    photo = build_post_detail(make_post(PostStatus.PUBLISHED, channel_message_kind="photo"), make_track(), [])
 
     assert [plain.has_video, previewed.has_video, published.has_video, photo.has_video] == [
         False,
@@ -128,9 +122,7 @@ def test_artists_show_their_stored_hashtag_and_the_default_one_for_a_placeholder
 def test_genres_come_from_the_post_with_their_default_hashtags() -> None:
     detail = build_post_detail(make_post(), make_track(), [])
 
-    assert [(g.name, g.hashtag, g.default_hashtag, g.source) for g in detail.genres] == [
-        ("Рок", None, "Рок", "deezer")
-    ]
+    assert [(g.name, g.hashtag, g.default_hashtag, g.source) for g in detail.genres] == [("Рок", None, "Рок", "deezer")]
 
 
 def test_platform_links_keep_their_source_and_match_and_skip_an_unreadable_entry() -> None:
@@ -178,9 +170,7 @@ def test_the_detail_judges_the_fragment_from_the_status_alone() -> None:
     )
     assert ready.fragment.cancellable is True
     assert (
-        build_post_detail(
-            make_post(PostStatus.EDITING, preview_message_id=99), make_track(), []
-        ).fragment.cancellable
+        build_post_detail(make_post(PostStatus.EDITING, preview_message_id=99), make_track(), []).fragment.cancellable
         is False
     )
     assert (resolved.fragment.cancellable, downloading.fragment.cancellable) == (False, False)
@@ -195,9 +185,7 @@ def test_the_detail_judges_the_fragment_from_the_status_alone() -> None:
 
 def test_the_detail_carries_the_cover_publication_verdict_with_the_preview_in_mind() -> None:
     draft = build_post_detail(make_post(PostStatus.RESOLVED), make_track(), [])
-    previewed = build_post_detail(
-        make_post(PostStatus.RESOLVED, preview_message_id=99), make_track(), []
-    )
+    previewed = build_post_detail(make_post(PostStatus.RESOLVED, preview_message_id=99), make_track(), [])
     ready = build_post_detail(make_post(PostStatus.EDITING), make_track(), [])
 
     assert (draft.cover_publication.allowed, draft.cover_publication.reason) == (True, None)
@@ -266,9 +254,7 @@ def test_the_stored_caption_is_reported_as_matching_only_when_it_is_the_rebuilt_
 
 
 def test_degradation_is_reported_for_an_overflowing_caption() -> None:
-    post = make_post(
-        genres=[{"name": f"жанр{index}", "hashtag": None, "source": "d"} for index in range(200)]
-    )
+    post = make_post(genres=[{"name": f"жанр{index}", "hashtag": None, "source": "d"} for index in range(200)])
 
     detail = build_post_detail(post, make_track(), [])
 
@@ -277,7 +263,11 @@ def test_degradation_is_reported_for_an_overflowing_caption() -> None:
     assert detail.caption.over_limit is False
 
 
-def make_row(post_id: int, status: PostStatus, **overrides: object) -> SimpleNamespace:
+def make_row(
+    post_id: int,
+    status: PostStatus,
+    **overrides: object,
+) -> SimpleNamespace:
     fields: dict[str, object] = {
         "id": post_id,
         "status": status,
@@ -331,9 +321,7 @@ async def test_the_statement_asks_for_one_extra_row_newest_first_without_hidden_
 
     await fetch_post_page(session, 50, 20)
 
-    statement = str(
-        session.execute.await_args.args[0].compile(compile_kwargs={"literal_binds": True})
-    )
+    statement = str(session.execute.await_args.args[0].compile(compile_kwargs={"literal_binds": True}))
     assert "ORDER BY post.id DESC" in statement
     assert "LIMIT 21" in statement
     assert "post.id < 50" in statement

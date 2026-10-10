@@ -50,7 +50,11 @@ def media_root(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def audio_client(settings: Settings, clock: Callable[[], float], media_root: Path) -> TestClient:
+def audio_client(
+    settings: Settings,
+    clock: Callable[[], float],
+    media_root: Path,
+) -> TestClient:
     configured = settings.model_copy(update={"media_root": media_root})
     return TestClient(create_webapp(configured, clock=clock))
 
@@ -59,9 +63,7 @@ def audio_url(post_id: int = POST_ID, token: str | None = None) -> str:
     return f"/api/posts/{post_id}/audio?token={token or token_for(post_id=post_id)}"
 
 
-def test_the_whole_file_is_served_with_the_pinned_headers(
-    audio_client: TestClient, media_root: Path
-) -> None:
+def test_the_whole_file_is_served_with_the_pinned_headers(audio_client: TestClient, media_root: Path) -> None:
     write_audio(media_root)
 
     response = audio_client.get(audio_url())
@@ -75,9 +77,7 @@ def test_the_whole_file_is_served_with_the_pinned_headers(
     assert "content-disposition" not in response.headers
 
 
-def test_a_range_request_is_answered_with_206_and_content_range(
-    audio_client: TestClient, media_root: Path
-) -> None:
+def test_a_range_request_is_answered_with_206_and_content_range(audio_client: TestClient, media_root: Path) -> None:
     write_audio(media_root)
 
     response = audio_client.get(audio_url(), headers={"Range": "bytes=0-99"})
@@ -119,7 +119,10 @@ def test_a_range_beyond_the_file_is_416(audio_client: TestClient, media_root: Pa
     ],
 )
 def test_the_content_type_comes_from_the_table(
-    audio_client: TestClient, media_root: Path, extension: str, content_type: str
+    audio_client: TestClient,
+    media_root: Path,
+    extension: str,
+    content_type: str,
 ) -> None:
     write_audio(media_root, extension)
 
@@ -142,9 +145,7 @@ def test_a_file_that_vanished_is_404_audio_gone(audio_client: TestClient) -> Non
     assert response.json()["code"] == "audio_gone"
 
 
-def test_the_peaks_file_is_never_served_as_audio(
-    audio_client: TestClient, media_root: Path
-) -> None:
+def test_the_peaks_file_is_never_served_as_audio(audio_client: TestClient, media_root: Path) -> None:
     peaks = media_root / "audio" / str(TRACK_ID) / "peaks" / f"{VIDEO_ID}.json"
     peaks.parent.mkdir(parents=True)
     peaks.write_text("{}", encoding="utf-8")
@@ -152,9 +153,7 @@ def test_the_peaks_file_is_never_served_as_audio(
     assert audio_client.get(audio_url()).status_code == 404
 
 
-def test_a_session_token_is_refused_as_a_media_token(
-    audio_client: TestClient, media_root: Path
-) -> None:
+def test_a_session_token_is_refused_as_a_media_token(audio_client: TestClient, media_root: Path) -> None:
     write_audio(media_root)
     session = issue_session_token(ADMIN_ID, BOT_TOKEN, NOW, 3600)
 
@@ -180,7 +179,9 @@ def test_a_media_token_is_refused_as_a_session_token(audio_client: TestClient) -
     ],
 )
 def test_an_expired_forged_or_malformed_token_is_401(
-    audio_client: TestClient, media_root: Path, token: str
+    audio_client: TestClient,
+    media_root: Path,
+    token: str,
 ) -> None:
     write_audio(media_root)
 
@@ -188,7 +189,9 @@ def test_an_expired_forged_or_malformed_token_is_401(
 
 
 def test_a_rejected_mismatch_and_a_rejected_stranger_are_logged_with_their_ids(
-    settings: Settings, clock: Callable[[], float], media_root: Path
+    settings: Settings,
+    clock: Callable[[], float],
+    media_root: Path,
 ) -> None:
     narrowed = settings.model_copy(update={"admin_ids": [222], "media_root": media_root})
     narrowed_client = TestClient(create_webapp(narrowed, clock=clock))
@@ -224,7 +227,9 @@ def test_a_token_for_another_post_is_401(audio_client: TestClient, media_root: P
 
 
 def test_a_token_of_a_user_who_is_no_longer_an_admin_is_403(
-    settings: Settings, clock: Callable[[], float], media_root: Path
+    settings: Settings,
+    clock: Callable[[], float],
+    media_root: Path,
 ) -> None:
     write_audio(media_root)
     narrowed = settings.model_copy(update={"admin_ids": [222], "media_root": media_root})
@@ -269,9 +274,7 @@ def test_a_refused_token_is_logged_with_a_reason_and_without_the_token(
         audio_client.get(audio_url(token=token))
 
     rejections = [entry for entry in captured if entry["event"] == "media_token_rejected"]
-    assert [(entry["reason"], entry["post_id"]) for entry in rejections] == [
-        ("token_bad_signature", POST_ID)
-    ]
+    assert [(entry["reason"], entry["post_id"]) for entry in rejections] == [("token_bad_signature", POST_ID)]
     assert token not in json.dumps(captured, default=str)
 
 
@@ -301,7 +304,9 @@ def test_locate_audio_file_is_none_without_a_file(media_root: Path) -> None:
 
 
 def test_locate_audio_file_refuses_a_file_that_resolves_outside_the_audio_directory(
-    media_root: Path, tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+    media_root: Path,
+    tmp_path_factory: pytest.TempPathFactory,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     outside = tmp_path_factory.mktemp("outside") / "secret.webm"
     outside.write_bytes(CONTENT)

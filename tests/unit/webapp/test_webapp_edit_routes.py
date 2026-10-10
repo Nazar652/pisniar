@@ -71,11 +71,11 @@ def make_preview() -> PreviewResponse:
     )
 
 
-@pytest.mark.parametrize(
-    ("method", "path"), [("put", "/api/posts/7/fields"), ("post", "/api/posts/7/preview")]
-)
+@pytest.mark.parametrize(("method", "path"), [("put", "/api/posts/7/fields"), ("post", "/api/posts/7/preview")])
 def test_an_anonymous_or_foreign_caller_is_refused_before_the_database(
-    settings: Settings, method: str, path: str
+    settings: Settings,
+    method: str,
+    path: str,
 ) -> None:
     client, session_factory = make_client(settings)
 
@@ -86,9 +86,7 @@ def test_an_anonymous_or_foreign_caller_is_refused_before_the_database(
     session_factory.assert_not_called()
 
 
-def test_a_save_returns_the_fresh_detail(
-    settings: Settings, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_save_returns_the_fresh_detail(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
     save = AsyncMock(return_value=make_detail())
     monkeypatch.setattr(posts_module, "save_fields", save)
     client, _ = make_client(settings)
@@ -101,9 +99,7 @@ def test_a_save_returns_the_fresh_detail(
     assert (args[1], args[3], args[4]) == (7, 2027, ADMIN_ID)
 
 
-def test_a_preview_returns_the_caption_and_the_difference(
-    settings: Settings, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_preview_returns_the_caption_and_the_difference(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
     preview = AsyncMock(return_value=make_preview())
     monkeypatch.setattr(posts_module, "preview_fields", preview)
     client, _ = make_client(settings)
@@ -166,16 +162,12 @@ def test_a_refusal_is_a_409_with_its_own_code_and_sentence(
     assert response.json() == {"code": code, "message": "Речення для адміна."}
 
 
-def test_invalid_fields_are_a_422_listing_every_field(
-    settings: Settings, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_invalid_fields_are_a_422_listing_every_field(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
     errors = [
         FieldError(field="year", message="Рік поза межами."),
         FieldError(field="title", message="Порожньо."),
     ]
-    monkeypatch.setattr(
-        posts_module, "save_fields", AsyncMock(side_effect=FieldsInvalidError(errors))
-    )
+    monkeypatch.setattr(posts_module, "save_fields", AsyncMock(side_effect=FieldsInvalidError(errors)))
     client, _ = make_client(settings)
 
     response = client.put("/api/posts/7/fields", json=SAVE_BODY, headers=bearer())
@@ -191,7 +183,9 @@ def test_invalid_fields_are_a_422_listing_every_field(
 
 @pytest.mark.parametrize("post_id", ["0", "-1", "abc", str(POST_ID_MAX + 1), "9" * 30])
 def test_a_bad_post_id_is_a_422_before_any_work(
-    settings: Settings, monkeypatch: pytest.MonkeyPatch, post_id: str
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+    post_id: str,
 ) -> None:
     save = AsyncMock()
     monkeypatch.setattr(posts_module, "save_fields", save)
@@ -220,7 +214,9 @@ def test_a_bad_post_id_is_a_422_before_any_work(
     ],
 )
 def test_a_malformed_save_body_is_a_422_and_never_a_500(
-    settings: Settings, monkeypatch: pytest.MonkeyPatch, mutation: dict[str, Any]
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+    mutation: dict[str, Any],
 ) -> None:
     save = AsyncMock()
     monkeypatch.setattr(posts_module, "save_fields", save)
@@ -235,7 +231,9 @@ def test_a_malformed_save_body_is_a_422_and_never_a_500(
 
 @pytest.mark.parametrize("missing", ["expected_post_updated_at", "expected_track_updated_at"])
 def test_a_save_without_its_versions_is_refused(
-    settings: Settings, monkeypatch: pytest.MonkeyPatch, missing: str
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+    missing: str,
 ) -> None:
     save = AsyncMock()
     monkeypatch.setattr(posts_module, "save_fields", save)
@@ -248,9 +246,7 @@ def test_a_save_without_its_versions_is_refused(
     save.assert_not_awaited()
 
 
-def test_a_preview_does_not_need_the_versions(
-    settings: Settings, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_preview_does_not_need_the_versions(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(posts_module, "preview_fields", AsyncMock(return_value=make_preview()))
     client, _ = make_client(settings)
 
@@ -277,9 +273,7 @@ def test_a_lock_failure_in_a_save_is_a_409_and_another_failure_a_503(
     assert "secret-dsn" not in down.text
 
 
-def test_a_preview_database_failure_is_a_503(
-    settings: Settings, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_preview_database_failure_is_a_503(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(posts_module, "preview_fields", AsyncMock(side_effect=OSError("refused")))
     client, _ = make_client(settings)
 
@@ -300,9 +294,7 @@ def test_without_a_session_factory_both_routes_are_a_503(settings: Settings) -> 
     ("sqlstate", "expected"),
     [("55P03", True), ("57014", True), ("23505", False), ("40001", False), (None, False)],
 )
-def test_only_the_two_lock_sqlstates_count_as_a_lock_failure(
-    sqlstate: str | None, expected: bool
-) -> None:
+def test_only_the_two_lock_sqlstates_count_as_a_lock_failure(sqlstate: str | None, expected: bool) -> None:
     assert is_lock_failure(database_error(sqlstate)) is expected
 
 
@@ -363,9 +355,7 @@ async def test_a_lock_failure_while_writing_is_a_409() -> None:
     assert (raised.value.status_code, raised.value.code) == (409, "post_busy")
 
 
-@pytest.mark.parametrize(
-    "error", [database_error("23505"), OperationalError("x", {}, Exception()), OSError("down")]
-)
+@pytest.mark.parametrize("error", [database_error("23505"), OperationalError("x", {}, Exception()), OSError("down")])
 async def test_any_other_failure_while_writing_is_a_503(error: Exception) -> None:
     async def write(opened: Any) -> None:
         raise error

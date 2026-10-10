@@ -1,6 +1,5 @@
-"""Deezer genre-id -> Ukrainian name dictionary. Keyed by `id`, not the
-localized `name`: Deezer localizes names by request IP (a Romanian IP gets
-"Alternativă" for id 85).
+"""Deezer genre-id -> Ukrainian name dictionary. Keyed by `id`, not the localized `name`: Deezer localizes names by
+request IP (a Romanian IP gets "Alternativă" for id 85).
 """
 
 from __future__ import annotations
@@ -39,15 +38,12 @@ DEEZER_GENRE_NAMES: dict[int, tuple[str, str]] = {
 
 
 def deezer_genre_name(genre_id: int, fallback_english_name: str) -> str | None:
-    """never falls back to `fallback_english_name` (may be IP-localized); that
-    value is for the WARN log only."""
+    """never falls back to `fallback_english_name` (may be IP-localized); that value is for the WARN log only."""
     if genre_id == DEEZER_UNCLASSIFIED_GENRE_ID:
         return None
 
     entry = DEEZER_GENRE_NAMES.get(genre_id)
     if entry is None:
-        logger.warning(
-            "deezer_genre_id_unknown", genre_id=genre_id, english_name=fallback_english_name
-        )
+        logger.warning("deezer_genre_id_unknown", genre_id=genre_id, english_name=fallback_english_name)
         return None
     return entry[1]

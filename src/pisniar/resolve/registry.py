@@ -1,5 +1,5 @@
-"""ISRC-first fan-out: exact-ISRC sources write `platform_links` unconditionally;
-name-search candidates must pass `matching.is_match()` or are dropped with a warning.
+"""ISRC-first fan-out: exact-ISRC sources write `platform_links` unconditionally; name-search candidates must pass
+`matching.is_match()` or are dropped with a warning.
 """
 
 from __future__ import annotations
@@ -37,13 +37,13 @@ async def isolated_source_call[ResultT](
     call: Coroutine[Any, Any, ResultT],
     empty_result: ResultT,
 ) -> ResultT:
-    """one source raising must not fail a post the others can fill; the failure
-    is recorded on the track so the admin still hears about it."""
+    """one source raising must not fail a post the others can fill; the failure is recorded on the track so the admin
+    still hears about it."""
     try:
         return await call
     except SQLAlchemyError:
-        # infrastructure is not a source: `SourceCache` talks to Postgres in every
-        # call, and a dead database must not read as "all six sources failed".
+        # infrastructure is not a source: `SourceCache` talks to Postgres in every call, and a dead database must not
+        # read as "all six sources failed".
         logger.exception("resolve_source_cache_failed", source=source)
         raise
     except Exception as error:
@@ -52,16 +52,23 @@ async def isolated_source_call[ResultT](
         return empty_result
 
 
-def record_source_failure(track: ResolvedTrack, source: str, error: Exception) -> None:
-    """one entry per source: `deezer:album` is fetched twice (year/type here,
-    genres in `service.resolve_genres`)."""
+def record_source_failure(
+    track: ResolvedTrack,
+    source: str,
+    error: Exception,
+) -> None:
+    """one entry per source: `deezer:album` is fetched twice (year/type here, genres in `service.resolve_genres`)."""
     prefix = f"{source}: "
     if any(failure.startswith(prefix) for failure in track.source_failures):
         return
     track.source_failures.append(f"{prefix}{error}")
 
 
-async def resolve_by_isrc(context: ResolveContext, isrc: str, track: ResolvedTrack) -> None:
+async def resolve_by_isrc(
+    context: ResolveContext,
+    isrc: str,
+    track: ResolvedTrack,
+) -> None:
     """no `matching` call here: the identifier is the proof."""
     deezer_result = await isolated_source_call(
         track,
@@ -98,9 +105,7 @@ async def resolve_by_isrc(context: ResolveContext, isrc: str, track: ResolvedTra
     musicbrainz_result = await isolated_source_call(
         track,
         "musicbrainz",
-        musicbrainz.fetch_by_isrc(
-            context.http_client, context.cache, isrc, context.musicbrainz_contact
-        ),
+        musicbrainz.fetch_by_isrc(context.http_client, context.cache, isrc, context.musicbrainz_contact),
         musicbrainz.MusicBrainzRecordingResult(found=False),
     )
     if musicbrainz_result.found:
@@ -131,9 +136,7 @@ async def resolve_by_name_with_matching(
     itunes_candidates = await isolated_source_call(
         track,
         "itunes",
-        itunes.search_by_name(
-            context.http_client, context.cache, artist, title, context.itunes_country
-        ),
+        itunes.search_by_name(context.http_client, context.cache, artist, title, context.itunes_country),
         [],
     )
     match_and_merge(track, "appleMusic", itunes_candidates, artist, title, duration_ms, "itunes")
@@ -141,9 +144,7 @@ async def resolve_by_name_with_matching(
     ytmusic_candidates = await isolated_source_call(
         track, "ytmusic", ytmusic.search_by_name(context.cache, artist, title), []
     )
-    matched = match_and_merge(
-        track, "youtubeMusic", ytmusic_candidates, artist, title, duration_ms, "ytmusic"
-    )
+    matched = match_and_merge(track, "youtubeMusic", ytmusic_candidates, artist, title, duration_ms, "ytmusic")
     if matched is not None:
         video_id = classify_url(matched.url).track_id
         # source-supplied, and this id can end up in `yt-dlp`.
@@ -165,9 +166,7 @@ def match_and_merge(
     duration_ms: int | None,
     source_label: str,
 ) -> TrackCandidate | None:
-    matched = matching.find_matching_candidate(
-        candidates, artist=artist, title=title, duration_ms=duration_ms
-    )
+    matched = matching.find_matching_candidate(candidates, artist=artist, title=title, duration_ms=duration_ms)
     if matched is not None:
         merge.merge_platform_link(
             track,
@@ -185,9 +184,7 @@ def match_and_merge(
             reference_artist=artist,
             reference_title=title,
         )
-        track.warnings.append(
-            matching.rejected_candidates_warning(source_label, len(candidates), artist, title)
-        )
+        track.warnings.append(matching.rejected_candidates_warning(source_label, len(candidates), artist, title))
     return None
 
 
@@ -207,7 +204,9 @@ DEEZER_RECORD_TYPE_NORMALIZATION = {"compile": "compilation"}
 
 
 def apply_deezer_album_result(
-    track: ResolvedTrack, album_id: int, result: deezer.DeezerAlbumResult
+    track: ResolvedTrack,
+    album_id: int,
+    result: deezer.DeezerAlbumResult,
 ) -> None:
     """year and release type only; genres are built by `service.resolve_genres()`."""
     if not result.found:
@@ -221,8 +220,8 @@ def apply_deezer_album_result(
 
 
 def release_year(release_date: str | None) -> int | None:
-    """deezer answers `"0000-00-00"` for an unknown date, and `int("0000")`
-    is a `0` that `merge_field` would write over a stored year."""
+    """deezer answers `"0000-00-00"` for an unknown date, and `int("0000")` is a `0` that `merge_field` would write
+    over a stored year."""
     if release_date is None or len(release_date) < 4:
         return None
 

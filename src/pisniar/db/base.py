@@ -1,6 +1,5 @@
-"""Declarative base with an explicit constraint naming convention, fixed
-before the first table — retrofitting it later means a data migration to
-rename every constraint in Postgres.
+"""Declarative base with an explicit constraint naming convention, fixed before the first table — retrofitting it later
+means a data migration to rename every constraint in Postgres.
 """
 
 from __future__ import annotations

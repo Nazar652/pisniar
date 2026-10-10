@@ -11,8 +11,7 @@ USER_INPUT_SOURCE = "user_input"
 
 
 class MatchClass(StrEnum):
-    """`REJECTED` is deliberately absent: a rejected candidate is never written
-    to `platform_links` at all."""
+    """`REJECTED` is deliberately absent: a rejected candidate is never written to `platform_links` at all."""
 
     EXACT_ISRC = "exact_isrc"
     AGGREGATOR = "aggregator"
@@ -43,8 +42,7 @@ class GenreInfo:
 
 @dataclass(frozen=True)
 class TrackCandidate:
-    """a name-search hit that still needs `matching.is_match()` before it
-    can become a `PlatformLink`."""
+    """a name-search hit that still needs `matching.is_match()` before it can become a `PlatformLink`."""
 
     platform: str
     url: str

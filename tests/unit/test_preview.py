@@ -152,9 +152,7 @@ async def test_a_telegram_failure_propagates_and_leaves_the_reference_null(
     """the opposite of `send_alert`: the preview is the product, so its failure
     must reach the task and turn the post `failed`."""
     bot = make_bot()
-    bot.send_video.side_effect = TelegramAPIError(
-        method=SendVideo(chat_id=999, video="x"), message="boom"
-    )
+    bot.send_video.side_effect = TelegramAPIError(method=SendVideo(chat_id=999, video="x"), message="boom")
     post = make_post()
 
     with pytest.raises(TelegramAPIError):

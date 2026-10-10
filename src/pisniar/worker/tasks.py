@@ -1,6 +1,5 @@
-"""Celery task implementations — the `celery -A pisniar.worker.tasks worker`
-entrypoint. Importing this reads/validates `Settings`, unlike
-`worker.celery_app`, which `bot` (never this module) imports instead.
+"""Celery task implementations — the `celery -A pisniar.worker.tasks worker` entrypoint. Importing this reads/validates
+`Settings`, unlike `worker.celery_app`, which `bot` (never this module) imports instead.
 """
 
 from __future__ import annotations
@@ -136,9 +135,7 @@ async def task_session_factory(
 ) -> AsyncIterator[async_sessionmaker[AsyncSession]]:
     """a fresh `NullPool` engine for one task, disposed on every way out; the
     `lock_timeout` is set only by the callers that pass it."""
-    engine = build_engine(
-        settings.database_url, use_null_pool=True, lock_timeout_ms=lock_timeout_ms
-    )
+    engine = build_engine(settings.database_url, use_null_pool=True, lock_timeout_ms=lock_timeout_ms)
     try:
         yield build_session_factory(engine)
     finally:
@@ -175,17 +172,14 @@ async def perform_ping(post_id: int | None) -> None:
             await session.execute(text("SELECT 1"))
 
         async with bot_client() as bot:
-            delivered = await send_alert(
-                bot, settings.alert_chat_id, f"Діагностичний пінг виконано, post_id={post_id}"
-            )
+            delivered = await send_alert(bot, settings.alert_chat_id, f"Діагностичний пінг виконано, post_id={post_id}")
 
     logger.info("ping_task_finished", post_id=post_id, alert_delivered=delivered)
 
 
 @celery_app.task(name=RESOLVE_POST_TASK_NAME, bind=True)
 def resolve_post(self: Any, post_id: int) -> None:
-    """errors are terminal: FAILED, an alert and a manual `/retry`; this task
-    never asks Celery to retry."""
+    """errors are terminal: FAILED, an alert and a manual `/retry`; this task never asks Celery to retry."""
     bind_celery_task_id(self.request.id)
     bind_post_id(post_id)
     run_async(perform_resolve_post(post_id))
@@ -249,10 +243,7 @@ async def redeliver_if_resolved(session: AsyncSession, post: Post) -> None:
             await send_alert(
                 bot,
                 settings.alert_chat_id,
-                redacted_text(
-                    f"Пост {post_id} уже в стані «resolved», "
-                    f"але чернетку доставити не вдалося: {error}"
-                ),
+                redacted_text(f"Пост {post_id} уже в стані «resolved», але чернетку доставити не вдалося: {error}"),
             )
 
 
@@ -290,22 +281,14 @@ async def resolve_and_deliver(
             if track.resolved_at is not None or track.platform_links:
                 # one stale 404 is not proof the track is gone, and deleting
                 # here would take the admin's manual data with it.
-                empty_error = (
-                    EMPTY_RE_RESOLVE_ERROR
-                    if track.resolved_at is not None
-                    else EMPTY_FIRST_RESOLVE_ERROR
-                )
-                await fail_post(
-                    session, post_id, empty_error + source_failure_note(source_failures)
-                )
+                empty_error = EMPTY_RE_RESOLVE_ERROR if track.resolved_at is not None else EMPTY_FIRST_RESOLVE_ERROR
+                await fail_post(session, post_id, empty_error + source_failure_note(source_failures))
                 return
             nothing_usable = True
         elif not (resolved.title or track.title):
             # a draft with no track name would still mark the post RESOLVED.
             # The stored title counts: `persist_track` merges it back in.
-            await fail_post(
-                session, post_id, MISSING_TITLE_ERROR + source_failure_note(source_failures)
-            )
+            await fail_post(session, post_id, MISSING_TITLE_ERROR + source_failure_note(source_failures))
             return
         else:
             genres = await resolve_genres(context, resolved)
@@ -372,9 +355,7 @@ async def resolve_and_deliver(
 def resolve_found_anything(resolved: ResolvedTrack) -> bool:
     """a `user_input` link is the admin's own URL, put into the result before
     any network call — never evidence that a source answered."""
-    resolved_links = [
-        link for link in resolved.platform_links.values() if link.source != USER_INPUT_SOURCE
-    ]
+    resolved_links = [link for link in resolved.platform_links.values() if link.source != USER_INPUT_SOURCE]
     return bool(resolved.title or resolved.artists or resolved_links)
 
 
@@ -391,9 +372,7 @@ def build_resolve_context(
 ) -> ResolveContext:
     return ResolveContext(
         http_client=http_client,
-        cache=SourceCache(
-            session_factory=session_factory, ttl_seconds=settings.source_fetch_ttl_seconds
-        ),
+        cache=SourceCache(session_factory=session_factory, ttl_seconds=settings.source_fetch_ttl_seconds),
         spotify_client_id=settings.spotify_client_id,
         spotify_client_secret=settings.spotify_client_secret.get_secret_value(),
         itunes_country=settings.itunes_country,
@@ -448,15 +427,12 @@ def persist_track(track: Track, resolved: ResolvedTrack) -> None:
     track.album_id_spotify = resolved.album_id_spotify
     track.cover_url = resolved.cover_url
     track.duration_ms = resolved.duration_ms
-    track.platform_links = {
-        platform: platform_link_to_dict(link) for platform, link in resolved.platform_links.items()
-    }
+    track.platform_links = {platform: platform_link_to_dict(link) for platform, link in resolved.platform_links.items()}
     track.resolved_at = datetime.now(UTC)
 
 
 def stored_scalars(track: Track) -> dict[str, object]:
-    """`merge` stays free of ORM imports, so the row's scalars are handed
-    over as a plain dict."""
+    """`merge` stays free of ORM imports, so the row's scalars are handed over as a plain dict."""
     return {name: getattr(track, name) for name in merge.STORED_SCALAR_FIELDS}
 
 
@@ -472,7 +448,11 @@ def platform_link_to_dict(link: PlatformLink) -> dict[str, object]:
     return {"url": link.url, "source": link.source, "match": link.match.value}
 
 
-async def warn_about_isrc_duplicate(session: AsyncSession, post: Post, track: Track) -> None:
+async def warn_about_isrc_duplicate(
+    session: AsyncSession,
+    post: Post,
+    track: Track,
+) -> None:
     """the same recording arrived through another platform's URL, which the
     `source_url_normalized` check alone can never notice."""
     if track.isrc is None:
@@ -509,7 +489,9 @@ async def warn_about_isrc_duplicate(session: AsyncSession, post: Post, track: Tr
 
 
 async def warn_about_source_failures(
-    post: Post, source_failures: list[str], link_rejections: list[str]
+    post: Post,
+    source_failures: list[str],
+    link_rejections: list[str],
 ) -> None:
     """source isolation is acceptable only while the loss is audible, so a poorer
     post is reported to the admin, not only to the logs."""
@@ -547,7 +529,11 @@ def redacted_text(text_value: str) -> str:
     return redact_secrets_in_text(text_value, redaction_secrets(settings))
 
 
-async def fail_post(session: AsyncSession, post_id: int, error_message: str) -> None:
+async def fail_post(
+    session: AsyncSession,
+    post_id: int,
+    error_message: str,
+) -> None:
     """takes an id, never a live `Post`: its inputs must survive the rollback a
     failed commit performs, which expires every ORM object in the session."""
     error_message = redacted_text(error_message)
@@ -567,20 +553,19 @@ async def fail_post(session: AsyncSession, post_id: int, error_message: str) -> 
             logger.exception("resolve_post_failed_status_write_failed", post_id=post_id)
             status_written = False
 
-    alert_text = (
-        f"Не вдалося обробити пост {post_id}: {error_message}\n"
-        f"Адмін може повторити командою /retry {post_id}"
-    )
+    alert_text = f"Не вдалося обробити пост {post_id}: {error_message}\nАдмін може повторити командою /retry {post_id}"
     if not status_written:
-        alert_text += (
-            "\nСтатус у базі зафіксувати не вдалося — пост міг лишитись у стані «resolving»."
-        )
+        alert_text += "\nСтатус у базі зафіксувати не вдалося — пост міг лишитись у стані «resolving»."
 
     async with bot_client() as bot:
         await send_alert(bot, settings.alert_chat_id, alert_text)
 
 
-async def write_failed_status(session: AsyncSession, post_id: int, error_message: str) -> None:
+async def write_failed_status(
+    session: AsyncSession,
+    post_id: int,
+    error_message: str,
+) -> None:
     post = await session.get(Post, post_id, with_for_update={"key_share": True})
     if post is None or post.status is PostStatus.FAILED:
         # no `FAILED -> FAILED` edge exists, and a second call into the
@@ -592,7 +577,10 @@ async def write_failed_status(session: AsyncSession, post_id: int, error_message
 
 
 async def clean_up_non_track(
-    session: AsyncSession, post: Post, track: Track, source_failures: list[str]
+    session: AsyncSession,
+    post: Post,
+    track: Track,
+    source_failures: list[str],
 ) -> None:
     """a track-shaped URL that resolved to nothing usable."""
     logger.warning("resolve_post_cleaned_up_non_track", post_id=post.id, track_id=track.id)
@@ -605,17 +593,17 @@ async def clean_up_non_track(
         if post_deleted
         else "Не вдалося розпізнати трек за посиланням, але прибрати запис не вдалося."
     )
-    alert_text = (
-        f"{head} post_id={post_id}, url={source_url}"
-        f"{cleanup_note}{source_failure_note(source_failures)}"
-    )
+    alert_text = f"{head} post_id={post_id}, url={source_url}{cleanup_note}{source_failure_note(source_failures)}"
 
     async with bot_client() as bot:
         await send_alert(bot, settings.alert_chat_id, alert_text)
 
 
 async def delete_post_and_orphan_track(
-    session: AsyncSession, post: Post, post_id: int, track: Track
+    session: AsyncSession,
+    post: Post,
+    post_id: int,
+    track: Track,
 ) -> tuple[bool, str]:
     """returns `(post_deleted, note)` instead of raising: like `fail_post`, this
     path must still reach Telegram when Postgres is gone."""
@@ -627,8 +615,7 @@ async def delete_post_and_orphan_track(
         logger.exception("resolve_post_cleanup_post_delete_failed", post_id=post_id)
         await rollback_quietly(session, post_id)
         return False, (
-            f"\nЗапис у базі прибрати не вдалося — пост міг лишитись "
-            f"у стані «resolving»: {redacted_text(str(error))}"
+            f"\nЗапис у базі прибрати не вдалося — пост міг лишитись у стані «resolving»: {redacted_text(str(error))}"
         )
 
     # after the commit: the reverse order leaves a surviving row pointing at a
@@ -638,12 +625,8 @@ async def delete_post_and_orphan_track(
     try:
         # re-taken after that commit released it: the lock blocks a concurrent
         # `INSERT INTO post` this COUNT would miss. FOR NO KEY UPDATE, as elsewhere.
-        await session.execute(
-            select(Track.id).where(Track.id == track_id).with_for_update(key_share=True)
-        )
-        remaining_posts = await session.scalar(
-            select(func.count()).select_from(Post).where(Post.track_id == track_id)
-        )
+        await session.execute(select(Track.id).where(Track.id == track_id).with_for_update(key_share=True))
+        remaining_posts = await session.scalar(select(func.count()).select_from(Post).where(Post.track_id == track_id))
         if remaining_posts == 0:
             await session.delete(track)
             try:
@@ -656,8 +639,7 @@ async def delete_post_and_orphan_track(
             else:
                 media_storage.remove_track_artifacts(settings.media_root, track_id)
         else:
-            # committed before Telegram, so the row lock is never held across
-            # network calls.
+            # committed before Telegram, so the row lock is never held across network calls.
             await session.commit()
     except Exception as error:
         logger.exception("resolve_post_cleanup_track_failed", track_id=track_id)
@@ -678,8 +660,7 @@ async def rollback_quietly(session: AsyncSession, post_id: int) -> None:
 
 @celery_app.task(name=PUBLISH_POST_TASK_NAME, bind=True)
 def publish_post(self: Any, post_id: int, published_by_user_id: int) -> None:
-    """terminal on error, like `resolve_post`: FAILED, an alert and a manual
-    retry, never a Celery retry."""
+    """terminal on error, like `resolve_post`: FAILED, an alert and a manual retry, never a Celery retry."""
     bind_celery_task_id(self.request.id)
     bind_post_id(post_id)
     run_async(perform_publish_post(post_id, published_by_user_id))
@@ -744,9 +725,7 @@ async def video_for_publication(session: AsyncSession, post: Post) -> RenderedVi
 
     render_row = (
         await session.execute(
-            select(Render).where(
-                Render.post_id == post.id, Render.params_hash == post.preview_params_hash
-            )
+            select(Render).where(Render.post_id == post.id, Render.params_hash == post.preview_params_hash)
         )
     ).scalar_one_or_none()
     if render_row is None:
@@ -757,9 +736,7 @@ async def video_for_publication(session: AsyncSession, post: Post) -> RenderedVi
 
     path = Path(render_row.path)
     if media_storage.existing_artifact(path) is None:
-        raise RenderedVideoUnavailableError(
-            f"файл відео {path} зник із тому — повторіть рендер через /retry {post.id}"
-        )
+        raise RenderedVideoUnavailableError(f"файл відео {path} зник із тому — повторіть рендер через /retry {post.id}")
 
     thumbnail = media_storage.existing_artifact(
         media_storage.thumbnail_file_path(settings.media_root, post.id, render_row.params_hash)
@@ -774,7 +751,10 @@ async def video_for_publication(session: AsyncSession, post: Post) -> RenderedVi
 
 
 async def publish_and_confirm(
-    session: AsyncSession, post: Post, track: Track, published_by_user_id: int
+    session: AsyncSession,
+    post: Post,
+    track: Track,
+    published_by_user_id: int,
 ) -> None:
     # read before anything can expire the ORM objects: the failure path below
     # rolls back, and a later attribute access would be a lazy refresh.
@@ -852,9 +832,7 @@ async def confirm_publication(
             continue
 
         try:
-            await bot.edit_message_reply_markup(
-                chat_id=chat_id, message_id=message_id, reply_markup=None
-            )
+            await bot.edit_message_reply_markup(chat_id=chat_id, message_id=message_id, reply_markup=None)
         except TelegramAPIError:
             # the bot already removed it on the tap; this is the second pass,
             # for the paths (a retry, a redelivery) that never went through one.
@@ -875,7 +853,10 @@ async def confirm_publication(
 
 
 async def fail_publish(
-    session: AsyncSession, post_id: int, draft_chat_id: int | None, error_message: str
+    session: AsyncSession,
+    post_id: int,
+    draft_chat_id: int | None,
+    error_message: str,
 ) -> None:
     """the publish mirror of `fail_post`: plain values only, never a live
     `Post`, so it survives the rollback that expires every ORM object."""
@@ -894,14 +875,9 @@ async def fail_publish(
             logger.exception("publish_post_failed_status_write_failed", post_id=post_id)
             status_written = False
 
-    alert_text = (
-        f"Не вдалося опублікувати пост {post_id}: {error_message}\n"
-        f"Повторити публікацію: /retry {post_id}"
-    )
+    alert_text = f"Не вдалося опублікувати пост {post_id}: {error_message}\nПовторити публікацію: /retry {post_id}"
     if not status_written:
-        alert_text += (
-            "\nСтатус у базі зафіксувати не вдалося — пост міг лишитись у стані «publishing»."
-        )
+        alert_text += "\nСтатус у базі зафіксувати не вдалося — пост міг лишитись у стані «publishing»."
 
     chat_ids = [settings.alert_chat_id]
     if draft_chat_id is not None and draft_chat_id != settings.alert_chat_id:
@@ -1110,9 +1086,7 @@ async def perform_download_post_audio(post_id: int, *, then_render: bool) -> Non
             outcome = await guard_media_stage(
                 session_factory,
                 post_id,
-                lambda: asyncio.to_thread(
-                    download_audio_off_transaction, claim, temporary_directory
-                ),
+                lambda: asyncio.to_thread(download_audio_off_transaction, claim, temporary_directory),
                 timeout_event="download_post_audio_soft_time_limit",
                 failure_event="download_post_audio_failed",
             )
@@ -1131,9 +1105,7 @@ async def claim_post_for_downloading(
     """transaction 1: lock, guard, status, commit — milliseconds, and the lock
     is gone long before yt-dlp is started. A previewed post is never downloaded again."""
     async with session_factory() as session:
-        post = await lock_post_for_claim(
-            session, post_id, DOWNLOAD_ENTRY_STATUSES, DOWNLOAD_CLAIM_EVENTS
-        )
+        post = await lock_post_for_claim(session, post_id, DOWNLOAD_ENTRY_STATUSES, DOWNLOAD_CLAIM_EVENTS)
         if post is None:
             return None
 
@@ -1158,9 +1130,7 @@ async def claim_post_for_downloading(
     return claim
 
 
-def download_audio_off_transaction(
-    claim: DownloadClaim, temporary_directory: Path
-) -> DownloadOutcome:
+def download_audio_off_transaction(claim: DownloadClaim, temporary_directory: Path) -> DownloadOutcome:
     """runs in a thread with no transaction and no lock open."""
     video_id = audio_download.youtube_music_video_id(claim.platform_links)
 
@@ -1173,9 +1143,7 @@ def download_audio_off_transaction(
             track_id=claim.track_id,
             path=str(reused),
         )
-        audio_peaks.ensure_peaks(
-            settings.media_root, claim.track_id, video_id, reused, temporary_directory
-        )
+        audio_peaks.ensure_peaks(settings.media_root, claim.track_id, video_id, reused, temporary_directory)
         return DownloadOutcome(
             video_id=video_id,
             path=reused,
@@ -1197,9 +1165,7 @@ def download_audio_off_transaction(
         settings.media_root, claim.track_id, video_id, downloaded.suffix.lstrip(".")
     )
     media_storage.publish_atomically(downloaded, final_path)
-    audio_peaks.ensure_peaks(
-        settings.media_root, claim.track_id, video_id, final_path, temporary_directory
-    )
+    audio_peaks.ensure_peaks(settings.media_root, claim.track_id, video_id, final_path, temporary_directory)
 
     return DownloadOutcome(
         video_id=video_id,
@@ -1269,15 +1235,11 @@ async def finish_download(
         logger.info("audio_ready_for_fragment_choice", post_id=claim.post_id)
 
 
-async def chain_render_after_download(
-    session_factory: async_sessionmaker[AsyncSession], post_id: int
-) -> None:
+async def chain_render_after_download(session_factory: async_sessionmaker[AsyncSession], post_id: int) -> None:
     """after the commit, so a redelivered render never outruns the `DOWNLOADED` it
     needs. A failed dispatch fails the post: no task would move it otherwise."""
     try:
-        await asyncio.to_thread(
-            celery_app.send_task, RENDER_POST_VIDEO_TASK_NAME, kwargs={"post_id": post_id}
-        )
+        await asyncio.to_thread(celery_app.send_task, RENDER_POST_VIDEO_TASK_NAME, kwargs={"post_id": post_id})
     except Exception:
         logger.exception("render_task_dispatch_failed", post_id=post_id)
         await fail_media_post(session_factory, post_id, RENDER_DISPATCH_FAILED_ERROR)
@@ -1309,9 +1271,7 @@ def upsert_audio_asset_statement(claim: DownloadClaim, outcome: DownloadOutcome)
             duration_ms=outcome.duration_ms,
             ytdlp_version=outcome.ytdlp_version or UNKNOWN_YTDLP_VERSION,
         )
-        .on_conflict_do_update(
-            index_elements=[AudioAsset.track_id, AudioAsset.video_id], set_=update_set
-        )
+        .on_conflict_do_update(index_elements=[AudioAsset.track_id, AudioAsset.video_id], set_=update_set)
     )
 
 
@@ -1344,8 +1304,7 @@ def fragment_bounds_for(post: Post, audio_duration_ms: int) -> fragment_rule.Fra
     time_limit=settings.render_task_time_limit_seconds,
 )
 def render_post_video(self: Any, post_id: int) -> None:
-    """terminal on error like every other task here: FAILED plus an alert,
-    never a Celery retry."""
+    """terminal on error like every other task here: FAILED plus an alert, never a Celery retry."""
     bind_celery_task_id(self.request.id)
     bind_post_id(post_id)
     run_media_task(post_id, perform_render_post_video, "render_post_video_soft_time_limit")
@@ -1380,7 +1339,9 @@ async def perform_render_post_video(post_id: int) -> None:
 
 
 async def finish_render_or_fail(
-    session_factory: async_sessionmaker[AsyncSession], claim: RenderClaim, outcome: RenderOutcome
+    session_factory: async_sessionmaker[AsyncSession],
+    claim: RenderClaim,
+    outcome: RenderOutcome,
 ) -> PreviewReference | None:
     """`RENDERED` has no edge to `FAILED`, so a preview delivery failure is
     reported from `RENDERING`, the state that can legally fail."""
@@ -1400,7 +1361,9 @@ class PreviewReference:
 
 
 async def notify_about_missing_text(
-    post_id: int, outcome: RenderOutcome, preview: PreviewReference
+    post_id: int,
+    outcome: RenderOutcome,
+    preview: PreviewReference,
 ) -> None:
     """sent after the `RENDERED` commit and never raising: a lost notice is a log
     line, never a failed post or a retried task. Not in the caption, which is verbatim."""
@@ -1415,9 +1378,7 @@ async def notify_about_missing_text(
 
     try:
         async with bot_client() as bot:
-            delivered = await send_alert(
-                bot, preview.chat_id, notice, reply_to_message_id=preview.message_id
-            )
+            delivered = await send_alert(bot, preview.chat_id, notice, reply_to_message_id=preview.message_id)
     except SoftTimeLimitExceeded:
         # the post is already `RENDERED`; the sync wrapper would try to fail it.
         logger.error("render_post_video_no_text_notice_timed_out", post_id=post_id)
@@ -1441,9 +1402,7 @@ async def queue_plain_lyrics_lookup(track_id: int, lyrics_reason: str) -> None:
         return
 
     try:
-        await asyncio.to_thread(
-            celery_app.send_task, FETCH_PLAIN_LYRICS_TASK_NAME, kwargs={"track_id": track_id}
-        )
+        await asyncio.to_thread(celery_app.send_task, FETCH_PLAIN_LYRICS_TASK_NAME, kwargs={"track_id": track_id})
     except SoftTimeLimitExceeded:
         logger.error("plain_lyrics_task_dispatch_timed_out", track_id=track_id)
         return
@@ -1481,9 +1440,7 @@ async def perform_fetch_plain_lyrics(track_id: int) -> None:
             persisted = await worker_lyrics.store_plain_lyrics(
                 session_factory,
                 http_client,
-                SourceCache(
-                    session_factory=session_factory, ttl_seconds=settings.source_fetch_ttl_seconds
-                ),
+                SourceCache(session_factory=session_factory, ttl_seconds=settings.source_fetch_ttl_seconds),
                 query,
             )
         finally:
@@ -1518,9 +1475,7 @@ async def claim_post_for_rendering(
     """transaction 1 for the render. Everything ffmpeg needs is read out as
     plain values here, because the lock is gone by the time it runs."""
     async with session_factory() as session:
-        post = await lock_post_for_claim(
-            session, post_id, RENDER_ENTRY_STATUSES, RENDER_CLAIM_EVENTS
-        )
+        post = await lock_post_for_claim(session, post_id, RENDER_ENTRY_STATUSES, RENDER_CLAIM_EVENTS)
         if post is None:
             return None
 
@@ -1551,7 +1506,9 @@ class RenderPreconditions:
 
 
 async def read_render_preconditions(
-    session: AsyncSession, track: Track, post: Post
+    session: AsyncSession,
+    track: Track,
+    post: Post,
 ) -> RenderPreconditions:
     """everything that can refuse the render, gathered while the lock is held
     but reported after it is released — see `claim_post_for_rendering`."""
@@ -1562,15 +1519,11 @@ async def read_render_preconditions(
 
     asset = (
         await session.execute(
-            select(AudioAsset).where(
-                AudioAsset.track_id == track.id, AudioAsset.video_id == video_id
-            )
+            select(AudioAsset).where(AudioAsset.track_id == track.id, AudioAsset.video_id == video_id)
         )
     ).scalar_one_or_none()
     if asset is None:
-        return RenderPreconditions(
-            None, "для треку немає завантаженого аудіо — спершу має відпрацювати завантаження"
-        )
+        return RenderPreconditions(None, "для треку немає завантаженого аудіо — спершу має відпрацювати завантаження")
 
     try:
         bounds = fragment_rule.stored_bounds(post.fragment_start_ms, post.fragment_end_ms)
@@ -1607,7 +1560,9 @@ def artist_names_from_stored(stored_artists: list[object]) -> tuple[str, ...]:
 
 
 async def render_video_off_transaction(
-    session_factory: async_sessionmaker[AsyncSession], claim: RenderClaim, temporary_directory: Path
+    session_factory: async_sessionmaker[AsyncSession],
+    claim: RenderClaim,
+    temporary_directory: Path,
 ) -> RenderOutcome:
     """no transaction and no lock: LRCLIB and ffmpeg together run for minutes.
     The hash covers the subtitle file itself, so every input to the frames is in it."""
@@ -1618,9 +1573,7 @@ async def render_video_off_transaction(
         fragment_end_ms=claim.fragment_end_ms,
     )
     text_version = video_render.text_version_of(subtitles_text)
-    lyrics_reason = worker_lyrics.reason_after_subtitles(
-        claim.lyrics_query.track_id, lyrics, subtitles_text
-    )
+    lyrics_reason = worker_lyrics.reason_after_subtitles(claim.lyrics_query.track_id, lyrics, subtitles_text)
 
     params_hash = video_render.compute_params_hash(
         video_id=claim.video_id,
@@ -1633,9 +1586,7 @@ async def render_video_off_transaction(
     final_path = media_storage.render_file_path(settings.media_root, claim.post_id, params_hash)
     expected_duration_ms = claim.fragment_end_ms - claim.fragment_start_ms
 
-    thumbnail_path = media_storage.thumbnail_file_path(
-        settings.media_root, claim.post_id, params_hash
-    )
+    thumbnail_path = media_storage.thumbnail_file_path(settings.media_root, claim.post_id, params_hash)
 
     existing = media_storage.existing_artifact(final_path)
     if existing is not None:
@@ -1670,9 +1621,7 @@ async def render_video_off_transaction(
 
     http_client = build_http_client()
     try:
-        cover_path = await video_render.download_cover(
-            http_client, claim.cover_url, temporary_directory
-        )
+        cover_path = await video_render.download_cover(http_client, claim.cover_url, temporary_directory)
     finally:
         await http_client.aclose()
 
@@ -1736,9 +1685,7 @@ async def prepare_lyrics_off_transaction(
         return await worker_lyrics.prepare_lyrics(
             session_factory,
             http_client,
-            SourceCache(
-                session_factory=session_factory, ttl_seconds=settings.source_fetch_ttl_seconds
-            ),
+            SourceCache(session_factory=session_factory, ttl_seconds=settings.source_fetch_ttl_seconds),
             claim.lyrics_query,
         )
     finally:
@@ -1746,8 +1693,7 @@ async def prepare_lyrics_off_transaction(
 
 
 def write_subtitles(post_id: int, subtitles_text: str | None) -> Path | None:
-    """`None` is «no text», never an empty file: the filtergraph then has no
-    `subtitles=` step at all."""
+    """`None` is «no text», never an empty file: the filtergraph then has no `subtitles=` step at all."""
     if subtitles_text is None:
         return None
 
@@ -1758,7 +1704,9 @@ def write_subtitles(post_id: int, subtitles_text: str | None) -> Path | None:
 
 
 async def finish_render(
-    session_factory: async_sessionmaker[AsyncSession], claim: RenderClaim, outcome: RenderOutcome
+    session_factory: async_sessionmaker[AsyncSession],
+    claim: RenderClaim,
+    outcome: RenderOutcome,
 ) -> PreviewReference | None:
     """transaction 2: the lock held across one Telegram upload is the delivery guard.
     Preview first, then `RENDERED`, so `RENDERED` means «прев'ю вже в чаті адміна»."""
@@ -1767,9 +1715,7 @@ async def finish_render(
             post = await session.get(Post, claim.post_id, with_for_update=True)
         except DBAPIError as error:
             await session.rollback()
-            logger.error(
-                "render_post_video_post_locked_on_finish", post_id=claim.post_id, error=str(error)
-            )
+            logger.error("render_post_video_post_locked_on_finish", post_id=claim.post_id, error=str(error))
             return None
 
         if post is None or post.status is not PostStatus.RENDERING:
@@ -1794,8 +1740,7 @@ async def finish_render(
         preview_message_id = post.preview_message_id
         assert preview_chat_id is not None and preview_message_id is not None
 
-        # before the commit: a crash here leaves the preview in the chat, and
-        # this line is then its only trace.
+        # before the commit: a crash here leaves the preview in the chat, and this line is then its only trace.
         logger.info(
             "render_post_video_preview_sent",
             post_id=claim.post_id,
@@ -1833,9 +1778,7 @@ async def remove_superseded_preview_keyboard(post_id: int, superseded: PreviewRe
     except SoftTimeLimitExceeded:
         logger.error("render_post_video_superseded_keyboard_timed_out", post_id=post_id)
     except Exception:
-        logger.warning(
-            "render_post_video_superseded_keyboard_failed", post_id=post_id, exc_info=True
-        )
+        logger.warning("render_post_video_superseded_keyboard_failed", post_id=post_id, exc_info=True)
 
 
 def rendered_video(outcome: RenderOutcome) -> RenderedVideo:
@@ -1853,15 +1796,11 @@ def rendered_video(outcome: RenderOutcome) -> RenderedVideo:
 async def deliver_preview_for(post: Post, outcome: RenderOutcome) -> None:
     """publication cannot be revoked, so the admin first sees the exact file. The text
     draft loses its keyboard with the first preview, not with later ones."""
-    preview_chat_id = (
-        post.draft_chat_id if post.draft_chat_id is not None else settings.alert_chat_id
-    )
+    preview_chat_id = post.draft_chat_id if post.draft_chat_id is not None else settings.alert_chat_id
     first_preview = post.preview_message_id is None
 
     async with bot_client() as bot:
-        await deliver_preview(
-            bot, post, preview_chat_id, rendered_video(outcome), settings.webapp_public_url
-        )
+        await deliver_preview(bot, post, preview_chat_id, rendered_video(outcome), settings.webapp_public_url)
         if first_preview and post.draft_chat_id is not None and post.draft_message_id is not None:
             await remove_draft_keyboard(bot, post.draft_chat_id, post.draft_message_id, post.id)
 
@@ -1902,7 +1841,9 @@ async def fail_media_post_by_id(post_id: int, error_message: str) -> None:
 
 
 async def fail_media_post(
-    session_factory: async_sessionmaker[AsyncSession], post_id: int, error_message: str
+    session_factory: async_sessionmaker[AsyncSession],
+    post_id: int,
+    error_message: str,
 ) -> None:
     """the media mirror of `fail_post`: its own session, because the caller's
     was committed and closed before the long stage ever started."""

@@ -119,9 +119,7 @@ def test_a_media_token_is_not_accepted_as_a_session_token() -> None:
         verify_session_token(token, BOT_TOKEN, NOW)
 
 
-@pytest.mark.parametrize(
-    "video_id", ["../../etc/passwd", "short", "n4bPzdIs_n;", 12345678901, None]
-)
+@pytest.mark.parametrize("video_id", ["../../etc/passwd", "short", "n4bPzdIs_n;", 12345678901, None])
 def test_a_correctly_signed_token_with_an_invalid_video_id_is_refused(video_id: object) -> None:
     token = signed_media(valid_payload(vid=video_id))
 

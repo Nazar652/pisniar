@@ -1,7 +1,6 @@
-"""`lrclib`: the five answer classes, told apart by the **shape of the body**, the
-joined artist string with its `/api/search` fallback, and the two things that must
-never be swallowed. Every response is an `httpx.MockTransport`: a live 503 cannot be
-reproduced on demand, so the only honest 503 is a mocked one.
+"""`lrclib`: the five answer classes, told apart by the **shape of the body**, the joined artist string with its
+`/api/search` fallback, and the two things that must never be swallowed. Every response is an `httpx.MockTransport`: a
+live 503 cannot be reproduced on demand, so the only honest 503 is a mocked one.
 """
 
 from __future__ import annotations
@@ -196,8 +195,7 @@ async def test_an_empty_positive_raises_and_nothing_is_cached() -> None:
 
 
 async def test_a_503_raises_after_its_retries_and_nothing_is_cached() -> None:
-    """404 is cached, 503 is not: exhausting the retries keeps the class
-    «не відповіло», never «не знайдено»."""
+    """404 is cached, 503 is not: exhausting the retries keeps the class «не відповіло», never «не знайдено»."""
     cache, recording = make_cache()
     attempts = 0
 
@@ -214,8 +212,7 @@ async def test_a_503_raises_after_its_retries_and_nothing_is_cached() -> None:
 
 
 async def test_a_503_that_clears_on_the_first_retry_is_not_an_outage() -> None:
-    """measured 503s clear on the first repeat: they are server load, not a
-    property of the request."""
+    """measured 503s clear on the first repeat: they are server load, not a property of the request."""
     responses = [
         httpx.Response(503, json=SERVER_OVERLOADED_BODY),
         httpx.Response(200, json=SYNCED_RECORD),
@@ -359,8 +356,7 @@ async def test_a_404_falls_back_to_search_before_calling_the_miss_final() -> Non
 
 
 async def test_the_search_fallback_asks_by_title_alone() -> None:
-    """an `artist_name` filter here would reproduce the exact-string mismatch
-    the fallback exists to recover from."""
+    """an `artist_name` filter here would reproduce the exact-string mismatch the fallback exists to recover from."""
     search_requests: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -469,8 +465,7 @@ async def test_a_soft_time_limit_is_not_swallowed_by_the_retry_loop() -> None:
 
 
 async def test_a_database_failure_inside_the_cache_is_not_swallowed() -> None:
-    """`SourceCache` talks to Postgres inside this call — a dead database is
-    infrastructure, never «тексту немає»."""
+    """`SourceCache` talks to Postgres inside this call — a dead database is infrastructure, never «тексту немає»."""
 
     class FailingCache:
         async def get_or_fetch(
@@ -482,9 +477,7 @@ async def test_a_database_failure_inside_the_cache_is_not_swallowed() -> None:
             raise SQLAlchemyError("database is down")
 
     with pytest.raises(SQLAlchemyError):
-        await fetch(
-            always(httpx.Response(200, json=SYNCED_RECORD)), cache=cast(SourceCache, FailingCache())
-        )
+        await fetch(always(httpx.Response(200, json=SYNCED_RECORD)), cache=cast(SourceCache, FailingCache()))
 
 
 # the query itself
@@ -526,11 +519,7 @@ async def test_the_outcome_log_tells_a_cached_answer_from_a_live_one(
     await fetch(handler, cache=cache)
     await fetch(handler, cache=cache)
 
-    outcome_calls = [
-        call.kwargs
-        for call in fake_logger.info.call_args_list
-        if call.args == ("lrclib_lyrics_outcome",)
-    ]
+    outcome_calls = [call.kwargs for call in fake_logger.info.call_args_list if call.args == ("lrclib_lyrics_outcome",)]
     assert [(call["outcome"], call["from_cache"]) for call in outcome_calls] == [
         (LyricsOutcome.SYNCED.value, False),
         (LyricsOutcome.SYNCED.value, True),

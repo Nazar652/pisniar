@@ -51,9 +51,7 @@ async def test_fetch_by_isrc_returns_not_found_on_404(fake_cache: SourceCache) -
     transport = httpx.MockTransport(lambda request: httpx.Response(404))
 
     async with httpx.AsyncClient(transport=transport) as client:
-        result = await musicbrainz.fetch_by_isrc(
-            client, fake_cache, "GBAYE9200070", "dev@example.com"
-        )
+        result = await musicbrainz.fetch_by_isrc(client, fake_cache, "GBAYE9200070", "dev@example.com")
 
     assert result.found is False
 

@@ -1,7 +1,6 @@
-"""`build_bot()`: the shared client stays `parse_mode=None` globally. The same
-client sends alerts, whose text routinely contains `<` from tracebacks and URLs;
-a global `parse_mode="HTML"` would make Telegram reject or interpret them.
-"""
+"""`build_bot()`: the shared client stays `parse_mode=None` globally. The same client sends alerts, whose text
+routinely contains `<` from tracebacks and URLs; a global `parse_mode="HTML"` would make Telegram reject or interpret
+them."""
 
 from __future__ import annotations
 

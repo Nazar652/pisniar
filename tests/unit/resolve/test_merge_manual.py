@@ -1,6 +1,4 @@
-"""`apply_manual_fields`, `drop_removed_platforms` and the host list inside
-`merge_platform_link`.
-"""
+"""`apply_manual_fields`, `drop_removed_platforms` and the host list inside `merge_platform_link`."""
 
 from __future__ import annotations
 
@@ -19,9 +17,7 @@ def make_link(url: str = TIDAL_URL, match: MatchClass = MatchClass.AGGREGATOR) -
 def test_a_listed_field_takes_the_stored_value_even_against_a_fresh_one() -> None:
     resolved = ResolvedTrack(title="Fresh", year=1992, release_type="album")
 
-    merge.apply_manual_fields(
-        resolved, {"title": "Mine", "year": 1990, "release_type": "single"}, ["title", "year"]
-    )
+    merge.apply_manual_fields(resolved, {"title": "Mine", "year": 1990, "release_type": "single"}, ["title", "year"])
 
     assert (resolved.title, resolved.year) == ("Mine", 1990)
     assert resolved.release_type == "album"
@@ -131,9 +127,7 @@ def test_a_platform_the_app_does_not_list_is_dropped_quietly() -> None:
     assert resolved.platform_links == {}
     assert resolved.link_rejections == []
     assert resolved.warnings == []
-    assert [(entry["event"], entry["log_level"]) for entry in captured] == [
-        ("platform_link_ignored", "info")
-    ]
+    assert [(entry["event"], entry["log_level"]) for entry in captured] == [("platform_link_ignored", "info")]
 
 
 def test_any_unlisted_key_is_dropped_quietly_not_only_yandex() -> None:

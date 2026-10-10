@@ -57,9 +57,7 @@ async def run() -> None:
     dispatcher = build_dispatcher(frozenset(settings.admin_ids))
 
     app = create_app(session_factory=session_factory, redis_url=settings.redis_url)
-    server = uvicorn.Server(
-        uvicorn.Config(app, host=settings.http_host, port=settings.http_port, log_config=None)
-    )
+    server = uvicorn.Server(uvicorn.Config(app, host=settings.http_host, port=settings.http_port, log_config=None))
 
     async def run_polling() -> None:
         await dispatcher.start_polling(
@@ -73,9 +71,7 @@ async def run() -> None:
     http_task = asyncio.create_task(server.serve(), name="bot-http")
 
     try:
-        done, pending = await asyncio.wait(
-            {polling_task, http_task}, return_when=asyncio.FIRST_COMPLETED
-        )
+        done, pending = await asyncio.wait({polling_task, http_task}, return_when=asyncio.FIRST_COMPLETED)
 
         if polling_task in done:
             logger.info("polling_stopped_stopping_http")

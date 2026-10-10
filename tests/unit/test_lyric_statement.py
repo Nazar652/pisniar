@@ -13,9 +13,7 @@ TRACK_ID = 22
 
 def compiled_sql() -> str:
     statement = renderable_lyrics_statement(TRACK_ID)
-    return str(
-        statement.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True})
-    )
+    return str(statement.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
 
 
 def test_the_render_read_orders_by_line_index_and_never_by_the_timecode() -> None:

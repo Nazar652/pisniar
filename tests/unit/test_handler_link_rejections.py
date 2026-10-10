@@ -1,6 +1,5 @@
-"""`handle_link`'s three early returns answer the admin and stop. Each one
-logs, or a message that arrived, was rejected and was answered would leave
-no trace at all.
+"""`handle_link`'s three early returns answer the admin and stop. Each one logs, or a message that arrived, was rejected
+and was answered would leave no trace at all.
 """
 
 from __future__ import annotations
@@ -19,11 +18,9 @@ OVER_LONG_URL = "https://open.spotify.com/track/" + "a" * MAX_NORMALIZED_URL_BYT
 UNRECOGNIZED_TEXT = "hello there, not a link"
 
 
-async def capture_rejection_fields(
-    text: str, monkeypatch: pytest.MonkeyPatch
-) -> list[dict[str, Any]]:
-    """the module logger is replaced rather than captured through structlog:
-    `capture_logs()` is defeated by an already-cached bound logger."""
+async def capture_rejection_fields(text: str, monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
+    """the module logger is replaced rather than captured through structlog: `capture_logs()` is defeated by an
+    already-cached bound logger."""
     fake_logger = MagicMock()
     monkeypatch.setattr(handlers, "logger", fake_logger)
 
@@ -40,11 +37,7 @@ async def capture_rejection_fields(
     celery_client.send_task.assert_not_called()
     fake_logger.warning.assert_not_called()
     fake_logger.error.assert_not_called()
-    return [
-        log_call.kwargs
-        for log_call in fake_logger.info.call_args_list
-        if log_call.args[:1] == ("link_rejected",)
-    ]
+    return [log_call.kwargs for log_call in fake_logger.info.call_args_list if log_call.args[:1] == ("link_rejected",)]
 
 
 async def test_an_over_long_url_is_logged_with_its_sizes(

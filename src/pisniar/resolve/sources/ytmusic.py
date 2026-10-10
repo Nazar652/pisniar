@@ -1,7 +1,6 @@
-"""YouTube Music via `ytmusicapi` (unauthenticated search): sync, with no timeout
-of its own, so every call runs in `asyncio.to_thread` under an explicit `wait_for`.
-That frees the task, not the thread: a hung socket holds a slot in the shared
-default executor until its own TCP timeout.
+"""YouTube Music via `ytmusicapi` (unauthenticated search): sync, with no timeout of its own, so every call runs in
+`asyncio.to_thread` under an explicit `wait_for`. That frees the task, not the thread: a hung socket holds a slot in
+the shared default executor until its own TCP timeout.
 """
 
 from __future__ import annotations
@@ -33,16 +32,18 @@ def search_sync(query: str) -> list[dict[str, object]]:
     return get_client().search(query, filter="songs", limit=SEARCH_LIMIT)
 
 
-async def search_by_name(cache: SourceCache, artist: str, title: str) -> list[TrackCandidate]:
+async def search_by_name(
+    cache: SourceCache,
+    artist: str,
+    title: str,
+) -> list[TrackCandidate]:
     cache_key = build_request_key("ytmusic:search:", artist, title)
 
     async def do_fetch() -> dict[str, object]:
         await THROTTLE.wait()
         # `wait_for` frees this task, not the thread — but a hung socket
         # then costs one thread, not the worker's only concurrency slot.
-        results = await asyncio.wait_for(
-            asyncio.to_thread(search_sync, f"{artist} {title}"), timeout=TIMEOUT_SECONDS
-        )
+        results = await asyncio.wait_for(asyncio.to_thread(search_sync, f"{artist} {title}"), timeout=TIMEOUT_SECONDS)
         return {"results": results}
 
     payload = await cache.get_or_fetch("ytmusic", cache_key, do_fetch)

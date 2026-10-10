@@ -1,7 +1,6 @@
-"""YouTube Music lyrics of the `youtubeMusic` videoId, the recording the audio comes
-from. Both `ytmusicapi` calls are sync, so they run in one `asyncio.to_thread` under
-`wait_for`. An answer is classified by its shape (timed, plain, none); any other
-shape raises and is never cached.
+"""YouTube Music lyrics of the `youtubeMusic` videoId, the recording the audio comes from. Both `ytmusicapi` calls are
+sync, so they run in one `asyncio.to_thread` under `wait_for`. An answer is classified by its shape
+(timed, plain, none); any other shape raises and is never cached.
 """
 
 from __future__ import annotations
@@ -42,9 +41,7 @@ async def fetch_lyrics(cache: SourceCache, *, video_id: str) -> LyricsResult:
 
         await THROTTLE.wait()
         # `wait_for` frees this task, not the thread, as in `ytmusic.search_by_name`.
-        answer = await asyncio.wait_for(
-            asyncio.to_thread(fetch_answer_sync, video_id), timeout=TIMEOUT_SECONDS
-        )
+        answer = await asyncio.wait_for(asyncio.to_thread(fetch_answer_sync, video_id), timeout=TIMEOUT_SECONDS)
         return payload_from_answer(answer)
 
     payload = await cache.get_or_fetch(SOURCE_NAME, cache_key, do_fetch)
@@ -82,18 +79,14 @@ def payload_from_answer(answer: object) -> dict[str, object]:
         pairs: list[list[object]] = []
         for line in lyrics:
             if not isinstance(line, LyricLine):
-                raise YtmusicLyricsApiError(
-                    "ytmusic: рядок тексту з таймкодами не схожий на LyricLine"
-                )
+                raise YtmusicLyricsApiError("ytmusic: рядок тексту з таймкодами не схожий на LyricLine")
             pairs.append([line.start_time, line.text])
         return {"found": True, "timed": pairs}
 
     if body.get("hasTimestamps") is False and isinstance(lyrics, str) and lyrics.strip():
         return {"found": True, "plain": lyrics}
 
-    raise YtmusicLyricsApiError(
-        "ytmusic: відповідь про текст не схожа ні на таймкодований, ні на простий"
-    )
+    raise YtmusicLyricsApiError("ytmusic: відповідь про текст не схожа ні на таймкодований, ні на простий")
 
 
 def result_from_payload(payload: dict[str, object]) -> LyricsResult:

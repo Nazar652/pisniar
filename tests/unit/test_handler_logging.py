@@ -1,6 +1,5 @@
-"""Publication is the most consequential action in the system, so every guard
-names the branch it took: a post that failed twice and then published can be
-read back out of the logs instead of out of the admin's memory.
+"""Publication is the most consequential action in the system, so every guard names the branch it took: a post that
+failed twice and then published can be read back out of the logs instead of out of the admin's memory.
 """
 
 from __future__ import annotations
@@ -27,9 +26,7 @@ def capture_logger(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
 
 def warnings_named(fake_logger: MagicMock, event: str) -> list[dict[str, Any]]:
     return [
-        warning_call.kwargs
-        for warning_call in fake_logger.warning.call_args_list
-        if warning_call.args[:1] == (event,)
+        warning_call.kwargs for warning_call in fake_logger.warning.call_args_list if warning_call.args[:1] == (event,)
     ]
 
 
@@ -108,9 +105,7 @@ def test_a_tap_on_a_draft_without_a_preview_points_to_the_editor_and_changes_not
     assert len(refusal) <= 200
     assert reference is None
     assert post.status is PostStatus.RESOLVED
-    assert warnings_named(fake_logger, "publish_refused")[0]["reason"] == (
-        "cover_publication_in_editor"
-    )
+    assert warnings_named(fake_logger, "publish_refused")[0]["reason"] == ("cover_publication_in_editor")
 
 
 def test_a_tap_under_another_message_than_the_preview_is_refused_with_its_own_reason(
@@ -142,9 +137,7 @@ def test_a_claimed_post_is_not_logged_as_a_refusal(monkeypatch: pytest.MonkeyPat
     post.draft_message_id = 222
     post.preview_chat_id, post.preview_message_id = 111, 300
 
-    refusal, draft_reference = handlers.claim_post_for_publishing(
-        post, POST_ID, PUBLISHER_ID, (111, 300)
-    )
+    refusal, draft_reference = handlers.claim_post_for_publishing(post, POST_ID, PUBLISHER_ID, (111, 300))
 
     assert refusal is None
     assert draft_reference == (111, 300)

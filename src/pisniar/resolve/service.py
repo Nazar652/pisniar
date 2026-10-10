@@ -1,6 +1,5 @@
-"""Top-level resolve: the input's own song.link entity, a YouTube-to-Spotify
-bridge when needed, then ISRC-exact and name-search sources. Name search always
-runs: even from a Spotify input, YouTube arrives no other way.
+"""Top-level resolve: the input's own song.link entity, a YouTube-to-Spotify bridge when needed, then ISRC-exact and
+name-search sources. Name search always runs: even from a Spotify input, YouTube arrives no other way.
 """
 
 from __future__ import annotations
@@ -31,18 +30,13 @@ async def resolve_track(context: ResolveContext, classified_input: ClassifiedUrl
     track = ResolvedTrack()
 
     if classified_input.platform == "youtube":
-        # the clip the admin sent stays exactly as given, never overwritten
-        # by an automatically found `videoId`.
-        link = PlatformLink(
-            url=classified_input.normalized_url, source=USER_INPUT_SOURCE, match=MatchClass.MANUAL
-        )
+        # the clip the admin sent stays exactly as given, never overwritten by an automatically found `videoId`.
+        link = PlatformLink(url=classified_input.normalized_url, source=USER_INPUT_SOURCE, match=MatchClass.MANUAL)
         merge.merge_platform_link(track, "youtube", link)
 
-    # deliberately not isolated: this is the resolve's entry entity, and
-    # without it there is nothing for the other sources to be keyed on.
-    songlink_result = await songlink.fetch(
-        context.http_client, context.cache, classified_input.normalized_url
-    )
+    # deliberately not isolated: this is the resolve's entry entity, and without it there is nothing for the other
+    # sources to be keyed on.
+    songlink_result = await songlink.fetch(context.http_client, context.cache, classified_input.normalized_url)
     apply_songlink_result(track, songlink_result)
 
     if songlink_result.isrc:
@@ -52,13 +46,9 @@ async def resolve_track(context: ResolveContext, classified_input: ClassifiedUrl
 
     if track.title and track.artists:
         reference_artist = ", ".join(artist.name for artist in track.artists)
-        await resolve_by_name_with_matching(
-            context, reference_artist, track.title, track.duration_ms, track
-        )
+        await resolve_by_name_with_matching(context, reference_artist, track.title, track.duration_ms, track)
     else:
-        logger.warning(
-            "resolve_track_missing_reference_metadata", url=classified_input.normalized_url
-        )
+        logger.warning("resolve_track_missing_reference_metadata", url=classified_input.normalized_url)
         track.warnings.append("Недостатньо метаданих (артист/назва) для пошуку за назвою")
 
     return track
@@ -127,9 +117,7 @@ async def bridge_youtube_to_spotify(context: ResolveContext, track: ResolvedTrac
 
     if candidates:
         track.warnings.append(
-            matching.rejected_candidates_warning(
-                "spotify", len(candidates), reference_artist, track.title
-            )
+            matching.rejected_candidates_warning("spotify", len(candidates), reference_artist, track.title)
         )
 
 
@@ -155,7 +143,6 @@ def apply_songlink_result(track: ResolvedTrack, result: songlink.SonglinkResult)
         track.album_id_spotify = result.album_id_spotify
 
     for platform, url in result.platform_links.items():
-        # AGGREGATOR, not EXACT_ISRC: we trust Odesli's clustering here, we
-        # never verified the identifier ourselves.
+        # AGGREGATOR, not EXACT_ISRC: we trust Odesli's clustering here, we never verified the identifier ourselves.
         link = PlatformLink(url=url, source="songlink", match=MatchClass.AGGREGATOR)
         merge.merge_platform_link(track, platform, link)

@@ -38,13 +38,9 @@ logger = get_logger(__name__)
 
 TELEGRAM_TIMEOUT_SECONDS = 15
 VIDEO_MESSAGE_KIND = "video"
-CAPTION_CHANGED_MESSAGE = (
-    "Підпис змінився відтоді, як ви його переглядали. Перегляньте його ще раз."
-)
+CAPTION_CHANGED_MESSAGE = "Підпис змінився відтоді, як ви його переглядали. Перегляньте його ще раз."
 CAPTION_UNAVAILABLE_MESSAGE = "У треку ще немає назви, підпис побудувати не можна."
-MESSAGE_MISSING_MESSAGE = (
-    "Повідомлення в Telegram видалено або недоступне. Підпис у базі не змінено."
-)
+MESSAGE_MISSING_MESSAGE = "Повідомлення в Telegram видалено або недоступне. Підпис у базі не змінено."
 TELEGRAM_FAILED_MESSAGE = "Telegram не прийняв зміну. Нічого не змінено, спробуйте пізніше."
 NOT_PUBLISHED_MESSAGE = "Архівувати за зниклим повідомленням можна лише опублікований пост."
 CHANNEL_MESSAGE_EXISTS_MESSAGE = "Повідомлення в каналі існує, тому пост не архівовано."
@@ -95,14 +91,17 @@ def message_targets(post: Post, webapp_public_url: str | None) -> list[EditTarge
     for role, chat_id, message_id, kind in ordered:
         if chat_id is None or message_id is None:
             continue
-        keyboard = keyboard_for_state(
-            status, MessageRole(role), post.id, chat_id, webapp_public_url
-        )
+        keyboard = keyboard_for_state(status, MessageRole(role), post.id, chat_id, webapp_public_url)
         targets.append(EditTarget(role, chat_id, message_id, kind, keyboard))
     return targets
 
 
-def refuse_telegram_error(error: Exception, event: str, user_id: int, post_id: int) -> NoReturn:
+def refuse_telegram_error(
+    error: Exception,
+    event: str,
+    user_id: int,
+    post_id: int,
+) -> NoReturn:
     """a rate limit says how long to wait, a 403 says what the bot lost, anything else gets a
     general sentence while the full error stays in the log."""
     if isinstance(error, TelegramRetryAfter):
@@ -120,7 +119,12 @@ def refuse_telegram_error(error: Exception, event: str, user_id: int, post_id: i
     raise ApiProblem(502, "telegram_failed", TELEGRAM_FAILED_MESSAGE)
 
 
-def refuse_apply(reason: str, user_id: int, post_id: int, problem: ApiProblem) -> NoReturn:
+def refuse_apply(
+    reason: str,
+    user_id: int,
+    post_id: int,
+    problem: ApiProblem,
+) -> NoReturn:
     logger.warning("caption_apply_refused", reason=reason, user_id=user_id, post_id=post_id)
     raise problem
 
@@ -191,7 +195,10 @@ async def apply_caption(
 
 
 async def edit_remaining(
-    bot: Bot, applied: AppliedCaption, user_id: int, post_id: int
+    bot: Bot,
+    applied: AppliedCaption,
+    user_id: int,
+    post_id: int,
 ) -> ApplyResponse:
     """best effort after the commit: a failure here is logged and named, never undone."""
     failed: list[str] = []
@@ -222,13 +229,21 @@ async def edit_remaining(
     return applied.response.model_copy(update={"other_messages_failed": failed})
 
 
-def refuse_archive(reason: str, user_id: int, post_id: int, problem: ApiProblem) -> NoReturn:
+def refuse_archive(
+    reason: str,
+    user_id: int,
+    post_id: int,
+    problem: ApiProblem,
+) -> NoReturn:
     logger.warning("post_archive_refused", reason=reason, user_id=user_id, post_id=post_id)
     raise problem
 
 
 async def archive_post(
-    session: AsyncSession, bot: Bot, post_id: int, user_id: int
+    session: AsyncSession,
+    bot: Bot,
+    post_id: int,
+    user_id: int,
 ) -> ArchiveResponse | None:
     """only a channel message Telegram answers «not found» for archives the post; the track is
     never locked and a doubtful answer changes nothing."""

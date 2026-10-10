@@ -121,11 +121,7 @@ async def seeded(webapp_client: WebappClient) -> AsyncIterator[Seeded]:
         seeded_ids = Seeded(
             track_id=track.id,
             other_track_id=other_track.id,
-            visible_ids=[
-                post.id
-                for post in posts
-                if post.status not in (PostStatus.ARCHIVED, PostStatus.DRAFT)
-            ],
+            visible_ids=[post.id for post in posts if post.status not in (PostStatus.ARCHIVED, PostStatus.DRAFT)],
             archived_id=posts[1].id,
             draft_id=posts[3].id,
         )
@@ -142,9 +138,7 @@ async def seeded(webapp_client: WebappClient) -> AsyncIterator[Seeded]:
 async def test_the_list_hides_archived_and_draft_posts_and_runs_newest_first(
     webapp_client: WebappClient, seeded: Seeded
 ) -> None:
-    response = await webapp_client.http.get(
-        "/api/posts", params={"limit": 50}, headers=webapp_client.headers()
-    )
+    response = await webapp_client.http.get("/api/posts", params={"limit": 50}, headers=webapp_client.headers())
 
     assert response.status_code == 200
     ids = [item["id"] for item in response.json()["items"]]
@@ -155,12 +149,8 @@ async def test_the_list_hides_archived_and_draft_posts_and_runs_newest_first(
     assert ids == sorted(ids, reverse=True)
 
 
-async def test_a_page_carries_the_verdicts_and_the_video_flag(
-    webapp_client: WebappClient, seeded: Seeded
-) -> None:
-    response = await webapp_client.http.get(
-        "/api/posts", params={"limit": 50}, headers=webapp_client.headers()
-    )
+async def test_a_page_carries_the_verdicts_and_the_video_flag(webapp_client: WebappClient, seeded: Seeded) -> None:
+    response = await webapp_client.http.get("/api/posts", params={"limit": 50}, headers=webapp_client.headers())
 
     by_id = {item["id"]: item for item in response.json()["items"]}
     rendered_id = seeded.visible_ids[1]
@@ -173,13 +163,9 @@ async def test_a_page_carries_the_verdicts_and_the_video_flag(
     assert by_id[seeded.visible_ids[0]]["artists"] == ["Артист"]
 
 
-async def test_the_cursor_walks_the_list_without_gaps_or_repeats(
-    webapp_client: WebappClient, seeded: Seeded
-) -> None:
+async def test_the_cursor_walks_the_list_without_gaps_or_repeats(webapp_client: WebappClient, seeded: Seeded) -> None:
     newest_first = sorted(seeded.visible_ids, reverse=True)
-    first = await webapp_client.http.get(
-        "/api/posts", params={"limit": 2}, headers=webapp_client.headers()
-    )
+    first = await webapp_client.http.get("/api/posts", params={"limit": 2}, headers=webapp_client.headers())
     first_page = first.json()
     assert [item["id"] for item in first_page["items"]] == newest_first[:2]
     assert first_page["next_before_id"] == newest_first[1]
@@ -195,9 +181,7 @@ async def test_the_cursor_walks_the_list_without_gaps_or_repeats(
 async def test_a_cursor_below_every_post_gives_an_empty_page_with_no_cursor(
     webapp_client: WebappClient, seeded: Seeded
 ) -> None:
-    response = await webapp_client.http.get(
-        "/api/posts", params={"before_id": 1}, headers=webapp_client.headers()
-    )
+    response = await webapp_client.http.get("/api/posts", params={"before_id": 1}, headers=webapp_client.headers())
 
     assert response.status_code == 200
     assert response.json() == {"items": [], "next_before_id": None}
@@ -208,14 +192,17 @@ async def test_the_list_costs_exactly_one_query_whatever_the_page_size(
 ) -> None:
     statements: list[str] = []
 
-    def count_statement(connection: object, cursor: object, statement: str, *rest: object) -> None:
+    def count_statement(
+        connection: object,
+        cursor: object,
+        statement: str,
+        *rest: object,
+    ) -> None:
         statements.append(statement)
 
     event.listen(webapp_client.engine.sync_engine, "before_cursor_execute", count_statement)
     try:
-        response = await webapp_client.http.get(
-            "/api/posts", params={"limit": 50}, headers=webapp_client.headers()
-        )
+        response = await webapp_client.http.get("/api/posts", params={"limit": 50}, headers=webapp_client.headers())
     finally:
         event.remove(webapp_client.engine.sync_engine, "before_cursor_execute", count_statement)
 
@@ -225,14 +212,10 @@ async def test_the_list_costs_exactly_one_query_whatever_the_page_size(
     assert "FOR UPDATE" not in statements[0].upper()
 
 
-async def test_the_detail_lists_the_other_posts_of_the_same_track(
-    webapp_client: WebappClient, seeded: Seeded
-) -> None:
+async def test_the_detail_lists_the_other_posts_of_the_same_track(webapp_client: WebappClient, seeded: Seeded) -> None:
     resolved_id = seeded.visible_ids[0]
 
-    response = await webapp_client.http.get(
-        f"/api/posts/{resolved_id}", headers=webapp_client.headers()
-    )
+    response = await webapp_client.http.get(f"/api/posts/{resolved_id}", headers=webapp_client.headers())
 
     body = response.json()
     assert response.status_code == 200
@@ -253,28 +236,27 @@ async def test_the_detail_lists_the_other_posts_of_the_same_track(
 async def test_the_detail_of_an_archived_post_is_readable_with_its_sentence(
     webapp_client: WebappClient, seeded: Seeded
 ) -> None:
-    response = await webapp_client.http.get(
-        f"/api/posts/{seeded.archived_id}", headers=webapp_client.headers()
-    )
+    response = await webapp_client.http.get(f"/api/posts/{seeded.archived_id}", headers=webapp_client.headers())
 
     assert response.status_code == 200
     assert response.json()["editable"] is False
     assert response.json()["not_editable_reason"] == "Пост архівовано — дій із ним немає."
 
 
-async def test_the_detail_costs_two_queries_and_takes_no_lock(
-    webapp_client: WebappClient, seeded: Seeded
-) -> None:
+async def test_the_detail_costs_two_queries_and_takes_no_lock(webapp_client: WebappClient, seeded: Seeded) -> None:
     statements: list[str] = []
 
-    def count_statement(connection: object, cursor: object, statement: str, *rest: object) -> None:
+    def count_statement(
+        connection: object,
+        cursor: object,
+        statement: str,
+        *rest: object,
+    ) -> None:
         statements.append(statement)
 
     event.listen(webapp_client.engine.sync_engine, "before_cursor_execute", count_statement)
     try:
-        await webapp_client.http.get(
-            f"/api/posts/{seeded.visible_ids[0]}", headers=webapp_client.headers()
-        )
+        await webapp_client.http.get(f"/api/posts/{seeded.visible_ids[0]}", headers=webapp_client.headers())
     finally:
         event.remove(webapp_client.engine.sync_engine, "before_cursor_execute", count_statement)
 
@@ -283,12 +265,8 @@ async def test_the_detail_costs_two_queries_and_takes_no_lock(
 
 
 @pytest.mark.parametrize("post_id", [POST_ID_MAX, 10**15])
-async def test_an_id_that_fits_bigint_but_does_not_exist_is_a_404(
-    webapp_client: WebappClient, post_id: int
-) -> None:
-    response = await webapp_client.http.get(
-        f"/api/posts/{post_id}", headers=webapp_client.headers()
-    )
+async def test_an_id_that_fits_bigint_but_does_not_exist_is_a_404(webapp_client: WebappClient, post_id: int) -> None:
+    response = await webapp_client.http.get(f"/api/posts/{post_id}", headers=webapp_client.headers())
 
     assert response.status_code == 404
     assert response.json()["code"] == "post_not_found"
@@ -297,9 +275,7 @@ async def test_an_id_that_fits_bigint_but_does_not_exist_is_a_404(
 async def test_an_id_beyond_bigint_never_reaches_the_database(
     webapp_client: WebappClient,
 ) -> None:
-    response = await webapp_client.http.get(
-        f"/api/posts/{POST_ID_MAX + 1}", headers=webapp_client.headers()
-    )
+    response = await webapp_client.http.get(f"/api/posts/{POST_ID_MAX + 1}", headers=webapp_client.headers())
 
     assert response.status_code == 422
 
@@ -311,9 +287,7 @@ async def test_a_reader_is_not_blocked_by_a_writer_holding_the_post_row(
     async with webapp_client.session_factory() as writer:
         await writer.get(Post, seeded.visible_ids[0], with_for_update=True)
 
-        response = await webapp_client.http.get(
-            f"/api/posts/{seeded.visible_ids[0]}", headers=webapp_client.headers()
-        )
+        response = await webapp_client.http.get(f"/api/posts/{seeded.visible_ids[0]}", headers=webapp_client.headers())
         await writer.rollback()
 
     assert response.status_code == 200

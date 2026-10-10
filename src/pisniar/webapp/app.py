@@ -1,8 +1,7 @@
 """The Mini App server: security headers, the built frontend and the `/api` router.
 
-Public routes are exactly `GET /`, `GET /assets/*` and `POST /api/session`; the audio route
-is signed by its own token, and every other route sits behind `require_admin`. The production
-CSP lives only here.
+Public routes are exactly `GET /`, `GET /assets/*` and `POST /api/session`; the audio route is signed by its own token,
+and every other route sits behind `require_admin`. The production CSP lives only here.
 """
 
 from __future__ import annotations
@@ -69,9 +68,7 @@ def create_webapp(
     register_error_handlers(app)
 
     @app.middleware("http")
-    async def harden(
-        request: Request, call_next: Callable[[Request], Awaitable[Response]]
-    ) -> Response:
+    async def harden(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
         rejection = reject_oversized_body(request)
         response = rejection if rejection is not None else await call_next(request)
         for name, value in SECURITY_HEADERS.items():

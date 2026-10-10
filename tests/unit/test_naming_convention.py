@@ -1,6 +1,5 @@
-"""`_N_`-suffixed naming tokens render identically to non-`_N_` ones for
-every single-column constraint today — pins that down so a future rename
-is a conscious diff here.
+"""`_N_`-suffixed naming tokens render identically to non-`_N_` ones for every single-column constraint today — pins
+that down so a future rename is a conscious diff here.
 """
 
 from __future__ import annotations
@@ -23,16 +22,12 @@ LYRIC_TABLE = cast(Table, Lyric.__table__)
 def test_track_constraint_names_are_unchanged() -> None:
     assert TRACK_TABLE.primary_key.name == "pk_track"
     unique_constraint_names = {
-        constraint.name
-        for constraint in TRACK_TABLE.constraints
-        if constraint.__class__.__name__ == "UniqueConstraint"
+        constraint.name for constraint in TRACK_TABLE.constraints if constraint.__class__.__name__ == "UniqueConstraint"
     }
     assert unique_constraint_names == {"uq_track_source_url_normalized"}
 
     check_names = {
-        constraint.name
-        for constraint in TRACK_TABLE.constraints
-        if constraint.__class__.__name__ == "CheckConstraint"
+        constraint.name for constraint in TRACK_TABLE.constraints if constraint.__class__.__name__ == "CheckConstraint"
     }
     assert check_names == {
         "ck_track_artists_is_array",
@@ -57,9 +52,7 @@ def test_post_constraint_and_index_names_are_unchanged() -> None:
     }
 
     check_names = {
-        constraint.name
-        for constraint in POST_TABLE.constraints
-        if constraint.__class__.__name__ == "CheckConstraint"
+        constraint.name for constraint in POST_TABLE.constraints if constraint.__class__.__name__ == "CheckConstraint"
     }
     assert "ck_post_status_valid" in check_names
     assert "ck_post_failed_from_status_valid" in check_names
@@ -100,9 +93,7 @@ def test_media_artifact_constraint_names_are_unchanged() -> None:
     }
 
     foreign_key_names = {
-        foreign_key.name
-        for table in (AUDIO_ASSET_TABLE, RENDER_TABLE)
-        for foreign_key in table.foreign_key_constraints
+        foreign_key.name for table in (AUDIO_ASSET_TABLE, RENDER_TABLE) for foreign_key in table.foreign_key_constraints
     }
     assert foreign_key_names == {"fk_audio_asset_track_id_track", "fk_render_post_id_post"}
 
@@ -121,16 +112,12 @@ def test_lyric_constraint_names_are_unchanged() -> None:
     assert LYRIC_TABLE.primary_key.name == "pk_lyric"
 
     unique_constraint_names = {
-        constraint.name
-        for constraint in LYRIC_TABLE.constraints
-        if constraint.__class__.__name__ == "UniqueConstraint"
+        constraint.name for constraint in LYRIC_TABLE.constraints if constraint.__class__.__name__ == "UniqueConstraint"
     }
     assert unique_constraint_names == {"uq_lyric_track_id_line_index"}
 
     check_names = {
-        constraint.name
-        for constraint in LYRIC_TABLE.constraints
-        if constraint.__class__.__name__ == "CheckConstraint"
+        constraint.name for constraint in LYRIC_TABLE.constraints if constraint.__class__.__name__ == "CheckConstraint"
     }
     assert check_names == {"ck_lyric_start_ms_non_negative", "ck_lyric_text_length_bounded"}
 

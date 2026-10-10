@@ -1,7 +1,5 @@
-"""Builds a `CaptionDocument` at the media caption limit (1024) and, on
-overflow, degrades it deterministically: genres from the tail, then platforms
-from the tail (Spotify/YT Music last), then the release title. Nothing else.
-"""
+"""Builds a `CaptionDocument` at the media caption limit (1024) and, on overflow, degrades it deterministically: genres
+from the tail, then platforms from the tail (Spotify/YT Music last), then the release title. Nothing else."""
 
 from __future__ import annotations
 
@@ -19,8 +17,7 @@ from pisniar.resolve.types import ArtistInfo, GenreInfo, MatchClass, PlatformLin
 # building, so the admin approves the exact text subscribers see.
 MEDIA_CAPTION_LIMIT = 1024
 
-# only a hand-placed `youtube` link is a clip; an automatic hit is
-# usually the "— Topic" upload, audio over a still.
+# only a hand-placed `youtube` link is a clip; an automatic hit is usually the "— Topic" upload, audio over a still.
 CLIP_PLATFORM = "youtube"
 CLIP_LABEL_SUFFIX = " (кліп)"
 
@@ -79,8 +76,7 @@ def platform_display_name(platform: str) -> str:
 
 
 def clip_platform(platform_links: dict[str, PlatformLink]) -> str | None:
-    """`MANUAL`, not `source == "user_input"`: a hand-pasted link with
-    `source: "manual"` is a clip too."""
+    """`MANUAL`, not `source == "user_input"`: a hand-pasted link with `source: "manual"` is a clip too."""
     link = platform_links.get(CLIP_PLATFORM)
     if link is None or link.match is not MatchClass.MANUAL:
         return None
@@ -91,9 +87,7 @@ def platforms_in_display_order(platform_links: dict[str, PlatformLink]) -> list[
     clip = clip_platform(platform_links)
     ordered = [platform for platform in PLATFORM_DISPLAY_ORDER if platform in platform_links]
     rest = sorted(
-        platform
-        for platform in platform_links
-        if platform not in PLATFORM_DISPLAY_ORDER and platform != clip
+        platform for platform in platform_links if platform not in PLATFORM_DISPLAY_ORDER and platform != clip
     )
 
     head = [clip] if clip is not None else []
@@ -106,7 +100,9 @@ GENRE_WITHOUT_HASHTAG_WARNING = "хештег для жанру «{name}» не 
 
 
 def collect_hashtags(
-    entries: Iterable[tuple[str | None, str]], missing_warning: str, warnings: list[str]
+    entries: Iterable[tuple[str | None, str]],
+    missing_warning: str,
+    warnings: list[str],
 ) -> list[str]:
     """each entry is `(stored override, name)`; a name that yields no hashtag is
     reported with `missing_warning` and skipped."""
@@ -155,9 +151,7 @@ def build_document(
         if include_release_title and release_title and release_type in RELEASE_TYPES_WITH_TITLE:
             document.append_text(" «")
             if album_id_spotify and is_valid_spotify_id(album_id_spotify):
-                document.append_link(
-                    release_title, f"https://open.spotify.com/album/{album_id_spotify}"
-                )
+                document.append_link(release_title, f"https://open.spotify.com/album/{album_id_spotify}")
             else:
                 if album_id_spotify:
                     # a stray space in the id is a Telegram 400 on the whole
@@ -169,9 +163,7 @@ def build_document(
     # languages lead the line and are never dropped: they are always
     # present, while genres are the first thing degradation gives up.
     groups = [
-        collect_hashtags(
-            [(None, language) for language in languages], LANGUAGE_WITHOUT_HASHTAG_WARNING, warnings
-        ),
+        collect_hashtags([(None, language) for language in languages], LANGUAGE_WITHOUT_HASHTAG_WARNING, warnings),
         collect_hashtags(
             [(genre.hashtag, genre.name) for genre in genres],
             GENRE_WITHOUT_HASHTAG_WARNING,
@@ -248,11 +240,7 @@ def build_caption_with_report(
 
     while remaining_platforms and visible_length(document) > limit:
         ordered = platforms_in_display_order(remaining_platforms)
-        droppable = [
-            platform
-            for platform in reversed(ordered)
-            if platform not in PLATFORM_PROTECTED_UNTIL_LAST
-        ]
+        droppable = [platform for platform in reversed(ordered) if platform not in PLATFORM_PROTECTED_UNTIL_LAST]
         platform_to_drop = droppable[0] if droppable else ordered[-1]
         del remaining_platforms[platform_to_drop]
         dropped_platforms.append(platform_to_drop)

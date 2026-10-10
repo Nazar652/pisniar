@@ -1,6 +1,5 @@
-"""Starting a render with the bounds the admin chose. The database part locks the post, then the
-track, and writes the bounds and the status; the queue and then the old preview's keyboard come
-after the commit, never inside it.
+"""Starting a render with the bounds the admin chose. The database part locks the post, then the track, and writes the
+bounds and the status; the queue and then the old preview's keyboard come after the commit, never inside it.
 """
 
 from __future__ import annotations
@@ -29,9 +28,7 @@ from pisniar.worker.fragment import FragmentBounds, FragmentBoundsError, validat
 logger = get_logger(__name__)
 
 INVALID_FRAGMENT_MESSAGE = "Фрагмент не підходить: {reason}."
-FRAGMENT_UNCHANGED_MESSAGE = (
-    "Відео вже відрендерено саме з цим фрагментом. Оберіть інші межі, щоб зробити нове."
-)
+FRAGMENT_UNCHANGED_MESSAGE = "Відео вже відрендерено саме з цим фрагментом. Оберіть інші межі, щоб зробити нове."
 DISPATCH_FAILED_MESSAGE = (
     "Не вдалося поставити відео в чергу. Повторіть спробу командою /retry {post_id} у чаті з ботом."
 )
@@ -46,13 +43,22 @@ class FragmentChoice:
     superseded_preview: tuple[int, int] | None
 
 
-def refuse(status_code: int, code: str, message: str, user_id: int, post_id: int) -> NoReturn:
+def refuse(
+    status_code: int,
+    code: str,
+    message: str,
+    user_id: int,
+    post_id: int,
+) -> NoReturn:
     logger.warning("fragment_render_refused", reason=code, user_id=user_id, post_id=post_id)
     raise ApiProblem(status_code, code, message)
 
 
 async def choose_fragment(
-    session: AsyncSession, post_id: int, request: FragmentRequest, user_id: int
+    session: AsyncSession,
+    post_id: int,
+    request: FragmentRequest,
+    user_id: int,
 ) -> FragmentChoice | None:
     """the caller commits. `None` for a missing post; every refusal leaves the rows untouched."""
     post = await lock_post_without_waiting(session, post_id)
@@ -77,9 +83,7 @@ async def choose_fragment(
     try:
         bounds = validate_chosen_bounds(request.start_ms, request.end_ms, asset.duration_ms)
     except FragmentBoundsError as error:
-        refuse(
-            422, "invalid_fragment", INVALID_FRAGMENT_MESSAGE.format(reason=error), user_id, post_id
-        )
+        refuse(422, "invalid_fragment", INVALID_FRAGMENT_MESSAGE.format(reason=error), user_id, post_id)
 
     stored = (post.fragment_start_ms, post.fragment_end_ms)
     if post.status is PostStatus.RENDERED and stored == (bounds.start_ms, bounds.end_ms):
@@ -97,9 +101,13 @@ async def choose_fragment(
     return FragmentChoice(post_id, bounds, superseded_preview)
 
 
-async def release_superseded_preview(bot: Bot, choice: FragmentChoice, user_id: int) -> None:
-    """runs after a successful enqueue, so the old preview stays usable if the render never starts.
-    Cosmetic: a Telegram refusal is logged by `remove_preview_keyboard`, anything else here."""
+async def release_superseded_preview(
+    bot: Bot,
+    choice: FragmentChoice,
+    user_id: int,
+) -> None:
+    """runs after a successful enqueue, so the old preview stays usable if the render never starts. Cosmetic: a
+    Telegram refusal is logged by `remove_preview_keyboard`, anything else here."""
     if choice.superseded_preview is None:
         return
 
@@ -123,8 +131,7 @@ async def enqueue_render(
     choice: FragmentChoice,
     user_id: int,
 ) -> None:
-    """a queue that refuses the task fails the post, or it would sit in `rendering` with nothing
-    to move it."""
+    """a queue that refuses the task fails the post, or it would sit in `rendering` with nothing to move it."""
     sent = await dispatch_task(
         celery_client,
         RENDER_POST_VIDEO_TASK_NAME,

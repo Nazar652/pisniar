@@ -1,5 +1,5 @@
-"""Paths built only from numeric ids, a validated video id and a hex hash, the
-free-space refusal that happens *before* a download, and the atomic publish.
+"""Paths built only from numeric ids, a validated video id and a hex hash, the free-space refusal that happens *before*
+a download, and the atomic publish.
 """
 
 from __future__ import annotations
@@ -65,11 +65,8 @@ def test_a_non_positive_id_never_becomes_a_path_component(tmp_path: Path, track_
     "video_id",
     ["../../etc/passwd", "n4bPzdIs_n;", "n4bPzdIs nc", "n4bPzdIs_n０", "", "n4bPzdIs_ncX"],
 )
-def test_a_video_id_that_is_not_eleven_url_safe_characters_is_refused(
-    tmp_path: Path, video_id: str
-) -> None:
-    """the same validation the URL goes through, applied again where the value
-    would become a filename."""
+def test_a_video_id_that_is_not_eleven_url_safe_characters_is_refused(tmp_path: Path, video_id: str) -> None:
+    """the same validation the URL goes through, applied again where the value would become a filename."""
     with pytest.raises(media_storage.MediaPathError):
         media_storage.audio_file_path(tmp_path, 1, video_id, "webm")
 
@@ -81,9 +78,7 @@ def test_an_extension_outside_the_alphabet_is_refused(tmp_path: Path, extension:
 
 
 @pytest.mark.parametrize("params_hash", ["../evil", "ZZZZ" * 16, "abc", "A" * 64])
-def test_a_params_hash_that_is_not_lowercase_hex_is_refused(
-    tmp_path: Path, params_hash: str
-) -> None:
+def test_a_params_hash_that_is_not_lowercase_hex_is_refused(tmp_path: Path, params_hash: str) -> None:
     with pytest.raises(media_storage.MediaPathError):
         media_storage.render_file_path(tmp_path, 1, params_hash)
 
@@ -131,8 +126,7 @@ def test_publishing_moves_the_file_under_its_final_name(tmp_path: Path) -> None:
 def test_a_crash_between_writing_and_renaming_leaves_no_file_with_the_final_name(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """the `.partial` name is what makes "the final name exists" mean "the file
-    is complete"."""
+    """the `.partial` name is what makes "the final name exists" mean "the file is complete"."""
     staging = tmp_path / "tmp" / "video.mp4.partial"
     staging.parent.mkdir(parents=True)
     staging.write_bytes(b"half a render")
@@ -176,9 +170,7 @@ def test_existing_audio_is_found_by_its_stem_whatever_the_container(tmp_path: Pa
     directory.mkdir(parents=True)
     (directory / f"{VIDEO_ID}.opus").write_bytes(b"audio")
 
-    assert (
-        media_storage.find_existing_audio(tmp_path, 3, VIDEO_ID) == directory / f"{VIDEO_ID}.opus"
-    )
+    assert media_storage.find_existing_audio(tmp_path, 3, VIDEO_ID) == directory / f"{VIDEO_ID}.opus"
 
 
 def test_the_peaks_path_is_a_subdirectory_of_the_tracks_audio(tmp_path: Path) -> None:
@@ -188,9 +180,7 @@ def test_the_peaks_path_is_a_subdirectory_of_the_tracks_audio(tmp_path: Path) ->
 
 
 @pytest.mark.parametrize("video_id", ["../etc/passwd", "short", ""])
-def test_a_video_id_that_fails_validation_never_becomes_a_peaks_path(
-    tmp_path: Path, video_id: str
-) -> None:
+def test_a_video_id_that_fails_validation_never_becomes_a_peaks_path(tmp_path: Path, video_id: str) -> None:
     with pytest.raises(media_storage.MediaPathError):
         media_storage.peaks_file_path(tmp_path, 3, video_id)
 
@@ -202,9 +192,7 @@ def test_a_stored_peaks_file_never_hides_the_audio(tmp_path: Path) -> None:
     peaks.write_text("{}", encoding="utf-8")
     (directory / f"{VIDEO_ID}.webm").write_bytes(b"audio")
 
-    assert (
-        media_storage.find_existing_audio(tmp_path, 3, VIDEO_ID) == directory / f"{VIDEO_ID}.webm"
-    )
+    assert media_storage.find_existing_audio(tmp_path, 3, VIDEO_ID) == directory / f"{VIDEO_ID}.webm"
 
 
 def test_peaks_alone_are_not_audio(tmp_path: Path) -> None:
@@ -251,9 +239,7 @@ def test_removing_a_tmp_tree_takes_its_contents_with_it(tmp_path: Path) -> None:
     assert not directory.exists()
 
 
-def test_a_failing_tmp_cleanup_never_replaces_the_real_error(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_failing_tmp_cleanup_never_replaces_the_real_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     directory = tmp_path / "tmp" / "7"
     directory.mkdir(parents=True)
 

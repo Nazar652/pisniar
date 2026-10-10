@@ -1,6 +1,5 @@
-"""Deterministic merge into `ResolvedTrack`: every field has its own source
-priority table, and a field is only overwritten by a strictly higher-priority source.
-"""
+"""Deterministic merge into `ResolvedTrack`: every field has its own source priority table, and a field is only
+overwritten by a strictly higher-priority source."""
 
 from __future__ import annotations
 
@@ -26,8 +25,7 @@ STORED_SCALAR_FIELDS = (
     "release_title",
     "album_id_spotify",
     "cover_url",
-    # the download checks against it, so a `/retry` with a failed source
-    # must not null it.
+    # the download checks against it, so a `/retry` with a failed source must not null it.
     "duration_ms",
 )
 
@@ -79,15 +77,15 @@ def merge_field(
 
 
 def merge_platform_link(
-    track: ResolvedTrack, platform: str, link: PlatformLink, *, check_allowlist: bool = True
+    track: ResolvedTrack,
+    platform: str,
+    link: PlatformLink,
+    *,
+    check_allowlist: bool = True,
 ) -> None:
     """the single funnel every candidate passes through; only fresh automatic links meet
     the host list, since a manual link is validated on entry and a stored one was accepted."""
-    if (
-        check_allowlist
-        and link.match is not MatchClass.MANUAL
-        and platform not in link_policy.ALLOWED_HOSTS
-    ):
+    if check_allowlist and link.match is not MatchClass.MANUAL and platform not in link_policy.ALLOWED_HOSTS:
         # a platform the app does not list is not a forged link: quiet, unlike a bad host
         logger.info("platform_link_ignored", platform=platform, source=link.source)
         return
@@ -141,7 +139,9 @@ def drop_removed_platforms(track: ResolvedTrack, removed_platforms: Iterable[obj
 
 
 def apply_manual_fields(
-    track: ResolvedTrack, stored: Mapping[str, object], manual_fields: Sequence[object]
+    track: ResolvedTrack,
+    stored: Mapping[str, object],
+    manual_fields: Sequence[object],
 ) -> None:
     """runs last: the stored value replaces the fresh one unconditionally, `None`
     included, which no earlier merge step could restore."""
@@ -152,9 +152,7 @@ def apply_manual_fields(
 
         stored_value = stored.get(name)
         if name == "artists":
-            stored_value = (
-                artists_from_stored(stored_value) if isinstance(stored_value, list) else []
-            )
+            stored_value = artists_from_stored(stored_value) if isinstance(stored_value, list) else []
         if getattr(track, name) != stored_value:
             overridden.append(name)
         setattr(track, name, stored_value)
@@ -178,7 +176,9 @@ def merge_stored_scalars(track: ResolvedTrack, stored: dict[str, object]) -> Non
 
 
 def keep_stored_title_and_artists_after_source_failure(
-    track: ResolvedTrack, stored_title: object, stored_artists: list[object]
+    track: ResolvedTrack,
+    stored_title: object,
+    stored_artists: list[object],
 ) -> None:
     """a resolve that lost a source comes out no worse than what is stored, but
     only a weak fresh value yields: Spotify still wins while iTunes times out."""
@@ -206,8 +206,7 @@ def keep_stored_title_and_artists_after_source_failure(
 
 
 def merge_stored_artists(track: ResolvedTrack, stored: list[object]) -> None:
-    """carries the admin's `hashtag` override and `spotify_id` across a
-    re-resolve that came back without them."""
+    """carries the admin's `hashtag` override and `spotify_id` across a re-resolve that came back without them."""
     overrides = {
         normalize_key_part(name): entry
         for entry in stored
@@ -217,9 +216,7 @@ def merge_stored_artists(track: ResolvedTrack, stored: list[object]) -> None:
         track.artists = artists_from_stored(overrides.values())
         return
 
-    matched_names = {
-        key for artist in track.artists if (key := normalize_key_part(artist.name)) in overrides
-    }
+    matched_names = {key for artist in track.artists if (key := normalize_key_part(artist.name)) in overrides}
     if not matched_names and has_hashtag_override(overrides):
         # spotify lists artists separately, `songlink:spotify` joins them
         # into one string; a key miss must not drop an override.
@@ -229,15 +226,13 @@ def merge_stored_artists(track: ResolvedTrack, stored: list[object]) -> None:
             fresh_names=[artist.name for artist in track.artists],
         )
         track.warnings.append(
-            "артистів збережено зі старого резолву: свіжі імена не збіглися, "
-            "а в збережених є ручний хештег"
+            "артистів збережено зі старого резолву: свіжі імена не збіглися, а в збережених є ручний хештег"
         )
         track.artists = artists_from_stored(overrides.values())
         return
 
     track.artists = [
-        artist_with_stored_overrides(artist, overrides.get(normalize_key_part(artist.name)))
-        for artist in track.artists
+        artist_with_stored_overrides(artist, overrides.get(normalize_key_part(artist.name))) for artist in track.artists
     ]
 
 
@@ -248,8 +243,7 @@ def fresh_value_is_weak(track: ResolvedTrack, field_name: str) -> bool:
 
 
 def artists_from_stored(entries: Iterable[object]) -> list[ArtistInfo]:
-    """takes raw JSONB entries, so the stored-title guard can read artists
-    straight off the row."""
+    """takes raw JSONB entries, so the stored-title guard can read artists straight off the row."""
     return [
         ArtistInfo(
             name=name,
@@ -265,9 +259,7 @@ def has_hashtag_override(overrides: dict[str, dict[str, object]]) -> bool:
     return any(as_nonempty_str(entry.get("hashtag")) for entry in overrides.values())
 
 
-def artist_with_stored_overrides(
-    artist: ArtistInfo, stored: dict[str, object] | None
-) -> ArtistInfo:
+def artist_with_stored_overrides(artist: ArtistInfo, stored: dict[str, object] | None) -> ArtistInfo:
     if stored is None:
         return artist
     return ArtistInfo(
@@ -294,15 +286,27 @@ def platform_link_from_stored(raw_link: object) -> PlatformLink | None:
     return PlatformLink(url=url, source=source, match=match)
 
 
-def merge_isrc(track: ResolvedTrack, isrc: str | None, source: str) -> None:
+def merge_isrc(
+    track: ResolvedTrack,
+    isrc: str | None,
+    source: str,
+) -> None:
     merge_field(track, "isrc", isrc, source, ISRC_SOURCE_PRIORITY)
 
 
-def merge_title(track: ResolvedTrack, title: str | None, source: str) -> None:
+def merge_title(
+    track: ResolvedTrack,
+    title: str | None,
+    source: str,
+) -> None:
     merge_field(track, "title", title, source, TITLE_ARTIST_SOURCE_PRIORITY)
 
 
-def merge_artists(track: ResolvedTrack, artist_names: list[str], source: str) -> None:
+def merge_artists(
+    track: ResolvedTrack,
+    artist_names: list[str],
+    source: str,
+) -> None:
     if not artist_names:
         return
     merge_field(
@@ -314,17 +318,33 @@ def merge_artists(track: ResolvedTrack, artist_names: list[str], source: str) ->
     )
 
 
-def merge_year(track: ResolvedTrack, year: int | None, source: str) -> None:
+def merge_year(
+    track: ResolvedTrack,
+    year: int | None,
+    source: str,
+) -> None:
     merge_field(track, "year", year, source, YEAR_RELEASE_SOURCE_PRIORITY)
 
 
-def merge_release_type(track: ResolvedTrack, release_type: str | None, source: str) -> None:
+def merge_release_type(
+    track: ResolvedTrack,
+    release_type: str | None,
+    source: str,
+) -> None:
     merge_field(track, "release_type", release_type, source, YEAR_RELEASE_SOURCE_PRIORITY)
 
 
-def merge_release_title(track: ResolvedTrack, release_title: str | None, source: str) -> None:
+def merge_release_title(
+    track: ResolvedTrack,
+    release_title: str | None,
+    source: str,
+) -> None:
     merge_field(track, "release_title", release_title, source, YEAR_RELEASE_SOURCE_PRIORITY)
 
 
-def merge_cover_url(track: ResolvedTrack, cover_url: str | None, source: str) -> None:
+def merge_cover_url(
+    track: ResolvedTrack,
+    cover_url: str | None,
+    source: str,
+) -> None:
     merge_field(track, "cover_url", cover_url, source, COVER_SOURCE_PRIORITY)

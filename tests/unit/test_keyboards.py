@@ -1,7 +1,6 @@
-"""The two inline buttons and the grammar of the payload they send back.
-The payload arrives from a Telegram client and selects both the row and the
-*action*, so everything that is not exactly `<known prefix>:<ascii digits>`
-must be refused — a mistyped prefix must never fall through to publishing."""
+"""The two inline buttons and the grammar of the payload they send back. The payload arrives from a Telegram client and
+selects both the row and the *action*, so everything that is not exactly `<known prefix>:<ascii digits>` must be refused
+— a mistyped prefix must never fall through to publishing."""
 
 from __future__ import annotations
 
@@ -59,8 +58,7 @@ def test_every_button_s_own_payload_round_trips() -> None:
 
 
 def test_the_render_prefix_is_parsed_as_render_and_not_as_publish() -> None:
-    """a render tap must never be routed into the publication path, which
-    cannot be undone."""
+    """a render tap must never be routed into the publication path, which cannot be undone."""
     parsed = parse_callback("render:7")
 
     assert parsed is not None

@@ -108,7 +108,11 @@ def loudness_values(pcm: bytes) -> list[int]:
 
 
 def ensure_peaks(
-    media_root: Path, track_id: int, video_id: str, audio_path: Path, temporary_directory: Path
+    media_root: Path,
+    track_id: int,
+    video_id: str,
+    audio_path: Path,
+    temporary_directory: Path,
 ) -> Path | None:
     """writes the peaks file unless a valid one exists; a failure is a warning and `None`."""
     final_path = media_storage.peaks_file_path(media_root, track_id, video_id)
@@ -118,9 +122,7 @@ def ensure_peaks(
     try:
         values = loudness_values(decode_pcm(audio_path))
         if len(values) > MAX_PEAK_VALUES:
-            raise ValueError(
-                f"peaks: {len(values)} значень, читач приймає не більше {MAX_PEAK_VALUES}"
-            )
+            raise ValueError(f"peaks: {len(values)} значень, читач приймає не більше {MAX_PEAK_VALUES}")
 
         temporary_directory.mkdir(parents=True, exist_ok=True)
         staging = media_storage.staging_path(temporary_directory, final_path)
@@ -144,9 +146,7 @@ class BackfillSummary:
 
 def backfill_peaks(media_root: Path) -> BackfillSummary:
     """writes the file for every stored audio whose peaks are missing or of another version."""
-    temporary_directory = (
-        media_root / media_storage.TEMPORARY_DIRECTORY_NAME / BACKFILL_DIRECTORY_NAME
-    )
+    temporary_directory = media_root / media_storage.TEMPORARY_DIRECTORY_NAME / BACKFILL_DIRECTORY_NAME
     written = current = failed = 0
     try:
         for track_id, video_id, audio_path in media_storage.stored_audio_files(media_root):

@@ -1,6 +1,5 @@
-"""`service.resolve_track()`: the top-level orchestration — YouTube-input
-lock, ISRC-first dispatch, and the YouTube<->Spotify bridge. Source calls
-are faked so this tests only the sequencing, not any single adapter."""
+"""`service.resolve_track()`: the top-level orchestration — YouTube-input lock, ISRC-first dispatch, and the
+YouTube<->Spotify bridge. Source calls are faked so this tests only the sequencing, not any single adapter."""
 
 from __future__ import annotations
 
@@ -29,9 +28,7 @@ def make_context() -> ResolveContext:
 
 
 async def test_youtube_input_locks_youtube_slot_as_manual(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        service.songlink, "fetch", AsyncMock(return_value=SonglinkResult(found=False))
-    )
+    monkeypatch.setattr(service.songlink, "fetch", AsyncMock(return_value=SonglinkResult(found=False)))
     monkeypatch.setattr(service, "resolve_by_name_with_matching", AsyncMock())
 
     classified = classify_url("https://www.youtube.com/watch?v=userClipId")
@@ -107,7 +104,11 @@ async def test_youtube_input_without_isrc_bridges_to_spotify_by_name(
         platform_links={"pandora": "https://www.pandora.com/TR:1"},
     )
 
-    def fetch_side_effect(client: object, session: object, url: str) -> SonglinkResult:
+    def fetch_side_effect(
+        client: object,
+        session: object,
+        url: str,
+    ) -> SonglinkResult:
         if url == "https://open.spotify.com/track/x":
             return bridged_spotify_entity_result
         return youtube_entity_result
@@ -124,9 +125,7 @@ async def test_youtube_input_without_isrc_bridges_to_spotify_by_name(
         duration_ms=224000,
         isrc="BRIDGEDISRC01",
     )
-    monkeypatch.setattr(
-        service.spotify, "search_by_name", AsyncMock(return_value=[matched_candidate])
-    )
+    monkeypatch.setattr(service.spotify, "search_by_name", AsyncMock(return_value=[matched_candidate]))
     resolve_by_isrc_mock = AsyncMock()
     monkeypatch.setattr(service, "resolve_by_isrc", resolve_by_isrc_mock)
     monkeypatch.setattr(service, "resolve_by_name_with_matching", AsyncMock())
@@ -163,9 +162,7 @@ async def test_youtube_bridge_rejected_candidate_adds_warning_not_isrc_call(
         duration_ms=999999,
         isrc="WRONGISRC0001",
     )
-    monkeypatch.setattr(
-        service.spotify, "search_by_name", AsyncMock(return_value=[wrong_candidate])
-    )
+    monkeypatch.setattr(service.spotify, "search_by_name", AsyncMock(return_value=[wrong_candidate]))
     resolve_by_isrc_mock = AsyncMock()
     monkeypatch.setattr(service, "resolve_by_isrc", resolve_by_isrc_mock)
     monkeypatch.setattr(service, "resolve_by_name_with_matching", AsyncMock())
@@ -180,9 +177,7 @@ async def test_youtube_bridge_rejected_candidate_adds_warning_not_isrc_call(
 async def test_missing_reference_metadata_adds_warning_and_skips_name_search(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        service.songlink, "fetch", AsyncMock(return_value=SonglinkResult(found=False))
-    )
+    monkeypatch.setattr(service.songlink, "fetch", AsyncMock(return_value=SonglinkResult(found=False)))
     name_search_mock = AsyncMock()
     monkeypatch.setattr(service, "resolve_by_name_with_matching", name_search_mock)
 
@@ -253,9 +248,7 @@ async def test_resolve_genres_maps_known_ids_and_skips_unknown(
 async def test_resolve_genres_returns_empty_when_album_not_found(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        service.deezer, "fetch_album", AsyncMock(return_value=DeezerAlbumResult(found=False))
-    )
+    monkeypatch.setattr(service.deezer, "fetch_album", AsyncMock(return_value=DeezerAlbumResult(found=False)))
 
     track = ResolvedTrack(deezer_album_id=1)
     genres = await service.resolve_genres(make_context(), track)
@@ -296,7 +289,11 @@ async def test_a_failing_bridged_songlink_keeps_what_the_isrc_fan_out_found(
         duration_ms=225000,
     )
 
-    def fetch_side_effect(client: object, cache: object, url: str) -> SonglinkResult:
+    def fetch_side_effect(
+        client: object,
+        cache: object,
+        url: str,
+    ) -> SonglinkResult:
         if url == "https://open.spotify.com/track/x":
             raise RuntimeError("odesli quota exceeded")
         return youtube_entity_result
@@ -312,11 +309,13 @@ async def test_a_failing_bridged_songlink_keeps_what_the_isrc_fan_out_found(
         duration_ms=224000,
         isrc="BRIDGEDISRC01",
     )
-    monkeypatch.setattr(
-        service.spotify, "search_by_name", AsyncMock(return_value=[matched_candidate])
-    )
+    monkeypatch.setattr(service.spotify, "search_by_name", AsyncMock(return_value=[matched_candidate]))
 
-    async def fill_from_isrc(context: object, isrc: str, track: ResolvedTrack) -> None:
+    async def fill_from_isrc(
+        context: object,
+        isrc: str,
+        track: ResolvedTrack,
+    ) -> None:
         track.platform_links["deezer"] = PlatformLink(
             url="https://www.deezer.com/track/1", source="deezer", match=MatchClass.EXACT_ISRC
         )
@@ -350,14 +349,10 @@ async def test_a_failing_spotify_bridge_leaves_the_raw_youtube_title(
             )
         ),
     )
-    monkeypatch.setattr(
-        service.spotify, "search_by_name", AsyncMock(side_effect=RuntimeError("HTTP 503"))
-    )
+    monkeypatch.setattr(service.spotify, "search_by_name", AsyncMock(side_effect=RuntimeError("HTTP 503")))
     monkeypatch.setattr(service, "resolve_by_name_with_matching", AsyncMock())
 
-    track = await service.resolve_track(
-        make_context(), classify_url("https://www.youtube.com/watch?v=someId")
-    )
+    track = await service.resolve_track(make_context(), classify_url("https://www.youtube.com/watch?v=someId"))
 
     assert track.title == "Bruise Pristine (Official Video)"
     assert [artist.name for artist in track.artists] == ["Валентин Стрыкало-Бувайте"]

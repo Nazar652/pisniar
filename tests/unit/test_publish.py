@@ -1,7 +1,6 @@
-"""`telegram.publish`: the idempotent channel send, the preflight that turns a raw
-400/403 into a Ukrainian sentence, the post link built from the chat the post
-actually reached, and the per-class error wording. Every Telegram call is mocked:
-no unit test may reach the network.
+"""`telegram.publish`: the idempotent channel send, the preflight that turns a raw 400/403 into a Ukrainian sentence,
+the post link built from the chat the post actually reached, and the per-class error wording. Every Telegram call is
+mocked: no unit test may reach the network.
 """
 
 from __future__ import annotations
@@ -53,9 +52,7 @@ def make_post(
     return post
 
 
-def make_chat(
-    *, username: str | None = CHANNEL_USERNAME, chat_id: int = CHANNEL_ID
-) -> ChatFullInfo:
+def make_chat(*, username: str | None = CHANNEL_USERNAME, chat_id: int = CHANNEL_ID) -> ChatFullInfo:
     return ChatFullInfo(
         id=chat_id,
         type="channel",
@@ -93,7 +90,10 @@ def make_administrator(*, can_post_messages: bool) -> ChatMemberAdministrator:
 
 
 def make_bot(
-    *, photo_message_id: int = 77, text_message_id: int = 78, video_message_id: int = 79
+    *,
+    photo_message_id: int = 77,
+    text_message_id: int = 78,
+    video_message_id: int = 79,
 ) -> AsyncMock:
     bot = AsyncMock()
     bot.send_photo.return_value.message_id = photo_message_id
@@ -114,9 +114,7 @@ async def test_a_rendered_post_goes_out_as_a_video_not_a_photo(tmp_path: Path) -
     bot = make_bot()
     post = make_post()
 
-    await publish_to_channel(
-        bot, post, CHANNEL_ID, "https://cdn.example/cover.jpg", make_video(tmp_path)
-    )
+    await publish_to_channel(bot, post, CHANNEL_ID, "https://cdn.example/cover.jpg", make_video(tmp_path))
 
     bot.send_video.assert_awaited_once()
     bot.send_photo.assert_not_awaited()
@@ -127,8 +125,7 @@ async def test_a_rendered_post_goes_out_as_a_video_not_a_photo(tmp_path: Path) -
 
 
 async def test_the_video_caption_is_the_same_string_the_preview_carried(tmp_path: Path) -> None:
-    """the video caption limit is the photo caption limit, so nothing is rebuilt
-    between the preview and the channel."""
+    """the video caption limit is the photo caption limit, so nothing is rebuilt between the preview and the channel."""
     bot = make_bot()
 
     await publish_to_channel(bot, make_post(), CHANNEL_ID, None, make_video(tmp_path))
@@ -267,9 +264,7 @@ async def test_preflight_refuses_an_administrator_without_the_posting_right() ->
 async def test_preflight_refuses_a_bot_that_is_only_a_member() -> None:
     bot = make_bot()
     bot.get_chat.return_value = make_chat()
-    bot.get_chat_member.return_value = ChatMemberMember(
-        user=User(id=5, is_bot=True, first_name="pisniar")
-    )
+    bot.get_chat_member.return_value = ChatMemberMember(user=User(id=5, is_bot=True, first_name="pisniar"))
 
     with pytest.raises(PublishPreflightError) as excinfo:
         await preflight_channel(bot, CHANNEL_ID)
@@ -278,8 +273,7 @@ async def test_preflight_refuses_a_bot_that_is_only_a_member() -> None:
 
 
 async def test_preflight_hides_the_raw_telegram_error_behind_a_ukrainian_one() -> None:
-    """the admin gets a sentence they can act on, and the 400 with its traceback
-    stays in the logs."""
+    """the admin gets a sentence they can act on, and the 400 with its traceback stays in the logs."""
     bot = make_bot()
     bot.get_chat.side_effect = TelegramBadRequest(
         method=SendPhoto(chat_id=CHANNEL_ID, photo="x"), message="chat not found"
@@ -318,8 +312,8 @@ def test_the_post_link_uses_the_public_username_when_there_is_one() -> None:
 
 
 def test_the_post_link_falls_back_to_the_private_form() -> None:
-    """built from the chat the post actually went to, so a test channel with
-    no username still produces a link the admin can open."""
+    """built from the chat the post actually went to, so a test channel with no username still produces a link the
+    admin can open."""
     assert channel_post_url(make_chat(username=None), 12) == "https://t.me/c/1234567890/12"
 
 
@@ -328,9 +322,7 @@ def test_forbidden_retry_after_and_bad_request_read_differently() -> None:
         TelegramForbiddenError(method=SendPhoto(chat_id=1, photo="x"), message="bot was kicked")
     )
     retry_after = describe_publish_error(
-        TelegramRetryAfter(
-            method=SendPhoto(chat_id=1, photo="x"), message="Too Many Requests", retry_after=30
-        )
+        TelegramRetryAfter(method=SendPhoto(chat_id=1, photo="x"), message="Too Many Requests", retry_after=30)
     )
     bad_request = describe_publish_error(
         TelegramBadRequest(method=SendPhoto(chat_id=1, photo="x"), message="wrong file identifier")
@@ -347,8 +339,8 @@ def test_a_preflight_error_is_passed_through_unchanged() -> None:
 
 
 def test_the_publish_target_is_never_a_literal_in_the_publish_code() -> None:
-    """a literal chat id or a second `pisniarnia` here is exactly how the
-    caption's channel and the publish target drift apart."""
+    """a literal chat id or a second `pisniarnia` here is exactly how the caption's channel and the publish target
+    drift apart."""
     source = inspect.getsource(publish_module)
 
     assert "pisniarnia" not in source

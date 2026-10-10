@@ -1,6 +1,5 @@
-"""The signed audio route: the token in the query is the credential, the file is found only from
-the ids inside it, and Starlette's `FileResponse` answers Range requests. Nothing here reads the
-database.
+"""The signed audio route: the token in the query is the credential, the file is found only from the ids inside it, and
+Starlette's `FileResponse` answers Range requests. Nothing here reads the database.
 """
 
 from __future__ import annotations
@@ -39,12 +38,23 @@ AUDIO_FORMAT_MESSAGE = "Цей формат аудіо не можна відт�
 class LoggedAudioResponse(FileResponse):
     """logs the final HTTP status of the one response it sends; never the URL."""
 
-    def __init__(self, path: Path, media_type: str, user_id: int, post_id: int) -> None:
+    def __init__(
+        self,
+        path: Path,
+        media_type: str,
+        user_id: int,
+        post_id: int,
+    ) -> None:
         super().__init__(path, media_type=media_type)
         self.user_id = user_id
         self.post_id = post_id
 
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+    async def __call__(
+        self,
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+    ) -> None:
         ranged = any(name == b"range" for name, _ in scope["headers"])
 
         async def send_and_log(message: Message) -> None:
@@ -65,7 +75,11 @@ def audio_content_type(path: Path) -> str | None:
     return AUDIO_CONTENT_TYPES.get(path.suffix.removeprefix(".").lower())
 
 
-def locate_audio_file(media_root: Path, track_id: int, video_id: str) -> Path | None:
+def locate_audio_file(
+    media_root: Path,
+    track_id: int,
+    video_id: str,
+) -> Path | None:
     """the audio file of the ids, or `None` if it is gone or resolves outside `audio/`."""
     found = find_existing_audio(media_root, track_id, video_id)
     if found is None:
@@ -86,9 +100,7 @@ async def stream_audio(
     claims = authorize_media_request(request, token, post_id)
     context = cast(WebappContext, request.app.state.context)
 
-    audio_path = await asyncio.to_thread(
-        locate_audio_file, context.media_root, claims.track_id, claims.video_id
-    )
+    audio_path = await asyncio.to_thread(locate_audio_file, context.media_root, claims.track_id, claims.video_id)
     if audio_path is None:
         logger.warning("fragment_audio_gone", post_id=post_id, user_id=claims.user_id)
         raise ApiProblem(404, "audio_gone", AUDIO_GONE_MESSAGE)
@@ -107,6 +119,4 @@ async def stream_audio(
 
 
 def register_audio_route(app: FastAPI) -> None:
-    app.add_api_route(
-        "/api/posts/{post_id}/audio", stream_audio, methods=["GET"], include_in_schema=False
-    )
+    app.add_api_route("/api/posts/{post_id}/audio", stream_audio, methods=["GET"], include_in_schema=False)

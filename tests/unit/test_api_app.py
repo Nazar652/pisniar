@@ -121,9 +121,7 @@ def test_both_checks_run_even_when_postgres_fails(monkeypatch: pytest.MonkeyPatc
 
 
 def test_the_api_exposes_no_docs_or_schema() -> None:
-    client = TestClient(
-        api_app.create_app(session_factory=make_session_factory(), redis_url=REDIS_URL)
-    )
+    client = TestClient(api_app.create_app(session_factory=make_session_factory(), redis_url=REDIS_URL))
 
     for path in ("/docs", "/redoc", "/openapi.json"):
         assert client.get(path).status_code == 404

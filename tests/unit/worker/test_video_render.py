@@ -1,5 +1,5 @@
-"""The filtergraph, the required encoder flags, the size ceiling with its single
-retry, and `params_hash`, the input that decides whether ffmpeg runs at all.
+"""The filtergraph, the required encoder flags, the size ceiling with its single retry, and `params_hash`, the input
+that decides whether ffmpeg runs at all.
 """
 
 from __future__ import annotations
@@ -30,8 +30,8 @@ def parameters(subtitles_path: Path | None = None) -> video_render.RenderParamet
 
 
 def test_the_scale_filter_converts_the_range_instead_of_only_naming_the_format() -> None:
-    """measured: the cover arrives from the Spotify CDN as full-range JPEG, and a
-    naive `format=yuv420p` yields `yuvj420p` every time."""
+    """measured: the cover arrives from the Spotify CDN as full-range JPEG, and a naive `format=yuv420p` yields
+    `yuvj420p` every time."""
     graph = video_render.build_filter_complex()
 
     assert "in_range=pc:out_range=tv" in graph
@@ -48,8 +48,8 @@ def test_the_frame_is_seven_twenty_by_twelve_eighty_with_square_pixels() -> None
 
 
 def test_the_cover_is_lifted_instead_of_centred_so_the_text_band_is_black() -> None:
-    """centred, the cover sits under the side lines; lifted, the bottom band stays
-    empty frame, at a constant offset rather than `(oh-ih)/2`."""
+    """centred, the cover sits under the side lines; lifted, the bottom band stays empty frame, at a constant offset
+    rather than `(oh-ih)/2`."""
     graph = video_render.build_filter_complex()
 
     assert video_render.COVER_TOP_OFFSET_PX == 100
@@ -61,8 +61,7 @@ def test_no_subtitle_filter_exists_in_4a() -> None:
 
 
 def test_a_subtitle_path_handed_in_from_outside_is_appended() -> None:
-    """subtitles come in as a path, not a flag flipped inside, so text is an
-    addition to a verified filtergraph."""
+    """subtitles come in as a path, not a flag flipped inside, so text is an addition to a verified filtergraph."""
     graph = video_render.build_filter_complex(Path("/data/tmp/7/lyrics.ass"))
 
     assert "subtitles=/data/tmp/7/lyrics.ass" in graph
@@ -118,9 +117,7 @@ def test_the_audio_is_seeked_to_the_absolute_fragment_start() -> None:
 
 
 def test_a_reduced_quality_pass_lowers_the_bitrate_ceiling() -> None:
-    arguments = video_render.build_ffmpeg_arguments(
-        parameters(), OUTPUT_PATH, quality=video_render.REDUCED_QUALITY
-    )
+    arguments = video_render.build_ffmpeg_arguments(parameters(), OUTPUT_PATH, quality=video_render.REDUCED_QUALITY)
 
     assert ("-maxrate", "1200k") in pairs(arguments)
 
@@ -154,8 +151,7 @@ def test_the_hash_is_stable_for_identical_inputs() -> None:
     ],
 )
 def test_every_input_the_frames_depend_on_changes_the_hash(overrides: dict[str, Any]) -> None:
-    """`text_version` is an input even when it is `None`, so a render with text
-    never reuses one without."""
+    """`text_version` is an input even when it is `None`, so a render with text never reuses one without."""
     baseline: dict[str, Any] = {
         "video_id": "n4bPzdIs_nc",
         "audio_duration_ms": 212_000,
@@ -164,9 +160,7 @@ def test_every_input_the_frames_depend_on_changes_the_hash(overrides: dict[str, 
         "fragment_end_ms": 45_000,
     }
 
-    assert video_render.compute_params_hash(**baseline) != video_render.compute_params_hash(
-        **{**baseline, **overrides}
-    )
+    assert video_render.compute_params_hash(**baseline) != video_render.compute_params_hash(**{**baseline, **overrides})
 
 
 def test_the_hash_is_a_filename_safe_hex_digest() -> None:
@@ -194,13 +188,15 @@ def make_probe(size_bytes: int, duration_ms: int = 45_000) -> media_tools.MediaP
     )
 
 
-def stub_ffmpeg(
-    monkeypatch: pytest.MonkeyPatch, probes: list[media_tools.MediaProbe]
-) -> list[list[str]]:
+def stub_ffmpeg(monkeypatch: pytest.MonkeyPatch, probes: list[media_tools.MediaProbe]) -> list[list[str]]:
     calls: list[list[str]] = []
     remaining = list(probes)
 
-    def fake_run(binary: str, arguments: list[str], **kwargs: Any) -> Any:
+    def fake_run(
+        binary: str,
+        arguments: list[str],
+        **kwargs: Any,
+    ) -> Any:
         calls.append([binary, *arguments])
         return None
 
@@ -209,27 +205,19 @@ def stub_ffmpeg(
     return calls
 
 
-def test_a_render_is_verified_by_ffprobe_not_by_the_exit_code(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_render_is_verified_by_ffprobe_not_by_the_exit_code(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     calls = stub_ffmpeg(monkeypatch, [make_probe(2_260_000)])
 
-    probe = video_render.render_fragment(
-        parameters(), tmp_path / "out.mp4.partial", timeout_seconds=180
-    )
+    probe = video_render.render_fragment(parameters(), tmp_path / "out.mp4.partial", timeout_seconds=180)
 
     assert probe.size_bytes == 2_260_000
     assert calls[0][0] == video_render.FFMPEG_BINARY
 
 
-def test_a_render_ffprobe_refuses_fails_the_whole_call(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_render_ffprobe_refuses_fails_the_whole_call(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """ffmpeg can exit 0 on an unusable file, so the verdict comes from
     `verify_media`, not from the exit code."""
-    monkeypatch.setattr(
-        video_render, "run_media_tool_checked", lambda binary, arguments, **kwargs: None
-    )
+    monkeypatch.setattr(video_render, "run_media_tool_checked", lambda binary, arguments, **kwargs: None)
 
     def refuse(path: Path, **kwargs: Any) -> media_tools.MediaProbe:
         raise media_tools.MediaProbeError("файл порожній (0 байт)")
@@ -237,14 +225,10 @@ def test_a_render_ffprobe_refuses_fails_the_whole_call(
     monkeypatch.setattr(video_render, "verify_media", refuse)
 
     with pytest.raises(media_tools.MediaProbeError):
-        video_render.render_fragment(
-            parameters(), tmp_path / "out.mp4.partial", timeout_seconds=180
-        )
+        video_render.render_fragment(parameters(), tmp_path / "out.mp4.partial", timeout_seconds=180)
 
 
-def test_a_render_under_the_ceiling_runs_ffmpeg_exactly_once(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_render_under_the_ceiling_runs_ffmpeg_exactly_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     calls = stub_ffmpeg(monkeypatch, [make_probe(4_440_000)])
 
     probe, quality = video_render.render_fragment_within_size_limit(
@@ -274,14 +258,11 @@ def test_an_oversized_render_gets_exactly_one_lower_bitrate_attempt(
 def test_still_oversized_after_the_retry_fails_and_sends_nothing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """the size is checked before Telegram ever sees the file, and there is no
-    branch here that sends one."""
+    """the size is checked before Telegram ever sees the file, and there is no branch here that sends one."""
     calls = stub_ffmpeg(monkeypatch, [make_probe(60 * 1024 * 1024), make_probe(55 * 1024 * 1024)])
 
     with pytest.raises(video_render.RenderTooLargeError, match="дефект рендера"):
-        video_render.render_fragment_within_size_limit(
-            parameters(), tmp_path / "out.mp4.partial", timeout_seconds=180
-        )
+        video_render.render_fragment_within_size_limit(parameters(), tmp_path / "out.mp4.partial", timeout_seconds=180)
 
     assert len(calls) == 2
 
@@ -331,8 +312,7 @@ async def test_an_oversized_cover_is_refused_before_it_reaches_ffmpeg(tmp_path: 
 async def test_a_failed_cover_request_propagates_rather_than_being_isolated(
     tmp_path: Path,
 ) -> None:
-    """`isolated_source_call` is for metadata sources, where a loss means a
-    poorer post. No cover means no product."""
+    """`isolated_source_call` is for metadata sources, where a loss means a poorer post. No cover means no product."""
     client = build_cover_client(lambda request: httpx.Response(503))
     try:
         with pytest.raises(httpx.HTTPStatusError):
@@ -342,8 +322,8 @@ async def test_a_failed_cover_request_propagates_rather_than_being_isolated(
 
 
 def test_the_thumbnail_is_taken_from_the_rendered_file_itself(tmp_path: Path) -> None:
-    """from the video, not the raw cover: the frame it shows is the padded
-    720x1280 one the subscriber sees, letterboxing included."""
+    """from the video, not the raw cover: the frame it shows is the padded 720x1280 one the subscriber sees,
+    letterboxing included."""
     arguments = video_render.build_thumbnail_arguments(tmp_path / "a.mp4", tmp_path / "a.jpg")
 
     assert arguments[arguments.index("-i") + 1] == str(tmp_path / "a.mp4")
@@ -355,17 +335,13 @@ def test_the_thumbnail_stays_inside_telegrams_320_pixel_cap(tmp_path: Path) -> N
     arguments = video_render.build_thumbnail_arguments(tmp_path / "a.mp4", tmp_path / "a.jpg")
     scale = arguments[arguments.index("-vf") + 1]
 
-    assert scale.startswith(
-        f"scale={video_render.THUMBNAIL_MAX_EDGE}:{video_render.THUMBNAIL_MAX_EDGE}"
-    )
+    assert scale.startswith(f"scale={video_render.THUMBNAIL_MAX_EDGE}:{video_render.THUMBNAIL_MAX_EDGE}")
     assert "force_original_aspect_ratio=decrease" in scale
 
 
-def test_a_failing_thumbnail_returns_none_instead_of_raising(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """cosmetic: Telegram builds its own preview, and losing the custom one is
-    never a reason to fail a post whose video is already verified."""
+def test_a_failing_thumbnail_returns_none_instead_of_raising(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """cosmetic: Telegram builds its own preview, and losing the custom one is never a reason to fail a post whose
+    video is already verified."""
 
     def refuse(*args: object, **kwargs: object) -> object:
         raise media_tools.MediaToolFailedError("ffmpeg", 1, "boom")
@@ -378,8 +354,8 @@ def test_a_failing_thumbnail_returns_none_instead_of_raising(
 def test_a_thumbnail_that_came_out_empty_is_reported_as_missing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """the exit code is never the verdict here either — a zero-byte JPEG
-    attached to `send_video` is a 400 from Telegram, not a preview."""
+    """the exit code is never the verdict here either — a zero-byte JPEG attached to `send_video` is a 400 from
+    Telegram, not a preview."""
     output_path = tmp_path / "a.jpg"
 
     def write_nothing(*args: object, **kwargs: object) -> object:
@@ -391,9 +367,7 @@ def test_a_thumbnail_that_came_out_empty_is_reported_as_missing(
     assert video_render.render_thumbnail(tmp_path / "a.mp4", output_path) is None
 
 
-def test_a_real_thumbnail_is_returned_by_path(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_real_thumbnail_is_returned_by_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     output_path = tmp_path / "a.jpg"
 
     def write_jpeg(*args: object, **kwargs: object) -> object:

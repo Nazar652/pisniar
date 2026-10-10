@@ -1,7 +1,6 @@
-"""The render task's lyrics against a real Postgres, LRCLIB mocked at the transport.
-While the request is in flight the database itself is asked whether any client
-holds a transaction or a lock; stored lines never reach the network; and the render
-row and the preview get what the video actually carries.
+"""The render task's lyrics against a real Postgres, LRCLIB mocked at the transport. While the request is in flight
+the database itself is asked whether any client holds a transaction or a lock; stored lines never reach the network;
+and the render row and the preview get what the video actually carries.
 """
 
 from __future__ import annotations
@@ -73,11 +72,7 @@ class DatabaseProbe:
 
 @pytest_asyncio.fixture
 async def probe(migrated_test_database_url: str) -> AsyncIterator[DatabaseProbe]:
-    dsn = (
-        make_url(migrated_test_database_url)
-        .set(drivername="postgresql")
-        .render_as_string(hide_password=False)
-    )
+    dsn = make_url(migrated_test_database_url).set(drivername="postgresql").render_as_string(hide_password=False)
     connection = await asyncpg.connect(dsn)
     try:
         yield DatabaseProbe(connection)
@@ -96,7 +91,9 @@ async def session_factory(
 
 @pytest.fixture
 def alerts(
-    monkeypatch: pytest.MonkeyPatch, migrated_test_database_url: str, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch,
+    migrated_test_database_url: str,
+    tmp_path: Path,
 ) -> AsyncMock:
     """nothing here may reach Telegram: `.env` carries the real token in Docker."""
     monkeypatch.setattr(worker_tasks.settings, "database_url", migrated_test_database_url)
@@ -112,8 +109,8 @@ def alerts(
 
 
 class StubRenderer:
-    """ffmpeg's stand-in: the bot container has none, and the filtergraph has
-    its own suite. It keeps the subtitle file's content while it still exists."""
+    """ffmpeg's stand-in: the bot container has none, and the filtergraph has its own suite. It keeps the
+    subtitle file's content while it still exists."""
 
     def __init__(self) -> None:
         self.subtitles: list[str | None] = []
@@ -126,9 +123,7 @@ class StubRenderer:
         timeout_seconds: float,
     ) -> tuple[media_tools.MediaProbe, object]:
         subtitles_path = parameters.subtitles_path
-        self.subtitles.append(
-            subtitles_path.read_text(encoding="utf-8") if subtitles_path is not None else None
-        )
+        self.subtitles.append(subtitles_path.read_text(encoding="utf-8") if subtitles_path is not None else None)
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_bytes(b"rendered")
@@ -156,9 +151,7 @@ class PreviewSpy:
 LrclibHandler = Callable[[httpx.Request], Awaitable[httpx.Response]]
 
 
-def install_pipeline(
-    monkeypatch: pytest.MonkeyPatch, lrclib_handler: LrclibHandler
-) -> tuple[StubRenderer, PreviewSpy]:
+def install_pipeline(monkeypatch: pytest.MonkeyPatch, lrclib_handler: LrclibHandler) -> tuple[StubRenderer, PreviewSpy]:
     renderer = StubRenderer()
     preview = PreviewSpy()
 
@@ -176,11 +169,9 @@ def install_pipeline(
     )
     monkeypatch.setattr(worker_tasks.video_render, "render_fragment_within_size_limit", renderer)
     monkeypatch.setattr(worker_tasks.video_render, "render_thumbnail", lambda *a, **k: None)
-    # `ytmusicapi` has its own transport, so the mock transport above cannot see it; the cache
-    # row is keyed by the video id every test shares, so the whole call is replaced.
-    monkeypatch.setattr(
-        ytmusic_lyrics, "fetch_lyrics", AsyncMock(return_value=LyricsResult(LyricsOutcome.ABSENT))
-    )
+    # `ytmusicapi` has its own transport, so the mock transport above cannot see it; the cache row is keyed by the
+    # video id every test shares, so the whole call is replaced.
+    monkeypatch.setattr(ytmusic_lyrics, "fetch_lyrics", AsyncMock(return_value=LyricsResult(LyricsOutcome.ABSENT)))
     monkeypatch.setattr(worker_tasks, "queue_plain_lyrics_lookup", AsyncMock())
     monkeypatch.setattr(worker_tasks, "deliver_preview_for", preview)
     return renderer, preview
@@ -255,9 +246,7 @@ def lrclib_record(artist: str, title: str) -> dict[str, object]:
     }
 
 
-async def render_row_of(
-    session_factory: async_sessionmaker[AsyncSession], post_id: int
-) -> tuple[Post, Render]:
+async def render_row_of(session_factory: async_sessionmaker[AsyncSession], post_id: int) -> tuple[Post, Render]:
     async with session_factory() as session:
         post = await session.get(Post, post_id)
         render = await session.scalar(select(Render).where(Render.post_id == post_id))
@@ -268,17 +257,15 @@ async def render_row_of(
 
 async def lyric_count(session_factory: async_sessionmaker[AsyncSession], track_id: int) -> int:
     async with session_factory() as session:
-        count = await session.scalar(
-            select(func.count()).select_from(Lyric).where(Lyric.track_id == track_id)
-        )
+        count = await session.scalar(select(func.count()).select_from(Lyric).where(Lyric.track_id == track_id))
         return count or 0
 
 
 async def test_the_probe_sees_a_held_row_lock(
     session_factory: async_sessionmaker[AsyncSession], probe: DatabaseProbe
 ) -> None:
-    """the assertion below is only as good as the probe: without this, "no
-    transaction seen" could just as well mean "nothing can be seen"."""
+    """the assertion below is only as good as the probe: without this, "no transaction seen" could just as well mean
+    "nothing can be seen"."""
     post_id, _, _, _ = await make_downloaded_post(session_factory)
 
     async with session_factory() as session:
@@ -326,9 +313,7 @@ async def test_stored_lines_are_rendered_without_asking_lrclib(
 ) -> None:
     post_id, track_id, _, _ = await make_downloaded_post(session_factory)
     async with session_factory() as session:
-        session.add(
-            Lyric(track_id=track_id, line_index=0, start_ms=1_000, text="Свій", source="manual")
-        )
+        session.add(Lyric(track_id=track_id, line_index=0, start_ms=1_000, text="Свій", source="manual"))
         await session.commit()
 
     async def refuse(request: httpx.Request) -> httpx.Response:
@@ -373,9 +358,7 @@ async def test_youtube_music_timed_text_is_stored_first_and_lrclib_is_not_asked(
     alerts.assert_not_awaited()
     async with session_factory() as session:
         stored = (
-            await session.scalars(
-                select(Lyric).where(Lyric.track_id == track_id).order_by(Lyric.line_index)
-            )
+            await session.scalars(select(Lyric).where(Lyric.track_id == track_id).order_by(Lyric.line_index))
         ).all()
     assert [(row.start_ms, row.text, row.source) for row in stored] == [
         (1_000, "Перший рядок", "ytmusic"),
@@ -404,9 +387,7 @@ async def test_plain_text_found_while_rendering_is_stored_without_times_and_expl
 
     async with session_factory() as session:
         stored = (
-            await session.scalars(
-                select(Lyric).where(Lyric.track_id == track_id).order_by(Lyric.line_index)
-            )
+            await session.scalars(select(Lyric).where(Lyric.track_id == track_id).order_by(Lyric.line_index))
         ).all()
     assert [(row.start_ms, row.text, row.source) for row in stored] == [
         (None, "Перший рядок", "lrclib"),
@@ -529,8 +510,8 @@ async def test_a_redelivered_render_explains_the_missing_text_only_once(
     alerts: AsyncMock,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """celery redelivers after the `RENDERED` commit when the worker dies before
-    the ack; the second run must stop at the claim, before any notice."""
+    """celery redelivers after the `RENDERED` commit when the worker dies before the ack; the second run
+    must stop at the claim, before any notice."""
     post_id, _, _, _ = await make_downloaded_post(session_factory)
 
     async def not_found(request: httpx.Request) -> httpx.Response:
@@ -549,13 +530,10 @@ async def test_a_redelivered_render_explains_the_missing_text_only_once(
     alerts.assert_awaited_once_with(
         ANY,
         111,
-        f"Пост {post_id}: Тексту цього треку немає ні на YouTube Music, ні в LRCLIB — "
-        "відео без тексту.",
+        f"Пост {post_id}: Тексту цього треку немає ні на YouTube Music, ні в LRCLIB — відео без тексту.",
         reply_to_message_id=post_id + PREVIEW_MESSAGE_OFFSET,
     )
 
     async with session_factory() as session:
-        renders = await session.scalar(
-            select(func.count()).select_from(Render).where(Render.post_id == post_id)
-        )
+        renders = await session.scalar(select(func.count()).select_from(Render).where(Render.post_id == post_id))
     assert renders == 1

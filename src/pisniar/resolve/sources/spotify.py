@@ -1,6 +1,5 @@
-"""Spotify Web API (Client Credentials): ISRC-exact search (no `matching`
-needed), name-search fallback (needs `matching`), and `/v1/tracks/{id}`.
-The access token lives in process memory, never in Redis.
+"""Spotify Web API (Client Credentials): ISRC-exact search (no `matching` needed), name-search fallback (needs
+`matching`), and `/v1/tracks/{id}`. The access token lives in process memory, never in Redis.
 """
 
 from __future__ import annotations
@@ -49,7 +48,11 @@ class SpotifyTrackResult:
     album_id: str | None = None
 
 
-async def get_access_token(client: httpx.AsyncClient, client_id: str, client_secret: str) -> str:
+async def get_access_token(
+    client: httpx.AsyncClient,
+    client_id: str,
+    client_secret: str,
+) -> str:
     global cached_access_token, cached_token_expires_at
 
     now = time.monotonic()
@@ -82,9 +85,7 @@ async def send_request(
     for attempt in range(MAX_ATTEMPTS):
         token = await get_access_token(client, client_id, client_secret)
         await THROTTLE.wait()
-        response = await client.get(
-            url, params=query_parameters, headers={"Authorization": f"Bearer {token}"}
-        )
+        response = await client.get(url, params=query_parameters, headers={"Authorization": f"Bearer {token}"})
 
         if response.status_code == 429:
             delay = parse_retry_after_seconds(response.headers.get("Retry-After"))
@@ -99,7 +100,11 @@ async def send_request(
 
 
 async def search_by_isrc(
-    client: httpx.AsyncClient, cache: SourceCache, isrc: str, client_id: str, client_secret: str
+    client: httpx.AsyncClient,
+    cache: SourceCache,
+    isrc: str,
+    client_id: str,
+    client_secret: str,
 ) -> SpotifyTrackResult:
     if not is_valid_isrc(isrc):
         return SpotifyTrackResult(found=False)

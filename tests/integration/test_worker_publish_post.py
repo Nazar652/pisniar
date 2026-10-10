@@ -1,7 +1,6 @@
-"""`worker.tasks.perform_publish_post()` against a real Postgres: the three idempotency
-barriers, the send/write/commit order, `published_by_user_id`, and the failure path.
-Telegram is mocked whole: `preflight_channel` and `publish_to_channel` have their
-own unit suite.
+"""`worker.tasks.perform_publish_post()` against a real Postgres: the three idempotency barriers, the send/write/commit
+order, `published_by_user_id`, and the failure path. Telegram is mocked whole: `preflight_channel` and
+`publish_to_channel` have their own unit suite.
 """
 
 from __future__ import annotations
@@ -33,9 +32,7 @@ CHANNEL_MESSAGE_ID_OFFSET = 400_000
 
 
 @pytest.fixture(autouse=True)
-def point_task_at_test_database(
-    monkeypatch: pytest.MonkeyPatch, migrated_test_database_url: str
-) -> AsyncMock:
+def point_task_at_test_database(monkeypatch: pytest.MonkeyPatch, migrated_test_database_url: str) -> AsyncMock:
     monkeypatch.setattr(worker_tasks.settings, "database_url", migrated_test_database_url)
     monkeypatch.setattr(worker_tasks.settings, "channel_id", CHANNEL_ID)
     monkeypatch.setattr(worker_tasks, "build_bot", MagicMock(return_value=AsyncMock()))
@@ -110,7 +107,9 @@ async def make_publishing_post(
 
 
 async def test_publishing_writes_the_channel_reference_and_the_publisher(
-    db_session: AsyncSession, preflight_mock: AsyncMock, publish_mock: AsyncMock
+    db_session: AsyncSession,
+    preflight_mock: AsyncMock,
+    publish_mock: AsyncMock,
 ) -> None:
     post_id = await make_publishing_post(db_session)
 
@@ -129,7 +128,9 @@ async def test_publishing_writes_the_channel_reference_and_the_publisher(
 
 
 async def test_the_cover_of_the_tracks_row_is_what_gets_published(
-    db_session: AsyncSession, preflight_mock: AsyncMock, publish_mock: AsyncMock
+    db_session: AsyncSession,
+    preflight_mock: AsyncMock,
+    publish_mock: AsyncMock,
 ) -> None:
     post_id = await make_publishing_post(db_session, cover_url="https://cdn.example/other.jpg")
 
@@ -142,10 +143,11 @@ async def test_the_cover_of_the_tracks_row_is_what_gets_published(
 
 
 async def test_a_post_that_already_has_a_channel_message_is_never_sent_again(
-    db_session: AsyncSession, preflight_mock: AsyncMock, publish_mock: AsyncMock
+    db_session: AsyncSession,
+    preflight_mock: AsyncMock,
+    publish_mock: AsyncMock,
 ) -> None:
-    """the guard must fire before anything reaches Telegram, the preflight
-    included."""
+    """the guard must fire before anything reaches Telegram, the preflight included."""
     post_id = await make_publishing_post(db_session, already_published=True)
 
     await worker_tasks.perform_publish_post(post_id, PUBLISHER_ID)
@@ -160,7 +162,9 @@ async def test_a_post_that_already_has_a_channel_message_is_never_sent_again(
 
 
 async def test_a_stale_redelivery_to_a_settled_post_sends_nothing(
-    db_session: AsyncSession, preflight_mock: AsyncMock, publish_mock: AsyncMock
+    db_session: AsyncSession,
+    preflight_mock: AsyncMock,
+    publish_mock: AsyncMock,
 ) -> None:
     """`task_acks_late=True` guarantees redelivery, and a post no longer in
     `publishing` has already been decided one way or the other."""
@@ -241,7 +245,9 @@ async def test_a_preflight_refusal_reaches_the_admin_in_ukrainian(
 
 
 async def test_two_concurrent_tasks_publish_exactly_once(
-    db_session: AsyncSession, preflight_mock: AsyncMock, publish_mock: AsyncMock
+    db_session: AsyncSession,
+    preflight_mock: AsyncMock,
+    publish_mock: AsyncMock,
 ) -> None:
     """only the row lock and its guards deduplicate: two sends get two message ids,
     and `uq_post_channel_message` accepts both."""
@@ -260,9 +266,7 @@ async def test_two_concurrent_tasks_publish_exactly_once(
     assert post.status is PostStatus.PUBLISHED
 
 
-async def test_a_missing_post_is_logged_and_nothing_is_sent(
-    preflight_mock: AsyncMock, publish_mock: AsyncMock
-) -> None:
+async def test_a_missing_post_is_logged_and_nothing_is_sent(preflight_mock: AsyncMock, publish_mock: AsyncMock) -> None:
     await worker_tasks.perform_publish_post(10_000_000, PUBLISHER_ID)
 
     publish_mock.assert_not_awaited()
@@ -276,8 +280,7 @@ async def test_publication_removes_the_button_and_answers_with_a_link(
     publish_mock: AsyncMock,
     point_task_at_test_database: AsyncMock,
 ) -> None:
-    """only the keyboard goes: the channel reference stays for the Mini App to
-    edit the published caption through."""
+    """only the keyboard goes: the channel reference stays for the Mini App to edit the published caption through."""
     bot = AsyncMock()
     monkeypatch.setattr(worker_tasks, "build_bot", MagicMock(return_value=bot))
     post_id = await make_publishing_post(db_session)

@@ -1,7 +1,7 @@
 """0009 untimed lyric lines and lyrics edited marker
 
-`lyric.start_ms` may be NULL (a line not yet timed; the render never reads it) and
-`track.lyrics_edited_at` marks a text a human saved, so no automatic source writes over it.
+`lyric.start_ms` may be NULL (a line not yet timed; the render never reads it) and `track.lyrics_edited_at` marks a
+text a human saved, so no automatic source writes over it.
 
 Revision ID: 45c8ad2d6e6d
 Revises: ba0fdb351081

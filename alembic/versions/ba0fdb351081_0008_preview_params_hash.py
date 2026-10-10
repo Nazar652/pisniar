@@ -1,7 +1,7 @@
 """0008 preview params hash
 
-`post.preview_params_hash` is the `render.params_hash` of the preview the admin saw,
-so publication sends that file and never the newest render.
+`post.preview_params_hash` is the `render.params_hash` of the preview the admin saw, so publication sends that file and
+never the newest render.
 
 Revision ID: ba0fdb351081
 Revises: 6134b8e293e1
@@ -25,14 +25,13 @@ def upgrade() -> None:
     """upgrade schema."""
     op.add_column("post", sa.Column("preview_params_hash", sa.Text(), nullable=True))
 
-    # the newest render is the previewed one; `updated_at` is set by hand (a raw UPDATE
-    # skips the ORM). A previewed post with no render stays NULL and fails the CHECK.
+    # the newest render is the previewed one; `updated_at` is set by hand (a raw UPDATE skips the ORM). A previewed
+    # post with no render stays NULL and fails the CHECK.
     op.execute(
         sa.text(
             "UPDATE post SET updated_at = now(), preview_params_hash = ("
             "SELECT render.params_hash FROM render WHERE render.post_id = post.id "
-            "ORDER BY render.updated_at DESC, render.id DESC LIMIT 1) "
-            "WHERE post.preview_message_id IS NOT NULL"
+            "ORDER BY render.updated_at DESC, render.id DESC LIMIT 1) WHERE post.preview_message_id IS NOT NULL"
         )
     )
 

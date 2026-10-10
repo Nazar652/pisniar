@@ -20,7 +20,9 @@ from pisniar.resolve.types import ArtistInfo, MatchClass, PlatformLink, Resolved
 
 
 def make_link(
-    source: str, match: MatchClass, url: str = "https://www.deezer.com/track/1"
+    source: str,
+    match: MatchClass,
+    url: str = "https://www.deezer.com/track/1",
 ) -> PlatformLink:
     return PlatformLink(url=url, source=source, match=match)
 
@@ -90,9 +92,7 @@ def test_platform_link_exact_isrc_beats_confirmed() -> None:
 
 def test_platform_link_manual_beats_exact_isrc_and_confirmed() -> None:
     track = ResolvedTrack()
-    merge_platform_link(
-        track, "youtube", make_link("user_input", MatchClass.MANUAL, "https://www.youtube.com/user")
-    )
+    merge_platform_link(track, "youtube", make_link("user_input", MatchClass.MANUAL, "https://www.youtube.com/user"))
 
     merge_platform_link(
         track,
@@ -113,9 +113,7 @@ def test_platform_link_manual_is_never_overwritten_even_if_applied_first() -> No
     track = ResolvedTrack()
 
     merge_platform_link(track, "spotify", make_link("spotify", MatchClass.EXACT_ISRC))
-    merge_platform_link(
-        track, "spotify", make_link("manual", MatchClass.MANUAL, "https://open.spotify.com/manual")
-    )
+    merge_platform_link(track, "spotify", make_link("manual", MatchClass.MANUAL, "https://open.spotify.com/manual"))
     merge_platform_link(
         track,
         "spotify",
@@ -152,13 +150,9 @@ def test_platform_link_aggregator_beats_confirmed_but_loses_to_direct_isrc() -> 
 
 def test_platform_link_does_not_downgrade_on_equal_priority_resubmission() -> None:
     track = ResolvedTrack()
-    merge_platform_link(
-        track, "deezer", make_link("deezer", MatchClass.EXACT_ISRC, "https://www.deezer.com/first")
-    )
+    merge_platform_link(track, "deezer", make_link("deezer", MatchClass.EXACT_ISRC, "https://www.deezer.com/first"))
 
-    merge_platform_link(
-        track, "deezer", make_link("deezer", MatchClass.EXACT_ISRC, "https://www.deezer.com/second")
-    )
+    merge_platform_link(track, "deezer", make_link("deezer", MatchClass.EXACT_ISRC, "https://www.deezer.com/second"))
 
     assert track.platform_links["deezer"].url == "https://www.deezer.com/first"
 
@@ -186,9 +180,7 @@ def test_unsafe_candidate_does_not_displace_an_already_merged_safe_link() -> Non
         make_link("spotify", MatchClass.CONFIRMED, "https://open.spotify.com/safe"),
     )
 
-    merge_platform_link(
-        track, "spotify", make_link("manual", MatchClass.MANUAL, "data:text/html,x")
-    )
+    merge_platform_link(track, "spotify", make_link("manual", MatchClass.MANUAL, "data:text/html,x"))
 
     assert track.platform_links["spotify"].url == "https://open.spotify.com/safe"
 
@@ -236,9 +228,7 @@ def test_stored_platform_missing_from_the_fresh_resolve_is_kept() -> None:
 
 def test_fresh_result_wins_a_tie_against_the_same_stored_class() -> None:
     track = ResolvedTrack()
-    merge_platform_link(
-        track, "deezer", make_link("deezer", MatchClass.EXACT_ISRC, "https://www.deezer.com/fresh")
-    )
+    merge_platform_link(track, "deezer", make_link("deezer", MatchClass.EXACT_ISRC, "https://www.deezer.com/fresh"))
 
     merge_stored_platform_links(
         track,
@@ -256,9 +246,7 @@ def test_fresh_result_wins_a_tie_against_the_same_stored_class() -> None:
 
 def test_stored_link_with_an_unreadable_match_class_lands_in_the_bottom_tier() -> None:
     track = ResolvedTrack()
-    merge_platform_link(
-        track, "tidal", make_link("deezer", MatchClass.EXACT_ISRC, "https://listen.tidal.com/fresh")
-    )
+    merge_platform_link(track, "tidal", make_link("deezer", MatchClass.EXACT_ISRC, "https://listen.tidal.com/fresh"))
 
     merge_stored_platform_links(
         track,
@@ -269,13 +257,10 @@ def test_stored_link_with_an_unreadable_match_class_lands_in_the_bottom_tier() -
 
 
 def test_stored_artist_hashtag_survives_a_resolve_that_returned_none() -> None:
-    """`artists[].hashtag` is the only manual override there is, and a `/retry`
-    must not write `null` over it."""
+    """`artists[].hashtag` is the only manual override there is, and a `/retry` must not write `null` over it."""
     track = ResolvedTrack(artists=[ArtistInfo(name="0%Mercury")])
 
-    merge_stored_artists(
-        track, [{"name": "0%Mercury", "hashtag": "ZeroPercentMercury", "spotify_id": "sp1"}]
-    )
+    merge_stored_artists(track, [{"name": "0%Mercury", "hashtag": "ZeroPercentMercury", "spotify_id": "sp1"}])
 
     assert track.artists[0].hashtag == "ZeroPercentMercury"
     assert track.artists[0].spotify_id == "sp1"
@@ -351,8 +336,7 @@ def test_merge_stored_scalars_keeps_a_value_the_fresh_resolve_lost() -> None:
 
 
 def test_merge_stored_scalars_keeps_the_stored_album_id() -> None:
-    """the album link is built from this column, so a re-resolve without song.link
-    must not null it."""
+    """the album link is built from this column, so a re-resolve without song.link must not null it."""
     track = ResolvedTrack(title="Сумніви")
 
     merge_stored_scalars(track, {"album_id_spotify": "4yYXqedvSKuJlgI2IWsB0j"})
@@ -398,8 +382,7 @@ def test_a_degraded_resolve_keeps_the_stored_title_and_artists() -> None:
 
 
 def test_a_degraded_resolve_keeps_the_stored_title_when_only_youtube_answered() -> None:
-    """the fresh title is the raw clip name `songlink:youtube` gave, so the stored
-    clean one still wins."""
+    """the fresh title is the raw clip name `songlink:youtube` gave, so the stored clean one still wins."""
     track = ResolvedTrack(source_failures=["spotify:isrc: HTTP 503"])
     merge_title(track, "vesnavoseny - ніч минала", "songlink:youtube")
     merge_artists(track, ["vesnavoseny"], "songlink:youtube")
@@ -432,20 +415,15 @@ def test_a_complete_resolve_still_overwrites_the_stored_title_and_artists() -> N
     fresh result is the authority and must win."""
     track = ResolvedTrack(title="Creep", artists=[ArtistInfo(name="Radiohead")])
 
-    keep_stored_title_and_artists_after_source_failure(
-        track, "Creep (Official Video)", [{"name": "RadioheadVEVO"}]
-    )
+    keep_stored_title_and_artists_after_source_failure(track, "Creep (Official Video)", [{"name": "RadioheadVEVO"}])
 
     assert track.title == "Creep"
     assert track.artists == [ArtistInfo(name="Radiohead")]
 
 
 def test_a_degraded_resolve_keeps_its_own_values_when_nothing_is_stored() -> None:
-    """first resolve of a track: an empty stored row must not blank the only
-    metadata there is."""
-    track = ResolvedTrack(
-        title="Creep", artists=[ArtistInfo(name="Radiohead")], source_failures=["itunes: timeout"]
-    )
+    """first resolve of a track: an empty stored row must not blank the only metadata there is."""
+    track = ResolvedTrack(title="Creep", artists=[ArtistInfo(name="Radiohead")], source_failures=["itunes: timeout"])
 
     keep_stored_title_and_artists_after_source_failure(track, None, [])
 
@@ -454,9 +432,7 @@ def test_a_degraded_resolve_keeps_its_own_values_when_nothing_is_stored() -> Non
 
 
 def test_a_degraded_resolve_ignores_stored_artist_entries_without_a_name() -> None:
-    track = ResolvedTrack(
-        artists=[ArtistInfo(name="Uploader Channel")], source_failures=["spotify:isrc: HTTP 500"]
-    )
+    track = ResolvedTrack(artists=[ArtistInfo(name="Uploader Channel")], source_failures=["spotify:isrc: HTTP 500"])
 
     keep_stored_title_and_artists_after_source_failure(track, None, [{"hashtag": "X"}, "junk"])
 

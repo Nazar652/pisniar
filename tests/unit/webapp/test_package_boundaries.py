@@ -64,7 +64,9 @@ WEBAPP_ALLOWED_WORKER_MODULES = frozenset(
 
 
 def unlisted_imports(
-    package: str, restricted: tuple[str, ...], allowed: frozenset[str]
+    package: str,
+    restricted: tuple[str, ...],
+    allowed: frozenset[str],
 ) -> list[str]:
     result = []
     for module_path, modules in imported_modules(SOURCE_ROOT / package).items():
@@ -156,9 +158,7 @@ def task_name_literals(package_directory: Path) -> list[str]:
         node.value
         for path in package_directory.rglob("*.py")
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
-        if isinstance(node, ast.Constant)
-        and isinstance(node.value, str)
-        and node.value.startswith("pisniar.worker.")
+        if isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value.startswith("pisniar.worker.")
     ]
 
 
@@ -199,9 +199,7 @@ def synthetic_package(tmp_path: Path, source: str) -> Path:
         "celery.DOWNLOAD_POST_AUDIO_TASK_NAME",
     ],
 )
-def test_the_reference_scan_sees_a_task_name_reached_as_an_attribute(
-    tmp_path: Path, source: str
-) -> None:
+def test_the_reference_scan_sees_a_task_name_reached_as_an_attribute(tmp_path: Path, source: str) -> None:
     assert len(task_name_references(synthetic_package(tmp_path, source))) == 1
 
 
@@ -216,9 +214,7 @@ def test_the_reference_scan_sees_a_task_name_reached_as_an_attribute(
         'getattr(client, "send_task")(name)',
     ],
 )
-def test_the_queue_scan_sees_every_way_to_put_a_task_on_the_queue(
-    tmp_path: Path, call: str
-) -> None:
+def test_the_queue_scan_sees_every_way_to_put_a_task_on_the_queue(tmp_path: Path, call: str) -> None:
     assert queue_calls(synthetic_package(tmp_path, call)) != []
 
 
@@ -231,10 +227,7 @@ def test_the_queue_scan_ignores_an_ordinary_call(tmp_path: Path) -> None:
 def test_dispatch_is_a_leaf_that_imports_neither_the_bot_nor_the_webapp() -> None:
     imported = imported_modules(SOURCE_ROOT)["dispatch.py"]
 
-    assert not any(
-        module.startswith(("pisniar.bot", "pisniar.webapp", "pisniar.worker"))
-        for module in imported
-    )
+    assert not any(module.startswith(("pisniar.bot", "pisniar.webapp", "pisniar.worker")) for module in imported)
 
 
 def test_the_worker_import_scan_resolves_the_from_import_form() -> None:

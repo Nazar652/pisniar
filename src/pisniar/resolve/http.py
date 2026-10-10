@@ -21,14 +21,8 @@ class ResponseTooLargeError(httpx.HTTPError):
 
 async def reject_oversized_response(response: httpx.Response) -> None:
     content_length = response.headers.get("content-length")
-    if (
-        content_length is not None
-        and content_length.isdigit()
-        and int(content_length) > MAX_RESPONSE_BYTES
-    ):
-        raise ResponseTooLargeError(
-            f"response body {content_length} bytes exceeds {MAX_RESPONSE_BYTES}"
-        )
+    if content_length is not None and content_length.isdigit() and int(content_length) > MAX_RESPONSE_BYTES:
+        raise ResponseTooLargeError(f"response body {content_length} bytes exceeds {MAX_RESPONSE_BYTES}")
 
 
 def build_http_client() -> httpx.AsyncClient:

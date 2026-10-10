@@ -17,10 +17,7 @@ ADMINS = [111, 222]
 
 
 def calls_by_chat(bot: AsyncMock) -> dict[int, object]:
-    return {
-        call.kwargs["chat_id"]: call.kwargs["menu_button"]
-        for call in bot.set_chat_menu_button.await_args_list
-    }
+    return {call.kwargs["chat_id"]: call.kwargs["menu_button"] for call in bot.set_chat_menu_button.await_args_list}
 
 
 async def test_every_admin_gets_the_posts_button_on_their_own_chat() -> None:
@@ -41,9 +38,7 @@ async def test_the_global_default_button_is_never_touched() -> None:
 
     await configure_admin_menu_buttons(bot, ADMINS, URL)
 
-    assert all(
-        call.kwargs.get("chat_id") is not None for call in bot.set_chat_menu_button.await_args_list
-    )
+    assert all(call.kwargs.get("chat_id") is not None for call in bot.set_chat_menu_button.await_args_list)
 
 
 async def test_without_an_address_each_admins_button_is_reset_to_the_default() -> None:
@@ -59,9 +54,7 @@ async def test_without_an_address_each_admins_button_is_reset_to_the_default() -
 async def test_an_admin_who_never_wrote_to_the_bot_does_not_stop_the_others() -> None:
     bot = AsyncMock()
     bot.set_chat_menu_button.side_effect = [
-        TelegramBadRequest(
-            method=SetChatMenuButton(chat_id=111), message="Bad Request: user not found"
-        ),
+        TelegramBadRequest(method=SetChatMenuButton(chat_id=111), message="Bad Request: user not found"),
         True,
     ]
 

@@ -33,9 +33,7 @@ EDITABLE_FAILURE_STAGES = frozenset(
         PostStatus.PUBLISHING,
     }
 )
-EDITABLE_STATUSES = frozenset(
-    {PostStatus.RESOLVED, PostStatus.EDITING, PostStatus.RENDERED, PostStatus.PUBLISHED}
-)
+EDITABLE_STATUSES = frozenset({PostStatus.RESOLVED, PostStatus.EDITING, PostStatus.RENDERED, PostStatus.PUBLISHED})
 
 ARCHIVED_REASON = "Пост архівовано — дій із ним немає."
 NOT_RESOLVED_REASON = "Пост ще не оброблено."
@@ -43,9 +41,7 @@ RESOLVING_REASON = "Пост зараз обробляється. Зачекай
 MEDIA_IN_PROGRESS_REASON = "Для цього поста зараз готується відео. Дочекайтесь завершення."
 PUBLISHING_REASON = "Пост зараз публікується. Дочекайтесь підтвердження."
 RESOLVE_FAILED_REASON = "Обробка поста завершилась помилкою. Повторіть її командою /retry."
-UNKNOWN_FAILURE_REASON = (
-    "Пост завершився помилкою на невідомому етапі. Повторіть його командою /retry."
-)
+UNKNOWN_FAILURE_REASON = "Пост завершився помилкою на невідомому етапі. Повторіть його командою /retry."
 
 
 @dataclass(frozen=True)
@@ -59,13 +55,10 @@ FRAGMENT_PREPARE_REASON = (
     "Спершу підготуємо аудіо — це до хвилини. Після цього пост піде відео; "
     "щоб опублікувати лише обкладинку, підготовку доведеться скасувати."
 )
-FRAGMENT_PREPARE_AGAIN_REASON = (
-    "Минулу підготовку аудіо перервала помилка. Спробуємо ще раз — це до хвилини."
-)
+FRAGMENT_PREPARE_AGAIN_REASON = "Минулу підготовку аудіо перервала помилка. Спробуємо ще раз — це до хвилини."
 FRAGMENT_PREPARING_REASON = "Аудіо для цього поста зараз готується. Це до хвилини."
 FRAGMENT_FAILED_REASON = (
-    "Пост завершився помилкою на етапі, де фрагмент змінити не можна. "
-    "Повторіть його командою /retry."
+    "Пост завершився помилкою на етапі, де фрагмент змінити не можна. Повторіть його командою /retry."
 )
 # a failure at these stages leaves the audio on the volume and a video to redo
 CHOOSABLE_FAILURE_STAGES = frozenset({PostStatus.DOWNLOADED, PostStatus.RENDERING})
@@ -94,7 +87,9 @@ class Choosability:
 
 
 def choosability_of(
-    status: PostStatus, failed_from_status: PostStatus | None, has_preview: bool = False
+    status: PostStatus,
+    failed_from_status: PostStatus | None,
+    has_preview: bool = False,
 ) -> Choosability:
     """a fragment is chosen once the audio is ready (before the first render) or on a previewed
     video; the reason is a sentence for the admin, never the name of the state."""
@@ -118,9 +113,7 @@ def choosability_of(
 
 NOT_CANCELLABLE_REASON = "Скасувати можна лише підготовлене аудіо, поки фрагмент не обрано."
 RENDER_STARTED_REASON = "Рендер уже почався — скасувати підготовку не можна."
-RENDER_STARTED_STATUSES = frozenset(
-    {PostStatus.DOWNLOADED, PostStatus.RENDERING, PostStatus.RENDERED}
-)
+RENDER_STARTED_STATUSES = frozenset({PostStatus.DOWNLOADED, PostStatus.RENDERING, PostStatus.RENDERED})
 
 
 def cancellation_refusal_of(status: PostStatus, has_preview: bool) -> str | None:
@@ -132,16 +125,12 @@ def cancellation_refusal_of(status: PostStatus, has_preview: bool) -> str | None
     return NOT_CANCELLABLE_REASON
 
 
-COVER_HAS_VIDEO_REASON = (
-    "Для цього поста вже є відео — публікуйте його кнопкою під прев'ю в чаті з ботом."
-)
+COVER_HAS_VIDEO_REASON = "Для цього поста вже є відео — публікуйте його кнопкою під прев'ю в чаті з ботом."
 COVER_AUDIO_READY_REASON = (
     "Аудіо вже підготовлено, тож пост піде відео. Щоб опублікувати лише обкладинку, "
     "скасуйте підготовку в розділі «Фрагмент»."
 )
-COVER_RENDER_FAILED_REASON = (
-    "Відео для цього поста не вдалося підготувати. Повторіть його командою /retry."
-)
+COVER_RENDER_FAILED_REASON = "Відео для цього поста не вдалося підготувати. Повторіть його командою /retry."
 COVER_PUBLISHED_REASON = "Пост уже опубліковано."
 COVER_ALLOWED_FAILURE_STAGES = frozenset({PostStatus.DOWNLOADING, PostStatus.PUBLISHING})
 # a status that can never be published as a cover has one sentence of its own
@@ -166,7 +155,9 @@ class CoverPublication:
 
 
 def cover_publication_of(
-    status: PostStatus, failed_from_status: PostStatus | None, has_preview: bool
+    status: PostStatus,
+    failed_from_status: PostStatus | None,
+    has_preview: bool,
 ) -> CoverPublication:
     """the cover alone goes out only for a draft with no video behind it; a post that has a
     preview is published from that preview. The reason never names the state."""

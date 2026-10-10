@@ -1,6 +1,5 @@
-"""The LRC parser: both timecode precisions, several tags per source line,
-metadata ignored, pauses kept as gap markers — and the loud refusal that
-tells "a few crooked lines" apart from "this is a different format".
+"""The LRC parser: both timecode precisions, several tags per source line, metadata ignored, pauses kept as gap markers
+— and the loud refusal that tells "a few crooked lines" apart from "this is a different format".
 """
 
 from __future__ import annotations
@@ -19,8 +18,8 @@ def test_two_digit_and_three_digit_fractions_both_become_milliseconds() -> None:
 
 
 def test_a_fraction_is_padded_not_read_as_an_integer() -> None:
-    """`.5` is half a second, not five milliseconds — the whole reason the
-    fraction is right-padded rather than parsed as a number."""
+    """`.5` is half a second, not five milliseconds — the whole reason the fraction is right-padded rather than parsed
+    as a number."""
     parsed = lrc.parse_lrc("[00:01.5]пів секунди")
 
     assert parsed[0].start_ms == 1_500
@@ -56,8 +55,7 @@ def test_metadata_tags_are_ignored_without_counting_as_damage() -> None:
 
 
 def test_an_offset_tag_is_ignored_rather_than_applied() -> None:
-    """applying it would shift every timecode silently; metatags are ignored,
-    and `offset` is one."""
+    """applying it would shift every timecode silently; metatags are ignored, and `offset` is one."""
     parsed = lrc.parse_lrc("[offset:+5000]\n[00:01.00]рядок")
 
     assert parsed[0].start_ms == 1_000
@@ -76,8 +74,8 @@ def test_ties_keep_the_order_of_the_source() -> None:
 
 
 def test_an_empty_text_under_a_timecode_is_a_pause_and_is_kept() -> None:
-    """it draws nothing, and it is what ends the line before it — dropping
-    it would leave a verse's last line hanging until the next verse."""
+    """it draws nothing, and it is what ends the line before it — dropping it would leave a verse's last line hanging
+    until the next verse."""
     parsed = lrc.parse_lrc("[00:01.00]рядок\n[00:05.00]\n[00:09.00]наступний")
 
     assert [line.is_pause for line in parsed] == [False, True, False]
@@ -105,8 +103,8 @@ def test_one_crooked_line_among_many_is_dropped_with_a_warning() -> None:
 
 
 def test_plain_lyrics_are_refused_loudly_instead_of_coming_back_empty() -> None:
-    """everything dropped is not "a few crooked lines", it is a different
-    format — and an empty list would read as "this track has no text"."""
+    """everything dropped is not "a few crooked lines", it is a different format — and an empty list would read as
+    "this track has no text"."""
     with pytest.raises(lrc.LrcParseError, match="не LRC"):
         lrc.parse_lrc("перший рядок\nдругий рядок\nтретій рядок")
 
@@ -119,8 +117,8 @@ def test_crossing_the_drop_threshold_raises_even_when_most_lines_parsed() -> Non
 
 
 def test_an_empty_payload_is_an_empty_result_not_an_error() -> None:
-    """nothing was dropped, so nothing is loud here; classifying an empty
-    answer is the adapter's job, not the parser's."""
+    """nothing was dropped, so nothing is loud here; classifying an empty answer is the adapter's job, not the
+    parser's."""
     assert lrc.parse_lrc("") == []
     assert lrc.parse_lrc("\n  \n\n") == []
 

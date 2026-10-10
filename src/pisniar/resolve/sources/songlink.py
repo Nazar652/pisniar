@@ -1,5 +1,5 @@
-"""The song.link source: parses `__NEXT_DATA__` from the landing page, which Odesli's docs
-recommend for personal use without an API key (their `v1-alpha.1` API answers 401).
+"""The song.link source: parses `__NEXT_DATA__` from the landing page, which Odesli's docs recommend for personal use
+without an API key (their `v1-alpha.1` API answers 401).
 """
 
 from __future__ import annotations
@@ -35,19 +35,15 @@ ODESLI_HOST_SUFFIXES = ("song.link", "odesli.co")
 
 REQUEST_HEADERS = {"User-Agent": "pisniar-v2 (personal Telegram bot)"}
 
-NEXT_DATA_PATTERN = re.compile(
-    r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', re.DOTALL
-)
+NEXT_DATA_PATTERN = re.compile(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', re.DOTALL)
 
 
 class SonglinkParseError(RuntimeError):
-    """a 200 page that does not parse: structure drift, not a miss, so the
-    caller alerts instead of caching it."""
+    """a 200 page that does not parse: structure drift, not a miss, so the caller alerts instead of caching it."""
 
 
 class RateLimited(RuntimeError):
-    """429 from a single attempt — carries the `Retry-After` delay up to the
-    retry loop, which owns the sleeping."""
+    """429 from a single attempt — carries the `Retry-After` delay up to the retry loop, which owns the sleeping."""
 
     def __init__(self, delay: float | None) -> None:
         super().__init__("song.link rate-limited")
@@ -68,7 +64,11 @@ class SonglinkResult:
     platform_links: dict[str, str] = field(default_factory=dict)
 
 
-async def fetch(client: httpx.AsyncClient, cache: SourceCache, external_url: str) -> SonglinkResult:
+async def fetch(
+    client: httpx.AsyncClient,
+    cache: SourceCache,
+    external_url: str,
+) -> SonglinkResult:
     # through the normalizer, not the raw string: otherwise the same track
     # submitted with a tracking suffix becomes a second cache row.
     cache_key = build_request_key("songlink:url:", normalize_url(external_url), casefold=False)
@@ -90,9 +90,7 @@ async def fetch_and_parse(client: httpx.AsyncClient, external_url: str) -> dict[
         try:
             return await fetch_one_attempt(client, request_url)
         except RateLimited as rate_limit:
-            delay = (
-                rate_limit.delay if rate_limit.delay is not None else DEFAULT_RETRY_DELAY_SECONDS
-            )
+            delay = rate_limit.delay if rate_limit.delay is not None else DEFAULT_RETRY_DELAY_SECONDS
             logger.warning("songlink_rate_limited", attempt=attempt, delay=delay)
             await asyncio.sleep(delay)
 
@@ -105,9 +103,7 @@ async def fetch_one_attempt(client: httpx.AsyncClient, start_url: httpx.URL) -> 
     current_url = start_url
 
     for _ in range(MAX_REDIRECTS + 1):
-        async with client.stream(
-            "GET", current_url, follow_redirects=False, headers=REQUEST_HEADERS
-        ) as response:
+        async with client.stream("GET", current_url, follow_redirects=False, headers=REQUEST_HEADERS) as response:
             if response.has_redirect_location:
                 current_url = validated_redirect_target(response)
                 continue
@@ -134,9 +130,7 @@ async def read_limited(response: httpx.Response) -> str:
     async for chunk in response.aiter_bytes():
         total_bytes += len(chunk)
         if total_bytes > MAX_RESPONSE_BYTES:
-            raise ResponseTooLargeError(
-                f"song.link response exceeded {MAX_RESPONSE_BYTES} bytes while streaming"
-            )
+            raise ResponseTooLargeError(f"song.link response exceeded {MAX_RESPONSE_BYTES} bytes while streaming")
         chunks.append(chunk)
 
     return b"".join(chunks).decode(response.charset_encoding or "utf-8", errors="replace")
@@ -200,8 +194,7 @@ def result_from_payload(payload: dict[str, object]) -> SonglinkResult:
     if not payload.get("found"):
         return SonglinkResult(found=False)
 
-    # guards the read path too: a cached row without an entity must not be
-    # served as a valid, completely empty answer.
+    # guards the read path too: a cached row without an entity must not be served as a valid, completely empty answer.
     page_data = as_dict(payload.get("page_data"))
     entity_data = require_entity_data(page_data)
     release_date = as_dict(entity_data.get("releaseDate"))

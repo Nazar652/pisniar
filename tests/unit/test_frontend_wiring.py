@@ -74,9 +74,7 @@ def healthcheck_code() -> str:
 
 
 @pytest.mark.parametrize(("status", "healthy"), [(200, True), (503, False), (404, False)])
-def test_the_webapp_healthcheck_passes_only_on_a_200_from_the_index(
-    status: int, healthy: bool
-) -> None:
+def test_the_webapp_healthcheck_passes_only_on_a_200_from_the_index(status: int, healthy: bool) -> None:
     with serve_status(status) as port:
         code = healthcheck_code().replace("8081", str(port)).replace("localhost", "127.0.0.1")
         result = subprocess.run([sys.executable, "-c", code], capture_output=True, check=False)
@@ -98,9 +96,7 @@ def test_one_node_version_on_the_host_in_the_package_and_in_the_image() -> None:
 
     assert (FRONTEND / ".node-version").read_text(encoding="utf-8").strip() == NODE_VERSION
     assert package["engines"]["node"] == f">={NODE_VERSION} <25"
-    assert re.search(
-        rf"^ARG NODE_IMAGE=node:{NODE_VERSION}-slim@sha256:[0-9a-f]{{64}}$", dockerfile, re.M
-    )
+    assert re.search(rf"^ARG NODE_IMAGE=node:{NODE_VERSION}-slim@sha256:[0-9a-f]{{64}}$", dockerfile, re.M)
     assert dockerfile.count("node:24.") == 1
 
 

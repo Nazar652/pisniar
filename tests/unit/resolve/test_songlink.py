@@ -11,9 +11,7 @@ import pytest
 
 from pisniar.resolve.sources import songlink
 
-FIXTURE_HTML = (Path(__file__).parent / "fixtures" / "songlink_track.html").read_text(
-    encoding="utf-8"
-)
+FIXTURE_HTML = (Path(__file__).parent / "fixtures" / "songlink_track.html").read_text(encoding="utf-8")
 
 
 def make_client(handler: httpx.MockTransport) -> httpx.AsyncClient:
@@ -51,19 +49,13 @@ async def test_fetch_and_parse_raises_parse_error_on_missing_next_data_script() 
 
 
 def build_page(page_props: str) -> str:
-    return (
-        '<script id="__NEXT_DATA__" type="application/json">'
-        f'{{"props":{{"pageProps":{page_props}}}}}'
-        "</script>"
-    )
+    return f'<script id="__NEXT_DATA__" type="application/json">{{"props":{{"pageProps":{page_props}}}}}</script>'
 
 
 async def test_an_in_page_quota_error_raises_instead_of_caching_emptiness() -> None:
     """measured live: a quota refusal is HTTP 200 with a `pageProps.error` and a
     stub `pageData`, a transport failure shaped like a positive payload."""
-    quota_page = build_page(
-        '{"error":{"statusCode":429},"cookies":{},"pageData":{"facebookPixelId":null}}'
-    )
+    quota_page = build_page('{"error":{"statusCode":429},"cookies":{},"pageData":{"facebookPixelId":null}}')
     transport = httpx.MockTransport(lambda request: httpx.Response(200, text=quota_page))
 
     async with make_client(transport) as client:
@@ -108,9 +100,7 @@ async def test_fetch_and_parse_retries_after_429_then_succeeds() -> None:
 
 
 async def test_fetch_and_parse_gives_up_after_max_retries() -> None:
-    transport = httpx.MockTransport(
-        lambda request: httpx.Response(429, headers={"Retry-After": "0"})
-    )
+    transport = httpx.MockTransport(lambda request: httpx.Response(429, headers={"Retry-After": "0"}))
 
     async with make_client(transport) as client:
         with pytest.raises(songlink.SonglinkParseError, match="rate-limiting"):

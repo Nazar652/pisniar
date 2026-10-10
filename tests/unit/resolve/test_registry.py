@@ -1,7 +1,5 @@
-"""The core of "ISRC-first": exact-ISRC writes bypass `matching` entirely, a
-rejected name-search candidate never reaches `platform_links`, and the Deezer
-name-search fallback is skipped once `deezer:isrc` already answered.
-"""
+"""The core of "ISRC-first": exact-ISRC writes bypass `matching` entirely, a rejected name-search candidate never
+reaches `platform_links`, and the Deezer name-search fallback is skipped once `deezer:isrc` already answered."""
 
 from __future__ import annotations
 
@@ -45,14 +43,10 @@ async def test_deezer_isrc_link_is_written_without_calling_matching(
         registry.deezer,
         "fetch_by_isrc",
         AsyncMock(
-            return_value=DeezerTrackResult(
-                found=True, url="https://www.deezer.com/track/1", title="X", artist_name="Y"
-            )
+            return_value=DeezerTrackResult(found=True, url="https://www.deezer.com/track/1", title="X", artist_name="Y")
         ),
     )
-    monkeypatch.setattr(
-        registry.spotify, "search_by_isrc", AsyncMock(return_value=SpotifyTrackResult(found=False))
-    )
+    monkeypatch.setattr(registry.spotify, "search_by_isrc", AsyncMock(return_value=SpotifyTrackResult(found=False)))
     monkeypatch.setattr(
         registry.musicbrainz,
         "fetch_by_isrc",
@@ -80,15 +74,11 @@ async def test_rejected_itunes_candidate_never_reaches_platform_links(
         duration_ms=999999,
     )
     monkeypatch.setattr(registry.deezer, "search_by_name", AsyncMock(return_value=[]))
-    monkeypatch.setattr(
-        registry.itunes, "search_by_name", AsyncMock(return_value=[wrong_candidate])
-    )
+    monkeypatch.setattr(registry.itunes, "search_by_name", AsyncMock(return_value=[wrong_candidate]))
     monkeypatch.setattr(registry.ytmusic, "search_by_name", AsyncMock(return_value=[]))
 
     track = ResolvedTrack()
-    await registry.resolve_by_name_with_matching(
-        make_context(), "Krovna", "Berserker", 263000, track
-    )
+    await registry.resolve_by_name_with_matching(make_context(), "Krovna", "Berserker", 263000, track)
 
     assert "appleMusic" not in track.platform_links
     assert len(track.warnings) == 1
@@ -107,13 +97,9 @@ async def test_deezer_search_fallback_is_skipped_when_isrc_already_found(
     track.platform_links["deezer"] = registry.PlatformLink(
         url="https://www.deezer.com/track/1", source="deezer", match=MatchClass.EXACT_ISRC
     )
-    track.platform_link_priorities["deezer"] = registry.merge.platform_link_priority(
-        track.platform_links["deezer"]
-    )
+    track.platform_link_priorities["deezer"] = registry.merge.platform_link_priority(track.platform_links["deezer"])
 
-    await registry.resolve_by_name_with_matching(
-        make_context(), "Burned Time Machine", "Покаяння", None, track
-    )
+    await registry.resolve_by_name_with_matching(make_context(), "Burned Time Machine", "Покаяння", None, track)
 
     search_by_name_mock.assert_not_called()
 
@@ -128,9 +114,7 @@ async def test_deezer_search_fallback_runs_when_isrc_lookup_found_nothing(
     monkeypatch.setattr(registry.ytmusic, "search_by_name", AsyncMock(return_value=[]))
 
     track = ResolvedTrack()
-    await registry.resolve_by_name_with_matching(
-        make_context(), "Burned Time Machine", "Покаяння", None, track
-    )
+    await registry.resolve_by_name_with_matching(make_context(), "Burned Time Machine", "Покаяння", None, track)
 
     search_by_name_mock.assert_awaited_once()
 
@@ -148,14 +132,10 @@ async def test_confirmed_ytmusic_candidate_derives_a_youtube_link(
     )
     monkeypatch.setattr(registry.deezer, "search_by_name", AsyncMock(return_value=[]))
     monkeypatch.setattr(registry.itunes, "search_by_name", AsyncMock(return_value=[]))
-    monkeypatch.setattr(
-        registry.ytmusic, "search_by_name", AsyncMock(return_value=[matched_candidate])
-    )
+    monkeypatch.setattr(registry.ytmusic, "search_by_name", AsyncMock(return_value=[matched_candidate]))
 
     track = ResolvedTrack()
-    await registry.resolve_by_name_with_matching(
-        make_context(), "Burned Time Machine", "Покаяння", 224000, track
-    )
+    await registry.resolve_by_name_with_matching(make_context(), "Burned Time Machine", "Покаяння", 224000, track)
 
     assert track.platform_links["youtubeMusic"].url == matched_candidate.url
     assert track.platform_links["youtube"].url == "https://www.youtube.com/watch?v=n4bPzdIs_nc"
@@ -174,9 +154,7 @@ async def test_derived_youtube_link_does_not_overwrite_user_supplied_clip(
     )
     monkeypatch.setattr(registry.deezer, "search_by_name", AsyncMock(return_value=[]))
     monkeypatch.setattr(registry.itunes, "search_by_name", AsyncMock(return_value=[]))
-    monkeypatch.setattr(
-        registry.ytmusic, "search_by_name", AsyncMock(return_value=[matched_candidate])
-    )
+    monkeypatch.setattr(registry.ytmusic, "search_by_name", AsyncMock(return_value=[matched_candidate]))
 
     track = ResolvedTrack()
     user_clip = registry.PlatformLink(
@@ -187,9 +165,7 @@ async def test_derived_youtube_link_does_not_overwrite_user_supplied_clip(
     track.platform_links["youtube"] = user_clip
     track.platform_link_priorities["youtube"] = registry.merge.platform_link_priority(user_clip)
 
-    await registry.resolve_by_name_with_matching(
-        make_context(), "Burned Time Machine", "Покаяння", 224000, track
-    )
+    await registry.resolve_by_name_with_matching(make_context(), "Burned Time Machine", "Покаяння", 224000, track)
 
     assert track.platform_links["youtube"].url == "https://www.youtube.com/watch?v=userClipId"
 
@@ -201,19 +177,13 @@ async def test_resolve_by_isrc_fetches_album_for_year_and_release_type(
     monkeypatch.setattr(
         registry.deezer,
         "fetch_by_isrc",
-        AsyncMock(
-            return_value=DeezerTrackResult(
-                found=True, url="https://www.deezer.com/track/1", album_id=14880711
-            )
-        ),
+        AsyncMock(return_value=DeezerTrackResult(found=True, url="https://www.deezer.com/track/1", album_id=14880711)),
     )
     fetch_album_mock = AsyncMock(
         return_value=DeezerAlbumResult(found=True, release_date="1993-02-22", record_type="album")
     )
     monkeypatch.setattr(registry.deezer, "fetch_album", fetch_album_mock)
-    monkeypatch.setattr(
-        registry.spotify, "search_by_isrc", AsyncMock(return_value=SpotifyTrackResult(found=False))
-    )
+    monkeypatch.setattr(registry.spotify, "search_by_isrc", AsyncMock(return_value=SpotifyTrackResult(found=False)))
     monkeypatch.setattr(
         registry.musicbrainz,
         "fetch_by_isrc",
@@ -239,9 +209,7 @@ async def test_resolve_by_isrc_skips_album_fetch_without_an_album_id(
     )
     fetch_album_mock = AsyncMock()
     monkeypatch.setattr(registry.deezer, "fetch_album", fetch_album_mock)
-    monkeypatch.setattr(
-        registry.spotify, "search_by_isrc", AsyncMock(return_value=SpotifyTrackResult(found=False))
-    )
+    monkeypatch.setattr(registry.spotify, "search_by_isrc", AsyncMock(return_value=SpotifyTrackResult(found=False)))
     monkeypatch.setattr(
         registry.musicbrainz,
         "fetch_by_isrc",
@@ -262,25 +230,20 @@ async def test_resolve_by_isrc_skips_album_fetch_without_an_album_id(
 def test_release_year_treats_a_non_numeric_or_zero_date_as_unknown(
     release_date: str | None, expected_year: int | None
 ) -> None:
-    """deezer answers `"0000-00-00"`, and `int("0000")` is a `0` that `merge_field`
-    would write straight over a correct stored year."""
+    """deezer answers `"0000-00-00"`, and `int("0000")` is a `0` that `merge_field` would write straight over a
+    correct stored year."""
     assert registry.release_year(release_date) == expected_year
 
 
 async def test_a_failing_source_does_not_take_the_other_sources_with_it(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """one Deezer quota error must not fail a post Spotify can fill; the failure
-    is recorded for the admin instead."""
-    monkeypatch.setattr(
-        registry.deezer, "fetch_by_isrc", AsyncMock(side_effect=RuntimeError("quota exceeded"))
-    )
+    """one Deezer quota error must not fail a post Spotify can fill; the failure is recorded for the admin instead."""
+    monkeypatch.setattr(registry.deezer, "fetch_by_isrc", AsyncMock(side_effect=RuntimeError("quota exceeded")))
     monkeypatch.setattr(
         registry.spotify,
         "search_by_isrc",
-        AsyncMock(
-            return_value=SpotifyTrackResult(found=True, url="https://open.spotify.com/track/ok")
-        ),
+        AsyncMock(return_value=SpotifyTrackResult(found=True, url="https://open.spotify.com/track/ok")),
     )
     monkeypatch.setattr(
         registry.musicbrainz,
@@ -306,18 +269,12 @@ async def test_a_failing_name_search_source_does_not_stop_the_others(
         title="Покаяння",
         duration_ms=225000,
     )
-    monkeypatch.setattr(
-        registry.deezer, "search_by_name", AsyncMock(side_effect=RuntimeError("deezer down"))
-    )
+    monkeypatch.setattr(registry.deezer, "search_by_name", AsyncMock(side_effect=RuntimeError("deezer down")))
     monkeypatch.setattr(registry.itunes, "search_by_name", AsyncMock(return_value=[]))
-    monkeypatch.setattr(
-        registry.ytmusic, "search_by_name", AsyncMock(return_value=[matched_candidate])
-    )
+    monkeypatch.setattr(registry.ytmusic, "search_by_name", AsyncMock(return_value=[matched_candidate]))
 
     track = ResolvedTrack()
-    await registry.resolve_by_name_with_matching(
-        make_context(), "Burned Time Machine", "Покаяння", 224000, track
-    )
+    await registry.resolve_by_name_with_matching(make_context(), "Burned Time Machine", "Покаяння", 224000, track)
 
     assert track.platform_links["youtubeMusic"].url == matched_candidate.url
     assert any("deezer down" in failure for failure in track.source_failures)
@@ -326,8 +283,8 @@ async def test_a_failing_name_search_source_does_not_stop_the_others(
 async def test_a_ytmusic_candidate_with_an_unusable_video_id_derives_no_youtube_link(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """`videoId` is source-supplied and goes into a URL and into `yt-dlp`, so it is
-    validated like the ISRC next to it."""
+    """`videoId` is source-supplied and goes into a URL and into `yt-dlp`, so it is validated like the ISRC
+    next to it."""
     matched_candidate = TrackCandidate(
         platform="youtubeMusic",
         url="https://music.youtube.com/watch?v=../../watch",
@@ -338,21 +295,17 @@ async def test_a_ytmusic_candidate_with_an_unusable_video_id_derives_no_youtube_
     )
     monkeypatch.setattr(registry.deezer, "search_by_name", AsyncMock(return_value=[]))
     monkeypatch.setattr(registry.itunes, "search_by_name", AsyncMock(return_value=[]))
-    monkeypatch.setattr(
-        registry.ytmusic, "search_by_name", AsyncMock(return_value=[matched_candidate])
-    )
+    monkeypatch.setattr(registry.ytmusic, "search_by_name", AsyncMock(return_value=[matched_candidate]))
 
     track = ResolvedTrack()
-    await registry.resolve_by_name_with_matching(
-        make_context(), "Burned Time Machine", "Покаяння", 224000, track
-    )
+    await registry.resolve_by_name_with_matching(make_context(), "Burned Time Machine", "Покаяння", 224000, track)
 
     assert "youtube" not in track.platform_links
 
 
 async def test_a_database_failure_inside_a_source_call_is_not_a_source_failure() -> None:
-    """`SourceCache` opens a Postgres session in every call, so a dead database
-    must surface as itself, not as six failed sources."""
+    """`SourceCache` opens a Postgres session in every call, so a dead database must surface as itself, not as six
+    failed sources."""
     track = ResolvedTrack()
 
     async def cache_is_down() -> None:
@@ -365,8 +318,8 @@ async def test_a_database_failure_inside_a_source_call_is_not_a_source_failure()
 
 
 async def test_a_source_that_fails_twice_is_listed_to_the_admin_once() -> None:
-    """`deezer:album` is fetched twice (year/release type here, genres in
-    `service.resolve_genres`), so one quota error would be reported twice."""
+    """`deezer:album` is fetched twice (year/release type here, genres in `service.resolve_genres`), so one quota
+    error would be reported twice."""
     track = ResolvedTrack()
 
     async def quota_exceeded() -> None:

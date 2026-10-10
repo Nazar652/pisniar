@@ -1,6 +1,5 @@
-"""`lyrics.persist_under_track_lock` with a faked session: the track is locked
-`FOR NO KEY UPDATE`, existing lines of any source and a saved text win, and a write
-that lands short raises instead of committing a partial set.
+"""`lyrics.persist_under_track_lock` with a faked session: the track is locked `FOR NO KEY UPDATE`, existing lines of
+any source and a saved text win, and a write that lands short raises instead of committing a partial set.
 """
 
 from __future__ import annotations
@@ -22,7 +21,11 @@ ROWS = [
 ]
 
 
-def make_session(track: Track | None, existing_count: int, inserted_rows: int) -> MagicMock:
+def make_session(
+    track: Track | None,
+    existing_count: int,
+    inserted_rows: int,
+) -> MagicMock:
     session = MagicMock()
     session.get = AsyncMock(return_value=track)
     session.scalar = AsyncMock(return_value=existing_count)
@@ -32,9 +35,7 @@ def make_session(track: Track | None, existing_count: int, inserted_rows: int) -
     return session
 
 
-async def persist(
-    session: MagicMock, truncated_count: int = 0
-) -> worker_lyrics.LyricsPersistResult:
+async def persist(session: MagicMock, truncated_count: int = 0) -> worker_lyrics.LyricsPersistResult:
     return await worker_lyrics.persist_under_track_lock(
         session, TRACK_ID, ROWS, LyricsOutcome.SYNCED, truncated_count, source="lrclib"
     )
@@ -45,9 +46,7 @@ async def test_the_track_is_locked_for_no_key_update() -> None:
 
     await persist(session)
 
-    session.get.assert_awaited_once_with(
-        Track, TRACK_ID, with_for_update={"key_share": True}, populate_existing=True
-    )
+    session.get.assert_awaited_once_with(Track, TRACK_ID, with_for_update={"key_share": True}, populate_existing=True)
 
 
 async def test_a_missing_track_has_nowhere_to_write() -> None:
@@ -88,9 +87,7 @@ async def test_the_insert_carries_the_given_source_and_untimed_rows() -> None:
         LyricRow(line_index=1, start_ms=2_000, text="другий"),
     ]
 
-    await worker_lyrics.persist_under_track_lock(
-        session, TRACK_ID, rows, LyricsOutcome.UNSYNCED, 0, source="genius"
-    )
+    await worker_lyrics.persist_under_track_lock(session, TRACK_ID, rows, LyricsOutcome.UNSYNCED, 0, source="genius")
 
     parameters = session.execute.await_args.args[0].compile().params
     assert {value for key, value in parameters.items() if key.startswith("source")} == {"genius"}

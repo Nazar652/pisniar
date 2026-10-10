@@ -1,7 +1,6 @@
-"""`worker.lyrics`, the order of the sources: timed text first (YouTube Music, then
-LRCLIB), plain text after it, the plain-text lookup of the remaining sources, and what
-each step swallows or lets through. No network and no database: every collaborator is
-replaced.
+"""`worker.lyrics`, the order of the sources: timed text first (YouTube Music, then LRCLIB), plain text after it, the
+plain-text lookup of the remaining sources, and what each step swallows or lets through. No network and no database:
+every collaborator is replaced.
 """
 
 from __future__ import annotations
@@ -32,18 +31,12 @@ QUERY = lyrics.LyricsQuery(
 )
 NOTHING_STORED = lyrics.StoredLyrics(renderable_lines=(), total_count=0, edited_by_admin=False)
 STORED_LINES = (LyricLine(line_index=0, start_ms=1_000, text="раз"),)
-TIMED_STORED = lyrics.StoredLyrics(
-    renderable_lines=STORED_LINES, total_count=1, edited_by_admin=False
-)
+TIMED_STORED = lyrics.StoredLyrics(renderable_lines=STORED_LINES, total_count=1, edited_by_admin=False)
 UNTIMED_STORED = lyrics.StoredLyrics(renderable_lines=(), total_count=2, edited_by_admin=False)
 SYNCED = LyricsResult(outcome=LyricsOutcome.SYNCED, lines=(LyricsLine(start_ms=1_000, text="раз"),))
-OTHER_SYNCED = LyricsResult(
-    outcome=LyricsOutcome.SYNCED, lines=(LyricsLine(start_ms=2_000, text="інакше"),)
-)
+OTHER_SYNCED = LyricsResult(outcome=LyricsOutcome.SYNCED, lines=(LyricsLine(start_ms=2_000, text="інакше"),))
 PLAIN = LyricsResult(outcome=LyricsOutcome.UNSYNCED, lines=(LyricsLine(start_ms=None, text="раз"),))
-OTHER_PLAIN = LyricsResult(
-    outcome=LyricsOutcome.UNSYNCED, lines=(LyricsLine(start_ms=None, text="інакше"),)
-)
+OTHER_PLAIN = LyricsResult(outcome=LyricsOutcome.UNSYNCED, lines=(LyricsLine(start_ms=None, text="інакше"),))
 ABSENT = LyricsResult(outcome=LyricsOutcome.ABSENT)
 OVER_LIMIT = LyricsResult(
     outcome=LyricsOutcome.SYNCED,
@@ -138,9 +131,7 @@ def test_only_an_answer_that_would_write_lines_is_storable() -> None:
         (LyricsResult(outcome=LyricsOutcome.SYNCED), LyricsResult(outcome=LyricsOutcome.UNSYNCED)),
     ],
 )
-def test_no_lines_means_no_answer(
-    youtube: LyricsResult | None, lrclib: LyricsResult | None
-) -> None:
+def test_no_lines_means_no_answer(youtube: LyricsResult | None, lrclib: LyricsResult | None) -> None:
     assert lyrics.choose_answer(youtube, lrclib) is None
 
 
@@ -168,15 +159,15 @@ REJECTED = LyricsResult(outcome=LyricsOutcome.REJECTED_BY_MATCHING)
     ],
 )
 def test_the_reason_for_no_text_is_absent_only_when_every_source_said_so(
-    youtube: LyricsResult | None, lrclib: LyricsResult | None, reason: str
+    youtube: LyricsResult | None,
+    lrclib: LyricsResult | None,
+    reason: str,
 ) -> None:
     assert lyrics.no_text_reason(youtube, lrclib) == reason
 
 
 def test_a_kept_write_reports_what_the_table_holds() -> None:
-    kept = lyrics.LyricsPersistResult(
-        outcome=LyricsPersistOutcome.KEPT_EXISTING, source_outcome=LyricsOutcome.SYNCED
-    )
+    kept = lyrics.LyricsPersistResult(outcome=LyricsPersistOutcome.KEPT_EXISTING, source_outcome=LyricsOutcome.SYNCED)
 
     assert lyrics.reason_after_persist(kept, SYNCED, UNTIMED_STORED) == lyrics.LYRICS_UNTIMED
     assert lyrics.reason_after_persist(kept, SYNCED, TIMED_STORED) == lyrics.LYRICS_ALREADY_STORED
@@ -184,17 +175,13 @@ def test_a_kept_write_reports_what_the_table_holds() -> None:
 
 
 def test_plain_lines_that_were_written_are_untimed_text() -> None:
-    written = lyrics.LyricsPersistResult(
-        outcome=LyricsPersistOutcome.WRITTEN, source_outcome=LyricsOutcome.UNSYNCED
-    )
+    written = lyrics.LyricsPersistResult(outcome=LyricsPersistOutcome.WRITTEN, source_outcome=LyricsOutcome.UNSYNCED)
 
     assert lyrics.reason_after_persist(written, PLAIN, UNTIMED_STORED) == lyrics.LYRICS_UNTIMED
 
 
 def test_synced_lines_that_were_written_keep_the_adapters_class() -> None:
-    written = lyrics.LyricsPersistResult(
-        outcome=LyricsPersistOutcome.WRITTEN, source_outcome=LyricsOutcome.SYNCED
-    )
+    written = lyrics.LyricsPersistResult(outcome=LyricsPersistOutcome.WRITTEN, source_outcome=LyricsOutcome.SYNCED)
 
     assert lyrics.reason_after_persist(written, SYNCED, TIMED_STORED) == "lyrics_synced"
 
@@ -222,9 +209,7 @@ def test_plain_text_that_was_not_written_keeps_the_unsynced_class() -> None:
         (lyrics.LYRICS_OUTSIDE_FRAGMENT, False),
     ],
 )
-def test_only_a_missing_or_unreachable_text_is_worth_a_plain_lookup(
-    reason: str, wanted: bool
-) -> None:
+def test_only_a_missing_or_unreachable_text_is_worth_a_plain_lookup(reason: str, wanted: bool) -> None:
     assert lyrics.wants_plain_lookup(reason) is wanted
 
 
@@ -291,8 +276,8 @@ async def test_lrclib_is_asked_with_the_track_as_the_query(monkeypatch: pytest.M
 
 
 class LadderSpy:
-    """replaces the five collaborators `prepare_lyrics` orchestrates and records the
-    order and the `source` of the write, so "who is asked, who is written" is observed."""
+    """replaces the five collaborators `prepare_lyrics` orchestrates and records the order and the `source` of the
+    write, so "who is asked, who is written" is observed."""
 
     def __init__(
         self,
@@ -330,13 +315,16 @@ class LadderSpy:
         return AsyncMock(side_effect=answer)
 
     async def persist(
-        self, session_factory: object, track_id: int, result: LyricsResult, *, source: str
+        self,
+        session_factory: object,
+        track_id: int,
+        result: LyricsResult,
+        *,
+        source: str,
     ) -> lyrics.LyricsPersistResult:
         self.calls.append("persist")
         self.written_source = source
-        return lyrics.LyricsPersistResult(
-            outcome=self.persist_outcome, source_outcome=result.outcome
-        )
+        return lyrics.LyricsPersistResult(outcome=self.persist_outcome, source_outcome=result.outcome)
 
 
 async def prepare(query: lyrics.LyricsQuery = QUERY) -> lyrics.PreparedLyrics:
@@ -585,13 +573,16 @@ class StoreSpy:
         return self.found
 
     async def persist(
-        self, session_factory: object, track_id: int, result: LyricsResult, *, source: str
+        self,
+        session_factory: object,
+        track_id: int,
+        result: LyricsResult,
+        *,
+        source: str,
     ) -> lyrics.LyricsPersistResult:
         self.calls.append("persist")
         self.written_source = source
-        return lyrics.LyricsPersistResult(
-            outcome=LyricsPersistOutcome.WRITTEN, source_outcome=result.outcome
-        )
+        return lyrics.LyricsPersistResult(outcome=LyricsPersistOutcome.WRITTEN, source_outcome=result.outcome)
 
 
 async def store() -> lyrics.LyricsPersistResult | None:

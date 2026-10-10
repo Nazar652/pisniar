@@ -1,6 +1,5 @@
-"""`default_hashtag()`: the post-format examples verbatim, plus the rule that
-digits-only or empty input emits nothing.
-"""
+"""`default_hashtag()`: the post-format examples verbatim, plus the rule that digits-only or empty
+input emits nothing."""
 
 from __future__ import annotations
 
@@ -45,7 +44,5 @@ def test_default_hashtag_preserves_first_word_casing_exactly() -> None:
         ("рок", "рок"),
     ],
 )
-def test_multi_word_genres_use_the_same_gluing_rule_as_artists(
-    genre_name: str, expected: str
-) -> None:
+def test_multi_word_genres_use_the_same_gluing_rule_as_artists(genre_name: str, expected: str) -> None:
     assert default_hashtag(genre_name) == expected

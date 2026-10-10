@@ -1,6 +1,5 @@
-"""The diagnostic `ping` task, run through Celery's eager mode (no real
-broker) with Postgres and Telegram fully mocked out — this stays a unit
-test, not an `integration` one."""
+"""The diagnostic `ping` task, run through Celery's eager mode (no real broker) with Postgres and Telegram fully mocked
+out — this stays a unit test, not an `integration` one."""
 
 from __future__ import annotations
 
@@ -43,9 +42,7 @@ def test_ping_task_executes_synchronously_checks_db_and_sends_alert(
     send_alert_mock = AsyncMock(return_value=True)
 
     monkeypatch.setattr(worker_tasks, "build_engine", MagicMock(return_value=fake_engine))
-    monkeypatch.setattr(
-        worker_tasks, "build_session_factory", MagicMock(return_value=fake_session_factory)
-    )
+    monkeypatch.setattr(worker_tasks, "build_session_factory", MagicMock(return_value=fake_session_factory))
     monkeypatch.setattr(worker_tasks, "build_bot", MagicMock(return_value=fake_bot))
     monkeypatch.setattr(worker_tasks, "send_alert", send_alert_mock)
 
@@ -67,8 +64,7 @@ def test_ping_task_executes_synchronously_checks_db_and_sends_alert(
 def test_ping_task_succeeds_even_when_the_alert_fails_to_deliver(
     eager_celery_app: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """`False` is `send_alert`'s documented failure mode, and an alert about a
-    diagnostic is not the diagnostic."""
+    """`False` is `send_alert`'s documented failure mode, and an alert about a diagnostic is not the diagnostic."""
     fake_session = AsyncMock()
 
     @asynccontextmanager
@@ -95,9 +91,7 @@ def test_ping_task_succeeds_even_when_the_alert_fails_to_deliver(
     fake_engine.dispose.assert_awaited_once()
 
 
-def test_ping_task_without_post_id_still_executes(
-    eager_celery_app: None, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_ping_task_without_post_id_still_executes(eager_celery_app: None, monkeypatch: pytest.MonkeyPatch) -> None:
     fake_session = AsyncMock()
 
     @asynccontextmanager

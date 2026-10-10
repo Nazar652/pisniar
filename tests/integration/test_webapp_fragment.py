@@ -48,9 +48,7 @@ async def seed_post(
         source_url_normalized=f"test://{marker}",
         title="Тема",
         artists=[{"name": "Артист", "hashtag": None, "spotify_id": None}],
-        platform_links={}
-        if linked_video_id is None
-        else {"youtubeMusic": music_link(linked_video_id)},
+        platform_links={} if linked_video_id is None else {"youtubeMusic": music_link(linked_video_id)},
     )
     session.add(track)
     await session.flush()
@@ -98,9 +96,7 @@ async def test_a_rendered_post_gives_the_source_of_its_current_recording(
 
 
 @pytest.mark.parametrize("stage", [PostStatus.DOWNLOADED, PostStatus.RENDERING])
-async def test_a_render_that_failed_gives_a_source(
-    db_session: AsyncSession, stage: PostStatus
-) -> None:
+async def test_a_render_that_failed_gives_a_source(db_session: AsyncSession, stage: PostStatus) -> None:
     post = await seed_post(db_session, PostStatus.FAILED, failed_from=stage)
 
     assert await fetch_fragment_source(db_session, post.id, USER_ID) is not None
@@ -150,7 +146,9 @@ async def test_audio_of_another_recording_is_audio_missing(db_session: AsyncSess
     [(None, MUSIC_VIDEO_ID), (MUSIC_VIDEO_ID, None)],
 )
 async def test_no_audio_row_or_no_youtube_music_link_is_audio_missing(
-    db_session: AsyncSession, audio_video_id: str | None, linked_video_id: str | None
+    db_session: AsyncSession,
+    audio_video_id: str | None,
+    linked_video_id: str | None,
 ) -> None:
     post = await seed_post(
         db_session,

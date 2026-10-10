@@ -1,6 +1,5 @@
-"""The read routes over `TestClient` with the database faked: parameter bounds answer 422
-and never 500, a missing post is 404, a database failure is a 503 with no details, and
-authorization is decided before the database is touched.
+"""The read routes over `TestClient` with the database faked: parameter bounds answer 422 and never 500, a missing post
+is 404, a database failure is a 503 with no details, and authorization is decided before the database is touched.
 """
 
 from __future__ import annotations
@@ -99,9 +98,7 @@ def make_detail() -> PostDetail:
 
 
 @pytest.mark.parametrize("path", ["/api/posts", "/api/posts/7", "/api/meta"])
-def test_every_read_route_refuses_an_anonymous_caller_before_the_database(
-    settings: Settings, path: str
-) -> None:
+def test_every_read_route_refuses_an_anonymous_caller_before_the_database(settings: Settings, path: str) -> None:
     client, session_factory = make_client(settings)
 
     assert client.get(path).status_code == 401
@@ -109,9 +106,7 @@ def test_every_read_route_refuses_an_anonymous_caller_before_the_database(
     session_factory.assert_not_called()
 
 
-def test_the_list_defaults_to_twenty_posts_from_the_newest(
-    settings: Settings, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_the_list_defaults_to_twenty_posts_from_the_newest(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
     fetch = AsyncMock(return_value=empty_page())
     monkeypatch.setattr(posts_module, "fetch_post_page", fetch)
     client, _ = make_client(settings)
@@ -150,7 +145,9 @@ def test_the_list_passes_the_cursor_and_the_page_size_through(
     ],
 )
 def test_an_out_of_range_list_parameter_is_a_422_and_never_a_500(
-    settings: Settings, monkeypatch: pytest.MonkeyPatch, query: str
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+    query: str,
 ) -> None:
     fetch = AsyncMock(return_value=empty_page())
     monkeypatch.setattr(posts_module, "fetch_post_page", fetch)
@@ -163,9 +160,7 @@ def test_an_out_of_range_list_parameter_is_a_422_and_never_a_500(
     fetch.assert_not_awaited()
 
 
-def test_the_largest_bigint_is_still_a_valid_cursor(
-    settings: Settings, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_the_largest_bigint_is_still_a_valid_cursor(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(posts_module, "fetch_post_page", AsyncMock(return_value=empty_page()))
     client, _ = make_client(settings)
 
@@ -185,9 +180,7 @@ def test_a_post_is_returned_by_its_id(settings: Settings, monkeypatch: pytest.Mo
     assert fetch.await_args_list[0].args[1] == 7
 
 
-def test_a_missing_post_is_a_404_with_a_sentence(
-    settings: Settings, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_missing_post_is_a_404_with_a_sentence(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(posts_module, "fetch_post_detail", AsyncMock(return_value=None))
     client, _ = make_client(settings)
 
@@ -197,11 +190,11 @@ def test_a_missing_post_is_a_404_with_a_sentence(
     assert response.json() == {"code": "post_not_found", "message": "Пост не знайдено."}
 
 
-@pytest.mark.parametrize(
-    "post_id", ["0", "-1", "abc", "1.5", str(POST_ID_MAX + 1), "99999999999999999999999"]
-)
+@pytest.mark.parametrize("post_id", ["0", "-1", "abc", "1.5", str(POST_ID_MAX + 1), "99999999999999999999999"])
 def test_a_post_id_outside_bigint_or_not_a_number_is_a_422_and_never_a_500(
-    settings: Settings, monkeypatch: pytest.MonkeyPatch, post_id: str
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+    post_id: str,
 ) -> None:
     fetch = AsyncMock(return_value=make_detail())
     monkeypatch.setattr(posts_module, "fetch_post_detail", fetch)
@@ -214,11 +207,11 @@ def test_a_post_id_outside_bigint_or_not_a_number_is_a_422_and_never_a_500(
     fetch.assert_not_awaited()
 
 
-@pytest.mark.parametrize(
-    "error", [OperationalError("SELECT", {}, Exception("secret-dsn")), OSError("refused")]
-)
+@pytest.mark.parametrize("error", [OperationalError("SELECT", {}, Exception("secret-dsn")), OSError("refused")])
 def test_a_database_failure_is_a_503_that_leaks_nothing(
-    settings: Settings, monkeypatch: pytest.MonkeyPatch, error: Exception
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+    error: Exception,
 ) -> None:
     monkeypatch.setattr(posts_module, "fetch_post_page", AsyncMock(side_effect=error))
     client, _ = make_client(settings)
@@ -237,9 +230,7 @@ def test_a_database_failure_is_a_503_that_leaks_nothing(
 def test_a_database_failure_never_looks_like_an_authorization_failure(
     settings: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(
-        posts_module, "fetch_post_page", AsyncMock(side_effect=OSError("connection refused"))
-    )
+    monkeypatch.setattr(posts_module, "fetch_post_page", AsyncMock(side_effect=OSError("connection refused")))
     client, _ = make_client(settings)
 
     assert client.get("/api/posts", headers=bearer()).status_code == 503

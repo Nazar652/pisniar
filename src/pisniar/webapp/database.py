@@ -24,13 +24,9 @@ POST_BUSY_MESSAGE = "Пост зараз змінюється іншою діє�
 LOCK_FAILURE_SQLSTATES = frozenset({"55P03", "57014"})
 
 
-async def read_from_database[ResultT](
-    request: Request, read: Callable[[AsyncSession], Awaitable[ResultT]]
-) -> ResultT:
+async def read_from_database[ResultT](request: Request, read: Callable[[AsyncSession], Awaitable[ResultT]]) -> ResultT:
     """no locks are taken: the session only reads, and the engine's `lock_timeout` still applies."""
-    session_factory = cast(
-        "async_sessionmaker[AsyncSession] | None", request.app.state.session_factory
-    )
+    session_factory = cast("async_sessionmaker[AsyncSession] | None", request.app.state.session_factory)
     if session_factory is None:
         logger.error("webapp_database_not_configured")
         raise ApiProblem(503, "database_unavailable", DATABASE_UNAVAILABLE_MESSAGE)
@@ -47,14 +43,10 @@ def is_lock_failure(error: DBAPIError) -> bool:
     return getattr(error.orig, "sqlstate", None) in LOCK_FAILURE_SQLSTATES
 
 
-async def write_to_database[ResultT](
-    request: Request, write: Callable[[AsyncSession], Awaitable[ResultT]]
-) -> ResultT:
+async def write_to_database[ResultT](request: Request, write: Callable[[AsyncSession], Awaitable[ResultT]]) -> ResultT:
     """one transaction: committed when `write` returns, rolled back when it raises. A refused or
     timed-out lock is a 409 the admin can retry; every other database failure is a 503."""
-    session_factory = cast(
-        "async_sessionmaker[AsyncSession] | None", request.app.state.session_factory
-    )
+    session_factory = cast("async_sessionmaker[AsyncSession] | None", request.app.state.session_factory)
     if session_factory is None:
         logger.error("webapp_database_not_configured")
         raise ApiProblem(503, "database_unavailable", DATABASE_UNAVAILABLE_MESSAGE)

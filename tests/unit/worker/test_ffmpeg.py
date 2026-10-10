@@ -1,5 +1,5 @@
-"""The subprocess wrapper: argument lists and `shell=False`, hard timeouts, and
-`ffprobe`, not the exit code, deciding whether an output is usable.
+"""The subprocess wrapper: argument lists and `shell=False`, hard timeouts, and `ffprobe`, not the exit code, deciding
+whether an output is usable.
 """
 
 from __future__ import annotations
@@ -15,16 +15,14 @@ from pisniar.worker import ffmpeg as media_tools
 
 
 def make_completed(
-    returncode: int = 0, stdout: str = "", stderr: str = ""
+    returncode: int = 0,
+    stdout: str = "",
+    stderr: str = "",
 ) -> subprocess.CompletedProcess[str]:
-    return subprocess.CompletedProcess(
-        args=["ffprobe"], returncode=returncode, stdout=stdout, stderr=stderr
-    )
+    return subprocess.CompletedProcess(args=["ffprobe"], returncode=returncode, stdout=stdout, stderr=stderr)
 
 
-def probe_payload(
-    *, duration: str | None = "45.000", streams: list[dict[str, Any]] | None = None
-) -> str:
+def probe_payload(*, duration: str | None = "45.000", streams: list[dict[str, Any]] | None = None) -> str:
     payload: dict[str, Any] = {"streams": streams if streams is not None else []}
     payload["format"] = {} if duration is None else {"duration": duration}
     return json.dumps(payload)
@@ -101,9 +99,7 @@ def test_a_non_zero_exit_carries_the_stderr_tail(monkeypatch: pytest.MonkeyPatch
 def test_run_media_tool_checked_returns_the_process_on_success(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        media_tools.subprocess, "run", lambda command, **kwargs: make_completed(stdout="2025.12.8")
-    )
+    monkeypatch.setattr(media_tools.subprocess, "run", lambda command, **kwargs: make_completed(stdout="2025.12.8"))
 
     completed = media_tools.run_media_tool_checked("yt-dlp", ["--version"], timeout_seconds=5)
 
@@ -122,9 +118,7 @@ def test_the_bytes_runner_keeps_the_argument_discipline_and_returns_raw_stdout(
 
     monkeypatch.setattr(media_tools.subprocess, "run", fake_run)
 
-    completed = media_tools.run_media_tool_bytes(
-        "ffmpeg", ["-i", "a b;rm -rf /"], timeout_seconds=9
-    )
+    completed = media_tools.run_media_tool_bytes("ffmpeg", ["-i", "a b;rm -rf /"], timeout_seconds=9)
 
     assert completed.stdout == b"\x00\xff"
     assert recorded["command"] == ["ffmpeg", "-i", "a b;rm -rf /"]
@@ -199,9 +193,7 @@ def write_file(tmp_path: Path, name: str = "media.mp4") -> Path:
     return path
 
 
-def test_a_probe_reports_size_duration_and_streams(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_probe_reports_size_duration_and_streams(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     path = write_file(tmp_path)
     stub_probe(monkeypatch, probe_payload(streams=[VIDEO_STREAM, AUDIO_STREAM]))
 
@@ -214,9 +206,7 @@ def test_a_probe_reports_size_duration_and_streams(
     assert probe.audio_streams[0].codec_name == "aac"
 
 
-def test_a_duration_only_on_the_stream_is_still_found(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_duration_only_on_the_stream_is_still_found(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """what yt-dlp's raw audio containers actually look like."""
     path = write_file(tmp_path, "audio.webm")
     stub_probe(
@@ -227,9 +217,7 @@ def test_a_duration_only_on_the_stream_is_still_found(
     assert media_tools.probe_media(path).duration_ms == 212_345
 
 
-def test_a_probe_without_any_duration_is_refused(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_probe_without_any_duration_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     path = write_file(tmp_path)
     stub_probe(monkeypatch, probe_payload(duration=None, streams=[AUDIO_STREAM]))
 
@@ -237,9 +225,7 @@ def test_a_probe_without_any_duration_is_refused(
         media_tools.probe_media(path)
 
 
-def test_a_zero_duration_is_an_absence_not_a_length(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_zero_duration_is_an_absence_not_a_length(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     path = write_file(tmp_path)
     stub_probe(monkeypatch, probe_payload(duration="0.000", streams=[AUDIO_STREAM]))
 
@@ -255,9 +241,7 @@ def test_non_json_output_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPa
         media_tools.probe_media(path)
 
 
-def test_verify_media_demands_a_video_stream(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_verify_media_demands_a_video_stream(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     path = write_file(tmp_path)
     stub_probe(monkeypatch, probe_payload(streams=[AUDIO_STREAM]))
 
@@ -265,9 +249,7 @@ def test_verify_media_demands_a_video_stream(
         media_tools.verify_media(path, require_video=True)
 
 
-def test_verify_media_demands_an_audio_stream(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_verify_media_demands_an_audio_stream(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     path = write_file(tmp_path)
     stub_probe(monkeypatch, probe_payload(streams=[VIDEO_STREAM]))
 
@@ -275,9 +257,7 @@ def test_verify_media_demands_an_audio_stream(
         media_tools.verify_media(path, require_audio=True)
 
 
-def test_verify_media_refuses_a_duration_outside_the_tolerance(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_verify_media_refuses_a_duration_outside_the_tolerance(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     path = write_file(tmp_path)
     stub_probe(monkeypatch, probe_payload(duration="40.000", streams=[VIDEO_STREAM, AUDIO_STREAM]))
 
@@ -285,9 +265,7 @@ def test_verify_media_refuses_a_duration_outside_the_tolerance(
         media_tools.verify_media(path, expected_duration_ms=45_000, duration_tolerance_ms=500)
 
 
-def test_verify_media_accepts_a_duration_inside_the_tolerance(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_verify_media_accepts_a_duration_inside_the_tolerance(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     path = write_file(tmp_path)
     stub_probe(monkeypatch, probe_payload(duration="45.400", streams=[VIDEO_STREAM, AUDIO_STREAM]))
 

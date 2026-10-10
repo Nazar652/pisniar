@@ -1,7 +1,5 @@
-"""The task bodies' terminal paths with the database and Telegram faked: the publish
-transaction, both failure reporters, the cleanup of a non-track, the render
-preconditions and the missing-text notice.
-"""
+"""The task bodies' terminal paths with the database and Telegram faked: the publish transaction, both failure
+reporters, the cleanup of a non-track, the render preconditions and the missing-text notice."""
 
 from __future__ import annotations
 
@@ -63,14 +61,9 @@ async def test_confirmation_clears_both_keyboards_and_answers_in_the_draft_chat(
         telegram.bot, POST_ID, OTHER_CHAT_ID, 11, (OTHER_CHAT_ID, 12), "https://t.me/x/1"
     )
 
-    cleared = [
-        call.kwargs["message_id"] for call in telegram.bot.edit_message_reply_markup.await_args_list
-    ]
+    cleared = [call.kwargs["message_id"] for call in telegram.bot.edit_message_reply_markup.await_args_list]
     assert cleared == [11, 12]
-    assert all(
-        call.kwargs["reply_markup"] is None
-        for call in telegram.bot.edit_message_reply_markup.await_args_list
-    )
+    assert all(call.kwargs["reply_markup"] is None for call in telegram.bot.edit_message_reply_markup.await_args_list)
     assert alert_targets(telegram) == [OTHER_CHAT_ID]
     assert "https://t.me/x/1" in telegram.send_alert.await_args.args[2]
 
@@ -78,9 +71,7 @@ async def test_confirmation_clears_both_keyboards_and_answers_in_the_draft_chat(
 async def test_confirmation_skips_a_missing_reference_and_falls_back_to_the_alert_chat(
     telegram: SimpleNamespace,
 ) -> None:
-    await worker_tasks.confirm_publication(
-        telegram.bot, POST_ID, None, None, (None, None), "https://t.me/x/1"
-    )
+    await worker_tasks.confirm_publication(telegram.bot, POST_ID, None, None, (None, None), "https://t.me/x/1")
 
     telegram.bot.edit_message_reply_markup.assert_not_awaited()
     assert alert_targets(telegram) == [ALERT_CHAT_ID]
@@ -187,9 +178,7 @@ async def test_a_failed_resolve_writes_failed_and_alerts_with_the_retry_hint(
 async def test_a_failed_resolve_alerts_even_when_postgres_is_gone(
     telegram: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(
-        worker_tasks, "write_failed_status", AsyncMock(side_effect=RuntimeError("down"))
-    )
+    monkeypatch.setattr(worker_tasks, "write_failed_status", AsyncMock(side_effect=RuntimeError("down")))
     session = make_session()
 
     await worker_tasks.fail_post(session, POST_ID, "boom")
@@ -229,7 +218,11 @@ def publication(telegram: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> S
     chat.username = "test_channel"
 
     async def write_reference(
-        bot: object, post: Post, chat_id: int, cover_url: str | None, video: object | None
+        bot: object,
+        post: Post,
+        chat_id: int,
+        cover_url: str | None,
+        video: object | None,
     ) -> None:
         post.channel_chat_id = chat_id
         post.channel_message_id = 500
@@ -249,9 +242,7 @@ def publication(telegram: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> S
     monkeypatch.setattr(worker_tasks, "publish_to_channel", pieces.publish)
     monkeypatch.setattr(worker_tasks, "confirm_publication", pieces.confirm)
     monkeypatch.setattr(worker_tasks, "fail_publish", pieces.fail)
-    monkeypatch.setattr(
-        worker_tasks.media_storage, "remove_post_artifacts", pieces.remove_artifacts
-    )
+    monkeypatch.setattr(worker_tasks.media_storage, "remove_post_artifacts", pieces.remove_artifacts)
     return pieces
 
 
@@ -317,9 +308,7 @@ async def test_a_send_failure_rolls_back_and_fails_the_post_with_the_telegram_re
     session = make_session()
     post = make_publishing_post()
 
-    await worker_tasks.publish_and_confirm(
-        session, post, Track(source_url="x", source_url_normalized="x"), 222
-    )
+    await worker_tasks.publish_and_confirm(session, post, Track(source_url="x", source_url_normalized="x"), 222)
 
     session.rollback.assert_awaited_once()
     session.commit.assert_not_awaited()
@@ -366,9 +355,7 @@ async def test_the_preview_reference_travels_to_the_confirmation(
 ) -> None:
     post = make_publishing_post(preview_chat_id=OTHER_CHAT_ID, preview_message_id=12)
 
-    await worker_tasks.publish_and_confirm(
-        make_session(), post, Track(source_url="x", source_url_normalized="x"), 222
-    )
+    await worker_tasks.publish_and_confirm(make_session(), post, Track(source_url="x", source_url_normalized="x"), 222)
 
     assert publication.confirm.await_args.args[4] == (OTHER_CHAT_ID, 12)
 
@@ -394,9 +381,7 @@ async def test_cleanup_reports_a_post_that_could_not_be_deleted(
     session.delete = AsyncMock(side_effect=RuntimeError("database is down"))
     post = make_publishing_post()
 
-    deleted, note = await worker_tasks.delete_post_and_orphan_track(
-        session, post, POST_ID, make_orphan_track()
-    )
+    deleted, note = await worker_tasks.delete_post_and_orphan_track(session, post, POST_ID, make_orphan_track())
 
     assert deleted is False
     assert "«resolving»" in note
@@ -411,9 +396,7 @@ async def test_cleanup_deletes_the_orphaned_track_and_its_artifacts(
     session.scalar = AsyncMock(return_value=0)
     track = make_orphan_track()
 
-    deleted, note = await worker_tasks.delete_post_and_orphan_track(
-        session, make_publishing_post(), POST_ID, track
-    )
+    deleted, note = await worker_tasks.delete_post_and_orphan_track(session, make_publishing_post(), POST_ID, track)
 
     assert (deleted, note) == (True, "")
     assert [call.args[0] for call in session.delete.await_args_list][-1] is track
@@ -527,9 +510,7 @@ async def test_render_preconditions_refuse_a_track_without_downloaded_audio() ->
 
 
 @pytest.mark.parametrize(("start_ms", "end_ms"), [(0, None), (45_000, 10_000)])
-async def test_render_preconditions_refuse_unusable_bounds(
-    start_ms: int | None, end_ms: int | None
-) -> None:
+async def test_render_preconditions_refuse_unusable_bounds(start_ms: int | None, end_ms: int | None) -> None:
     asset = AudioAsset(path="/data/audio/3/a.opus", duration_ms=212_000)
 
     preconditions = await worker_tasks.read_render_preconditions(
@@ -633,9 +614,7 @@ async def test_a_timeout_while_sending_the_notice_is_swallowed(
 async def test_the_confirmation_in_a_private_chat_carries_the_edit_button(
     telegram: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(
-        worker_tasks.settings, "webapp_public_url", "https://pisniar.example.ts.net"
-    )
+    monkeypatch.setattr(worker_tasks.settings, "webapp_public_url", "https://pisniar.example.ts.net")
 
     await worker_tasks.confirm_publication(
         telegram.bot, POST_ID, PRIVATE_DRAFT_CHAT_ID, 11, (None, None), "https://t.me/x/1"
@@ -650,13 +629,9 @@ async def test_the_confirmation_in_a_private_chat_carries_the_edit_button(
 async def test_the_confirmation_in_a_group_has_no_button_and_is_still_sent(
     telegram: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(
-        worker_tasks.settings, "webapp_public_url", "https://pisniar.example.ts.net"
-    )
+    monkeypatch.setattr(worker_tasks.settings, "webapp_public_url", "https://pisniar.example.ts.net")
 
-    await worker_tasks.confirm_publication(
-        telegram.bot, POST_ID, -1001234567890, 11, (None, None), "https://t.me/x/1"
-    )
+    await worker_tasks.confirm_publication(telegram.bot, POST_ID, -1001234567890, 11, (None, None), "https://t.me/x/1")
 
     telegram.send_alert.assert_awaited_once()
     assert telegram.send_alert.await_args.kwargs["reply_markup"] is None
@@ -667,8 +642,6 @@ async def test_the_confirmation_without_the_address_has_no_button(
 ) -> None:
     monkeypatch.setattr(worker_tasks.settings, "webapp_public_url", None)
 
-    await worker_tasks.confirm_publication(
-        telegram.bot, POST_ID, OTHER_CHAT_ID, 11, (None, None), "https://t.me/x/1"
-    )
+    await worker_tasks.confirm_publication(telegram.bot, POST_ID, OTHER_CHAT_ID, 11, (None, None), "https://t.me/x/1")
 
     assert telegram.send_alert.await_args.kwargs["reply_markup"] is None

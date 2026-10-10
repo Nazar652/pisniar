@@ -235,8 +235,7 @@ export interface components {
         };
         /**
          * ApplyRequest
-         * @description the hash of the caption the editor showed: the caption is rebuilt and compared before
-         *     anything is sent.
+         * @description the hash of the caption the editor showed: the caption is rebuilt and compared before anything is sent.
          */
         ApplyRequest: {
             /** Expected Caption Sha256 */
@@ -440,8 +439,8 @@ export interface components {
         };
         /**
          * FragmentAvailability
-         * @description whether the fragment can be chosen now, or the audio can be prepared for it, judged from
-         *     the status alone; at most one of the first three flags is true.
+         * @description whether the fragment can be chosen now, or the audio can be prepared for it, judged from the status alone; at
+         *     most one of the first three flags is true.
          */
         FragmentAvailability: {
             /** Cancellable */
@@ -479,8 +478,8 @@ export interface components {
         };
         /**
          * FragmentRequest
-         * @description the bounds the admin chose, in whole ms from the start of the full track, and the
-         *     version of the post the editor was opened with.
+         * @description the bounds the admin chose, in whole ms from the start of the full track, and the version of the post the editor
+         *     was opened with.
          */
         FragmentRequest: {
             /** End Ms */

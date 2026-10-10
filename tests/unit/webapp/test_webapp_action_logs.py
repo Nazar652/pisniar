@@ -73,7 +73,11 @@ def assert_no_credentials(entries: list[dict[str, Any]]) -> None:
         assert secret not in text
 
 
-def assert_actor(entry: dict[str, Any], reason: str | None, user_id: int = USER_ID) -> None:
+def assert_actor(
+    entry: dict[str, Any],
+    reason: str | None,
+    user_id: int = USER_ID,
+) -> None:
     assert (entry["user_id"], entry["post_id"]) == (user_id, 7)
     if reason is not None:
         assert entry["reason"] == reason
@@ -132,9 +136,7 @@ async def test_a_save_of_a_post_that_cannot_be_edited_logs_not_editable(
     assert_no_credentials(captured)
 
 
-async def test_a_stale_save_logs_stale_data(
-    rows: tuple[Post, Track], captured: list[dict[str, Any]]
-) -> None:
+async def test_a_stale_save_logs_stale_data(rows: tuple[Post, Track], captured: list[dict[str, Any]]) -> None:
     _, track = rows
     update = unchanged_update(track, expected_post_updated_at=STAMP.replace(year=2000))
 
@@ -145,7 +147,9 @@ async def test_a_stale_save_logs_stale_data(
 
 
 async def test_a_save_held_by_a_media_post_logs_media_in_progress(
-    rows: tuple[Post, Track], captured: list[dict[str, Any]], monkeypatch: pytest.MonkeyPatch
+    rows: tuple[Post, Track],
+    captured: list[dict[str, Any]],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _, track = rows
     monkeypatch.setattr(editing, "count_media_posts", AsyncMock(return_value=1))
@@ -205,9 +209,7 @@ async def test_an_apply_logs_the_targets_and_the_result(
     assert_no_credentials(captured)
 
 
-async def test_a_stale_apply_logs_stale(
-    captured: list[dict[str, Any]], monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_a_stale_apply_logs_stale(captured: list[dict[str, Any]], monkeypatch: pytest.MonkeyPatch) -> None:
     post, track = make_post(PostStatus.RESOLVED)
     session = fake_session()
     arrange(monkeypatch, session, post, track)
@@ -279,9 +281,7 @@ def test_a_held_lock_and_a_database_failure_are_logged_by_the_route(
     client.request(method, path, json=body, headers=bearer())
     busy = captured.copy()
     captured.clear()
-    monkeypatch.setattr(
-        posts_module, name, AsyncMock(side_effect=DBAPIError("x", {}, Exception("secret-dsn")))
-    )
+    monkeypatch.setattr(posts_module, name, AsyncMock(side_effect=DBAPIError("x", {}, Exception("secret-dsn"))))
     client.request(method, path, json=body, headers=bearer())
 
     # the preview only reads, so no lock is ever refused there
@@ -356,9 +356,7 @@ def test_a_session_logs_the_user_and_never_the_token_or_the_init_data(
     assert init_data not in repr(captured)
 
 
-def test_a_rejected_bearer_logs_the_reason_and_the_user(
-    settings: Settings, captured: list[dict[str, Any]]
-) -> None:
+def test_a_rejected_bearer_logs_the_reason_and_the_user(settings: Settings, captured: list[dict[str, Any]]) -> None:
     client, _, _ = make_client(settings)
 
     client.post("/api/posts/7/archive")

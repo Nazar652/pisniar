@@ -125,9 +125,7 @@ async def refusal_of(request: FragmentRequest) -> ApiProblem:
     return refusal.value
 
 
-async def test_a_rendered_post_gets_the_new_bounds_and_renders_again(
-    locks: Locks, logger: RecordingLogger
-) -> None:
+async def test_a_rendered_post_gets_the_new_bounds_and_renders_again(locks: Locks, logger: RecordingLogger) -> None:
     choice = await choose_fragment(MagicMock(), POST_ID, make_request(), ADMIN_ID)
 
     assert choice == CHOICE
@@ -148,9 +146,7 @@ async def test_the_post_is_locked_before_the_track_and_the_audio_is_read_under_b
 async def test_a_failed_render_is_started_again_even_with_the_same_bounds(locks: Locks) -> None:
     locks.post = make_post(PostStatus.FAILED, failed_from=PostStatus.RENDERING, preview=None)
 
-    choice = await choose_fragment(
-        MagicMock(), POST_ID, make_request(start_ms=0, end_ms=45_000), ADMIN_ID
-    )
+    choice = await choose_fragment(MagicMock(), POST_ID, make_request(start_ms=0, end_ms=45_000), ADMIN_ID)
 
     assert choice == FragmentChoice(POST_ID, FragmentBounds(0, 45_000), None)
     assert locks.post.status is PostStatus.RENDERING
@@ -162,9 +158,7 @@ async def test_a_post_with_ready_audio_renders_its_first_preview_from_the_chosen
 ) -> None:
     locks.post = make_post(PostStatus.EDITING, preview=None)
 
-    choice = await choose_fragment(
-        MagicMock(), POST_ID, make_request(start_ms=0, end_ms=45_000), ADMIN_ID
-    )
+    choice = await choose_fragment(MagicMock(), POST_ID, make_request(start_ms=0, end_ms=45_000), ADMIN_ID)
 
     assert choice == FragmentChoice(POST_ID, FragmentBounds(0, 45_000), None)
     assert locks.post.status is PostStatus.RENDERING
@@ -180,9 +174,7 @@ async def test_the_choice_remembers_the_preview_it_replaces(locks: Locks) -> Non
 
 
 @pytest.mark.parametrize("missing", ["post", "track"])
-async def test_a_missing_row_is_none_and_the_later_locks_are_not_taken(
-    locks: Locks, missing: str
-) -> None:
+async def test_a_missing_row_is_none_and_the_later_locks_are_not_taken(locks: Locks, missing: str) -> None:
     setattr(locks, missing, None)
 
     assert await choose_fragment(MagicMock(), POST_ID, make_request(), ADMIN_ID) is None
@@ -199,7 +191,10 @@ async def test_a_missing_row_is_none_and_the_later_locks_are_not_taken(
     ],
 )
 async def test_a_post_that_cannot_be_chosen_is_409_with_a_sentence_and_no_state_name(
-    locks: Locks, logger: RecordingLogger, status: PostStatus, failed_from: PostStatus | None
+    locks: Locks,
+    logger: RecordingLogger,
+    status: PostStatus,
+    failed_from: PostStatus | None,
 ) -> None:
     locks.post = make_post(status, failed_from=failed_from)
 
@@ -252,7 +247,10 @@ async def test_no_audio_of_the_current_recording_is_audio_missing(locks: Locks) 
     ],
 )
 async def test_bounds_outside_the_rule_are_422_with_the_sentence_and_the_numbers(
-    locks: Locks, start_ms: int, end_ms: int, numbers: list[str]
+    locks: Locks,
+    start_ms: int,
+    end_ms: int,
+    numbers: list[str],
 ) -> None:
     problem = await refusal_of(make_request(start_ms=start_ms, end_ms=end_ms))
 
@@ -266,14 +264,10 @@ async def test_bounds_outside_the_rule_are_422_with_the_sentence_and_the_numbers
 
 
 async def test_a_two_minute_fragment_and_a_whole_short_track_pass_the_rule(locks: Locks) -> None:
-    long_choice = await choose_fragment(
-        MagicMock(), POST_ID, make_request(start_ms=10_000, end_ms=130_000), ADMIN_ID
-    )
+    long_choice = await choose_fragment(MagicMock(), POST_ID, make_request(start_ms=10_000, end_ms=130_000), ADMIN_ID)
     locks.post = make_post()
     locks.asset = AudioAsset(duration_ms=7_000)
-    short_choice = await choose_fragment(
-        MagicMock(), POST_ID, make_request(start_ms=0, end_ms=7_000), ADMIN_ID
-    )
+    short_choice = await choose_fragment(MagicMock(), POST_ID, make_request(start_ms=0, end_ms=7_000), ADMIN_ID)
 
     assert long_choice is not None and short_choice is not None
     assert short_choice.bounds == FragmentBounds(0, 7_000)
@@ -290,9 +284,7 @@ async def test_the_bounds_the_preview_already_shows_are_unchanged_and_nothing_is
     assert logger.entries[0]["reason"] == "fragment_unchanged"
 
 
-def test_the_request_refuses_a_bool_a_float_a_string_an_extra_field_and_a_value_beyond_bigint() -> (
-    None
-):
+def test_the_request_refuses_a_bool_a_float_a_string_an_extra_field_and_a_value_beyond_bigint() -> None:
     for override in (
         {"start_ms": True},
         {"end_ms": 1.5},
@@ -335,9 +327,7 @@ async def test_without_a_superseded_preview_nothing_is_edited(
 async def test_a_failed_keyboard_removal_is_logged_and_never_raised(
     monkeypatch: pytest.MonkeyPatch, logger: RecordingLogger
 ) -> None:
-    monkeypatch.setattr(
-        fragment_choice, "remove_preview_keyboard", AsyncMock(side_effect=TimeoutError("slow"))
-    )
+    monkeypatch.setattr(fragment_choice, "remove_preview_keyboard", AsyncMock(side_effect=TimeoutError("slow")))
 
     await release_superseded_preview(MagicMock(), CHOICE, ADMIN_ID)
 
@@ -415,14 +405,25 @@ class Journal:
         self.choice: FragmentChoice | None = CHOICE
         self.choose_error: Exception | None = None
 
-    async def choose(self, session: object, post_id: int, request: object, user_id: int) -> Any:
+    async def choose(
+        self,
+        session: object,
+        post_id: int,
+        request: object,
+        user_id: int,
+    ) -> Any:
         self.order.append("choose")
         self.asked_inside_transaction += [*self.bot.mock_calls, *self.celery_client.mock_calls]
         if self.choose_error is not None:
             raise self.choose_error
         return self.choice
 
-    async def release(self, bot: object, choice: object, user_id: int) -> None:
+    async def release(
+        self,
+        bot: object,
+        choice: object,
+        user_id: int,
+    ) -> None:
         self.order.append("keyboard")
 
     async def enqueue(self, *arguments: object) -> None:
@@ -447,7 +448,11 @@ def journal(monkeypatch: pytest.MonkeyPatch) -> Journal:
 
 
 def make_client(
-    settings: Settings, recorded: Journal, *, with_bot: bool = True, with_queue: bool = True
+    settings: Settings,
+    recorded: Journal,
+    *,
+    with_bot: bool = True,
+    with_queue: bool = True,
 ) -> tuple[TestClient, MagicMock]:
     session_factory = MagicMock(side_effect=lambda: JournalSession(recorded))
     app = create_webapp(
@@ -492,9 +497,7 @@ def test_the_database_commits_then_the_task_is_enqueued_then_the_old_keyboard_go
     assert journal.asked_inside_transaction == []
 
 
-def test_a_missing_post_is_404_and_nothing_follows_the_transaction(
-    settings: Settings, journal: Journal
-) -> None:
+def test_a_missing_post_is_404_and_nothing_follows_the_transaction(settings: Settings, journal: Journal) -> None:
     journal.choice = None
     client, _ = make_client(settings, journal)
 
@@ -544,11 +547,13 @@ def test_a_busy_post_answers_with_the_busy_sentence(settings: Settings, journal:
     [(False, True, "telegram_unavailable"), (True, False, "queue_unavailable")],
 )
 def test_a_missing_bot_or_queue_is_503_before_the_database_is_touched(
-    settings: Settings, journal: Journal, with_bot: bool, with_queue: bool, code: str
+    settings: Settings,
+    journal: Journal,
+    with_bot: bool,
+    with_queue: bool,
+    code: str,
 ) -> None:
-    client, session_factory = make_client(
-        settings, journal, with_bot=with_bot, with_queue=with_queue
-    )
+    client, session_factory = make_client(settings, journal, with_bot=with_bot, with_queue=with_queue)
 
     response = client.post(PATH, json=BODY, headers=bearer())
 
@@ -567,7 +572,9 @@ def test_a_missing_bot_or_queue_is_503_before_the_database_is_touched(
     ],
 )
 def test_a_malformed_body_is_422_before_the_database(
-    settings: Settings, journal: Journal, body: dict[str, Any]
+    settings: Settings,
+    journal: Journal,
+    body: dict[str, Any],
 ) -> None:
     client, session_factory = make_client(settings, journal)
 
@@ -578,7 +585,9 @@ def test_a_malformed_body_is_422_before_the_database(
 
 
 def test_a_refused_queue_fails_the_post_through_the_route(
-    settings: Settings, monkeypatch: pytest.MonkeyPatch, journal: Journal
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+    journal: Journal,
 ) -> None:
     monkeypatch.setattr(posts_module, "enqueue_render", fragment_choice.enqueue_render)
     monkeypatch.setattr(fragment_choice, "dispatch_task", AsyncMock(return_value=False))
@@ -595,7 +604,9 @@ def test_a_refused_queue_fails_the_post_through_the_route(
 
 
 def test_the_route_logs_the_request_with_the_user_the_post_and_the_bounds(
-    settings: Settings, monkeypatch: pytest.MonkeyPatch, journal: Journal
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+    journal: Journal,
 ) -> None:
     recorder = RecordingLogger()
     monkeypatch.setattr(posts_module, "logger", recorder)

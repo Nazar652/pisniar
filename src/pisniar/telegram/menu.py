@@ -17,16 +17,16 @@ logger = get_logger(__name__)
 
 
 async def configure_admin_menu_buttons(
-    bot: Bot, admin_ids: Iterable[int], webapp_public_url: str | None
+    bot: Bot,
+    admin_ids: Iterable[int],
+    webapp_public_url: str | None,
 ) -> None:
     """idempotent, run on every start; without a URL it resets each admin's button. A failure
     for one admin (say, one who never wrote to the bot) is logged and never stops the rest."""
     menu_button = (
         MenuButtonDefault()
         if webapp_public_url is None
-        else MenuButtonWebApp(
-            text=POST_LIST_BUTTON_TEXT, web_app=WebAppInfo(url=webapp_url(webapp_public_url))
-        )
+        else MenuButtonWebApp(text=POST_LIST_BUTTON_TEXT, web_app=WebAppInfo(url=webapp_url(webapp_public_url)))
     )
 
     for admin_id in admin_ids:
@@ -36,6 +36,4 @@ async def configure_admin_menu_buttons(
             logger.warning("admin_menu_button_failed", admin_id=admin_id, exc_info=True)
             continue
 
-        logger.info(
-            "admin_menu_button_set", admin_id=admin_id, webapp=webapp_public_url is not None
-        )
+        logger.info("admin_menu_button_set", admin_id=admin_id, webapp=webapp_public_url is not None)

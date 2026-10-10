@@ -1,7 +1,6 @@
-"""Genius, a plain-text lyrics source read by scraping the song page (its API serves no text).
-The URL is built from a checked path on `genius.com`, redirects are not followed and the body
-is capped while it streams. A stdlib parser keeps only the lyrics containers' text; any other
-shape raises and is never cached.
+"""Genius, a plain-text lyrics source read by scraping the song page (its API serves no text). The URL is built from a
+checked path on `genius.com`, redirects are not followed and the body is capped while it streams. A stdlib parser keeps
+only the lyrics containers' text; any other shape raises and is never cached.
 """
 
 from __future__ import annotations
@@ -38,8 +37,7 @@ REQUEST_HEADERS = {"User-Agent": "pisniar-v2/0.1 (personal Telegram music bot)"}
 MAX_PAGE_BYTES = 2 * 1024 * 1024
 MAX_SEARCH_CANDIDATES = 10
 
-# the only path shape of a lyrics page; a translation page has the same one, hence
-# the markers below.
+# the only path shape of a lyrics page; a translation page has the same one, hence the markers below.
 LYRICS_PATH_PATTERN = re.compile(r"/[A-Za-z0-9-]+-lyrics")
 TRANSLATION_MARKERS = ("translation", "переклад", "traduc")
 LYRICS_COMPLETE_STATE = "complete"
@@ -50,9 +48,7 @@ SECTION_LABEL_PATTERN = re.compile(r"^\[[^\]]*\]$")
 
 LYRICS_CONTAINER_ATTRIBUTE = "data-lyrics-container"
 EXCLUDED_ATTRIBUTE = "data-exclude-from-selection"
-VOID_TAGS = frozenset(
-    {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "wbr"}
-)
+VOID_TAGS = frozenset({"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "wbr"})
 SKIPPED_TAGS = frozenset({"script", "style", "svg"})
 
 
@@ -64,8 +60,8 @@ class GeniusApiError(RuntimeError):
 
 
 class LyricsHtmlParser(HTMLParser):
-    """collects the text of `data-lyrics-container` elements, `<br>` as a line break,
-    skipping the UI Genius nests inside them. Nothing it reads is executed or fetched."""
+    """collects the text of `data-lyrics-container` elements, `<br>` as a line break, skipping the UI Genius nests
+    inside them. Nothing it reads is executed or fetched."""
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
@@ -89,9 +85,7 @@ class LyricsHtmlParser(HTMLParser):
         if self.container_depth is None:
             if attributes.get(LYRICS_CONTAINER_ATTRIBUTE) == "true":
                 self.container_depth = self.depth
-        elif self.skipped_depth is None and (
-            EXCLUDED_ATTRIBUTE in attributes or tag in SKIPPED_TAGS
-        ):
+        elif self.skipped_depth is None and (EXCLUDED_ATTRIBUTE in attributes or tag in SKIPPED_TAGS):
             self.skipped_depth = self.depth
 
     def handle_endtag(self, tag: str) -> None:
@@ -154,9 +148,7 @@ async def fetch_lyrics(
         nonlocal asked_genius
         asked_genius = True
 
-        path = await search_for_path(
-            client, artist_query=artist_query, title=normalized_title, duration_ms=duration_ms
-        )
+        path = await search_for_path(client, artist_query=artist_query, title=normalized_title, duration_ms=duration_ms)
         if path is None:
             return {"found": False}
 
@@ -178,13 +170,13 @@ async def fetch_lyrics(
 
 
 async def send_request(
-    client: httpx.AsyncClient, url: str, query_parameters: dict[str, str] | None = None
+    client: httpx.AsyncClient,
+    url: str,
+    query_parameters: dict[str, str] | None = None,
 ) -> bytes:
     """one attempt; the body is read in chunks and refused past `MAX_PAGE_BYTES`."""
     await THROTTLE.wait()
-    async with client.stream(
-        "GET", url, params=query_parameters, headers=REQUEST_HEADERS
-    ) as response:
+    async with client.stream("GET", url, params=query_parameters, headers=REQUEST_HEADERS) as response:
         if response.status_code != httpx.codes.OK:
             raise GeniusApiError(f"genius відповів HTTP {response.status_code}")
 
@@ -201,7 +193,11 @@ async def send_request(
 
 
 async def search_for_path(
-    client: httpx.AsyncClient, *, artist_query: str, title: str, duration_ms: int | None
+    client: httpx.AsyncClient,
+    *,
+    artist_query: str,
+    title: str,
+    duration_ms: int | None,
 ) -> str | None:
     """the first search hit that is our track and not its translation."""
     raw_body = await send_request(client, SEARCH_URL, {"q": f"{artist_query} {title}"})
@@ -225,15 +221,16 @@ async def search_for_path(
 
 
 def path_if_ours(
-    result: dict[str, object], *, artist_query: str, title: str, duration_ms: int | None
+    result: dict[str, object],
+    *,
+    artist_query: str,
+    title: str,
+    duration_ms: int | None,
 ) -> str | None:
     path = as_str(result.get("path")) or ""
     candidate_title = as_str(result.get("title")) or ""
     all_artists = as_str(result.get("artist_names")) or ""
-    primary_artists = [
-        as_str(as_dict(artist).get("name")) or ""
-        for artist in as_list(result.get("primary_artists"))
-    ]
+    primary_artists = [as_str(as_dict(artist).get("name")) or "" for artist in as_list(result.get("primary_artists"))]
 
     if (
         not LYRICS_PATH_PATTERN.fullmatch(path)
@@ -243,8 +240,7 @@ def path_if_ours(
     ):
         return None
 
-    # the page credits every artist, our track may credit one: the whole credit or any one
-    # primary artist counts.
+    # the page credits every artist, our track may credit one: the whole credit or any one primary artist counts.
     for candidate_artist in (all_artists, *primary_artists):
         if is_match(
             reference_artist=strip_annotations(artist_query),

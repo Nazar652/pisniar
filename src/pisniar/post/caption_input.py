@@ -1,5 +1,5 @@
-"""Stored rows to caption input: the one conversion the worker and the Mini App share,
-so a caption rebuilt from the database is the caption the worker built.
+"""Stored rows to caption input: the one conversion the worker and the Mini App share, so a caption rebuilt from the
+database is the caption the worker built.
 """
 
 from __future__ import annotations
@@ -13,8 +13,8 @@ from pisniar.resolve.types import GenreInfo, PlatformLink
 
 
 def genres_from_stored(stored: Sequence[object]) -> list[GenreInfo]:
-    """reads `post.genres` (JSONB) back as domain objects, so a caption
-    rebuilt after an empty genre fetch says what the column says."""
+    """reads `post.genres` (JSONB) back as domain objects, so a caption rebuilt after an empty genre fetch says what
+    the column says."""
     genres: list[GenreInfo] = []
     for entry in stored:
         if not isinstance(entry, dict):
@@ -36,8 +36,7 @@ def genres_from_stored(stored: Sequence[object]) -> list[GenreInfo]:
 
 
 def languages_from_stored(stored: Sequence[object]) -> list[str]:
-    """falls back to the schema default, never to an empty line: the language
-    is always shown."""
+    """falls back to the schema default, never to an empty line: the language is always shown."""
     languages = [entry for entry in stored if isinstance(entry, str) and entry]
     return languages or list(DEFAULT_LANGUAGES)
 

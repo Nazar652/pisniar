@@ -1,7 +1,6 @@
-"""Integration test fixtures. Two databases: `pisniar_test` (shared, recreated and
-migrated once per session) for `test_constraints.py`, `pisniar_test_migrations`
-(disposable, per-test) for `test_migrations.py`'s destructive cycle — never
-`pisniar`, which the live `bot`/`worker` containers use.
+"""Integration test fixtures. Two databases: `pisniar_test` (shared, recreated and migrated once per session) for
+`test_constraints.py`, `pisniar_test_migrations` (disposable, per-test) for `test_migrations.py`'s destructive cycle —
+never `pisniar`, which the live `bot`/`worker` containers use.
 """
 
 from __future__ import annotations
@@ -38,8 +37,7 @@ def with_database_name(database_url: str, database_name: str) -> str:
 
 
 def to_asyncpg_maintenance_dsn(database_url: str) -> str:
-    # asyncpg needs a plain DSN, and CREATE/DROP DATABASE needs some
-    # *other* database first — "postgres" always exists.
+    # asyncpg needs a plain DSN, and CREATE/DROP DATABASE needs some *other* database first — "postgres" always exists.
     maintenance_url = make_url(database_url).set(drivername="postgresql", database="postgres")
     return maintenance_url.render_as_string(hide_password=False)
 

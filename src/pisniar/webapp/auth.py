@@ -1,8 +1,7 @@
 """`initData` validation, signed session and audio tokens and the `require_admin` dependency.
 
-Each token kind has its own key derived from the bot token, so rotating the token invalidates
-every token and a token of one kind never verifies as the other. Nothing here reads the
-database: a dead Postgres can never look like a 401.
+Each token kind has its own key derived from the bot token, so rotating the token invalidates every token and a token of
+one kind never verifies as the other. Nothing here reads the database: a dead Postgres can never look like a 401.
 """
 
 from __future__ import annotations
@@ -97,8 +96,8 @@ class MediaClaims:
 
 
 def init_data_field_names(init_data: str) -> tuple[list[str], int]:
-    """the known field names present and how many unknown ones there are, never a value; a
-    malformed string gives nothing, and a name outside the list is counted, not echoed."""
+    """the known field names present and how many unknown ones there are, never a value; a malformed string gives
+    nothing, and a name outside the list is counted, not echoed."""
     try:
         pairs = parse_qsl(init_data, keep_blank_values=True, strict_parsing=True)
     except ValueError:
@@ -108,7 +107,12 @@ def init_data_field_names(init_data: str) -> tuple[list[str], int]:
     return sorted(names & INIT_DATA_FIELD_NAMES), len(names - INIT_DATA_FIELD_NAMES)
 
 
-def validate_init_data(init_data: str, bot_token: str, now: int, window: AuthWindow) -> int:
+def validate_init_data(
+    init_data: str,
+    bot_token: str,
+    now: int,
+    window: AuthWindow,
+) -> int:
     """return the Telegram user id of a genuine, fresh `initData`, else raise `InitDataError`."""
     if len(init_data) > INIT_DATA_MAX_LENGTH:
         raise InitDataError("too_long")
@@ -145,13 +149,21 @@ def derived_key(bot_token: str, key_context: bytes) -> bytes:
     return hmac.new(bot_token.encode(), key_context, hashlib.sha256).digest()
 
 
-def sign_claims(claims: Mapping[str, object], bot_token: str, key_context: bytes) -> str:
+def sign_claims(
+    claims: Mapping[str, object],
+    bot_token: str,
+    key_context: bytes,
+) -> str:
     payload = json.dumps(claims, separators=(",", ":"), sort_keys=True).encode()
     signature = hmac.new(derived_key(bot_token, key_context), payload, hashlib.sha256).digest()
     return f"{encode_base64url(payload)}.{encode_base64url(signature)}"
 
 
-def verify_signed_claims(token: str, bot_token: str, key_context: bytes) -> dict[str, object]:
+def verify_signed_claims(
+    token: str,
+    bot_token: str,
+    key_context: bytes,
+) -> dict[str, object]:
     """the claims of a correctly signed token; expiry and the fields are the caller's to check."""
     parts = token.split(".")
     if len(parts) != 2:
@@ -186,12 +198,21 @@ def check_lifetime(claims: Mapping[str, object], now: int) -> None:
         raise InitDataError("token_from_future")
 
 
-def issue_session_token(user_id: int, bot_token: str, now: int, ttl_seconds: int) -> str:
+def issue_session_token(
+    user_id: int,
+    bot_token: str,
+    now: int,
+    ttl_seconds: int,
+) -> str:
     claims = {"uid": user_id, "iat": now, "exp": now + ttl_seconds}
     return sign_claims(claims, bot_token, SESSION_KEY_CONTEXT)
 
 
-def verify_session_token(token: str, bot_token: str, now: int) -> int:
+def verify_session_token(
+    token: str,
+    bot_token: str,
+    now: int,
+) -> int:
     """return the user id of an unexpired, correctly signed token, else raise `InitDataError`."""
     claims = verify_signed_claims(token, bot_token, SESSION_KEY_CONTEXT)
     user_id = as_int(claims.get("uid"))
@@ -202,7 +223,12 @@ def verify_session_token(token: str, bot_token: str, now: int) -> int:
     return user_id
 
 
-def issue_media_token(claims: MediaClaims, bot_token: str, now: int, ttl_seconds: int) -> str:
+def issue_media_token(
+    claims: MediaClaims,
+    bot_token: str,
+    now: int,
+    ttl_seconds: int,
+) -> str:
     payload = {
         "uid": claims.user_id,
         "pid": claims.post_id,
@@ -214,7 +240,11 @@ def issue_media_token(claims: MediaClaims, bot_token: str, now: int, ttl_seconds
     return sign_claims(payload, bot_token, MEDIA_KEY_CONTEXT)
 
 
-def verify_media_token(token: str, bot_token: str, now: int) -> MediaClaims:
+def verify_media_token(
+    token: str,
+    bot_token: str,
+    now: int,
+) -> MediaClaims:
     """the scope of an unexpired audio token, else `InitDataError`; no database is read."""
     claims = verify_signed_claims(token, bot_token, MEDIA_KEY_CONTEXT)
     user_id = as_int(claims.get("uid"))
@@ -230,9 +260,13 @@ def verify_media_token(token: str, bot_token: str, now: int) -> MediaClaims:
     return MediaClaims(user_id=user_id, post_id=post_id, track_id=track_id, video_id=video_id)
 
 
-def authorize_media_request(request: Request, token: str, post_id: int) -> MediaClaims:
-    """the audio route's `require_admin`: the token is the credential, and the post in the path
-    and the admin list are checked on every request."""
+def authorize_media_request(
+    request: Request,
+    token: str,
+    post_id: int,
+) -> MediaClaims:
+    """the audio route's `require_admin`: the token is the credential, and the post in the path and the admin list are
+    checked on every request."""
     context = cast(WebappContext, request.app.state.context)
 
     try:
@@ -251,9 +285,7 @@ def authorize_media_request(request: Request, token: str, post_id: int) -> Media
         )
         raise ApiProblem(401, "unauthorized", MEDIA_TOKEN_REFUSED_MESSAGE)
     if claims.user_id not in context.admin_ids:
-        logger.warning(
-            "media_token_rejected", reason="not_admin", post_id=post_id, user_id=claims.user_id
-        )
+        logger.warning("media_token_rejected", reason="not_admin", post_id=post_id, user_id=claims.user_id)
         raise ApiProblem(403, "forbidden", "Доступ лише для адміністраторів.")
     return claims
 
@@ -265,19 +297,13 @@ def require_admin(request: Request) -> AdminUser:
     authorization = request.headers.get("Authorization", "")
     if not authorization.startswith(BEARER_PREFIX):
         logger.warning("webapp_auth_rejected", reason="no_bearer_token")
-        raise ApiProblem(
-            401, "unauthorized", "Потрібна авторизація. Відкрийте застосунок з Telegram."
-        )
+        raise ApiProblem(401, "unauthorized", "Потрібна авторизація. Відкрийте застосунок з Telegram.")
 
     try:
-        user_id = verify_session_token(
-            authorization[len(BEARER_PREFIX) :], context.bot_token, int(context.clock())
-        )
+        user_id = verify_session_token(authorization[len(BEARER_PREFIX) :], context.bot_token, int(context.clock()))
     except InitDataError as error:
         logger.warning("webapp_auth_rejected", reason=error.reason)
-        raise ApiProblem(
-            401, "unauthorized", "Сесія недійсна або завершилась. Відкрийте застосунок знову."
-        ) from None
+        raise ApiProblem(401, "unauthorized", "Сесія недійсна або завершилась. Відкрийте застосунок знову.") from None
 
     if user_id not in context.admin_ids:
         logger.warning("webapp_auth_rejected", reason="not_admin", user_id=user_id)

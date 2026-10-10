@@ -1,6 +1,5 @@
-"""The `.ass` generator, read back the way libass reads it: positional
-`Style:` rows against their own `Format:`, an explicit `PlayRes`, three slots
-placed by `\\pos`, the shift into fragment time, the line boundaries, and the
+"""The `.ass` generator, read back the way libass reads it: positional `Style:` rows against their own `Format:`, an
+explicit `PlayRes`, three slots placed by `\\pos`, the shift into fragment time, the line boundaries, and the
 substitution that makes an override block unspellable.
 """
 
@@ -33,8 +32,7 @@ CHARACTERS_AT_AN_AVERAGE_GLYPH_WIDTH = 27
 
 def lines_of(*pairs: tuple[int, str]) -> list[ass.LyricLine]:
     return [
-        ass.LyricLine(line_index=index, start_ms=start_ms, text=text)
-        for index, (start_ms, text) in enumerate(pairs)
+        ass.LyricLine(line_index=index, start_ms=start_ms, text=text) for index, (start_ms, text) in enumerate(pairs)
     ]
 
 
@@ -44,9 +42,7 @@ def build(
     fragment_start_ms: int = FRAGMENT_START_MS,
     fragment_end_ms: int = FRAGMENT_END_MS,
 ) -> str:
-    document = ass.build_ass_subtitles(
-        lines, fragment_start_ms=fragment_start_ms, fragment_end_ms=fragment_end_ms
-    )
+    document = ass.build_ass_subtitles(lines, fragment_start_ms=fragment_start_ms, fragment_end_ms=fragment_end_ms)
     assert document is not None
     return document
 
@@ -72,8 +68,7 @@ def current_rows(document: str) -> list[str]:
 
 
 def test_the_script_declares_the_frame_it_is_drawn_onto() -> None:
-    """without `PlayResX/Y` libass assumes 384x288 and every coordinate below
-    lands somewhere else."""
+    """without `PlayResX/Y` libass assumes 384x288 and every coordinate below lands somewhere else."""
     document = build(lines_of((1_000, "рядок")))
 
     assert "PlayResX: 720" in document
@@ -83,8 +78,7 @@ def test_the_script_declares_the_frame_it_is_drawn_onto() -> None:
 
 
 def test_every_style_row_is_positional_against_its_own_format_line() -> None:
-    """libass silently ignores `Alignment=5` written as `key=value`, so the row
-    is read back and counted instead."""
+    """libass silently ignores `Alignment=5` written as `key=value`, so the row is read back and counted instead."""
     document = build(lines_of((1_000, "рядок")))
     declared_fields = document.split("Format: ", 1)[1].split("\n", 1)[0].split(", ")
 
@@ -96,8 +90,7 @@ def test_every_style_row_is_positional_against_its_own_format_line() -> None:
 
 
 def test_alignment_is_a_number_and_the_vertical_margin_is_honestly_zero() -> None:
-    """`\\an5` ignores `MarginV`, so a non-zero one would be a lie about where
-    the line is."""
+    """`\\an5` ignores `MarginV`, so a non-zero one would be a lie about where the line is."""
     document = build(lines_of((1_000, "рядок")))
 
     for row in style_rows(document):
@@ -160,18 +153,13 @@ def test_the_first_and_last_lines_have_one_neighbour_each() -> None:
 
 
 def test_the_text_band_starts_where_the_lifted_cover_ends() -> None:
-    """the `pad` offset and the slot geometry are one decision in two files, so
-    they are pinned against each other."""
+    """the `pad` offset and the slot geometry are one decision in two files, so they are pinned against each other."""
     assert ass.TEXT_BAND_TOP_PX == video_render.COVER_TOP_OFFSET_PX + video_render.VIDEO_WIDTH
 
 
 def test_no_slot_reaches_into_its_neighbour_or_out_of_the_frame() -> None:
-    current_half_height = (
-        ass.MAX_CURRENT_WRAPPED_LINES * ass.FONT_SIZE_CURRENT_PX * (LINE_HEIGHT_RATIO / 2)
-    )
-    adjacent_half_height = (
-        ass.MAX_ADJACENT_WRAPPED_LINES * ass.FONT_SIZE_ADJACENT_PX * (LINE_HEIGHT_RATIO / 2)
-    )
+    current_half_height = ass.MAX_CURRENT_WRAPPED_LINES * ass.FONT_SIZE_CURRENT_PX * (LINE_HEIGHT_RATIO / 2)
+    adjacent_half_height = ass.MAX_ADJACENT_WRAPPED_LINES * ass.FONT_SIZE_ADJACENT_PX * (LINE_HEIGHT_RATIO / 2)
 
     assert ass.PREVIOUS_SLOT_Y - adjacent_half_height > ass.TEXT_BAND_TOP_PX
     assert ass.PREVIOUS_SLOT_Y + adjacent_half_height < ass.CURRENT_SLOT_Y - current_half_height
@@ -179,7 +167,12 @@ def test_no_slot_reaches_into_its_neighbour_or_out_of_the_frame() -> None:
     assert ass.NEXT_SLOT_Y + adjacent_half_height < ass.PLAY_RES_Y
 
 
-def block_extent(slot_y: int, *, wrapped_lines: int, font_size_px: int) -> tuple[float, float]:
+def block_extent(
+    slot_y: int,
+    *,
+    wrapped_lines: int,
+    font_size_px: int,
+) -> tuple[float, float]:
     half_height = wrapped_lines * font_size_px * MEASURED_LINE_HEIGHT_RATIO / 2
     return slot_y - half_height, slot_y + half_height
 
@@ -231,17 +224,13 @@ def test_a_line_before_the_fragment_never_appears() -> None:
         fragment_end_ms=75_000,
     )
 
-    assert [field_of(row, "Text").split("}", 1)[1] for row in current_rows(document)] == [
-        "у фрагменті"
-    ]
+    assert [field_of(row, "Text").split("}", 1)[1] for row in current_rows(document)] == ["у фрагменті"]
 
 
 def test_a_line_after_the_fragment_never_appears() -> None:
     document = build(lines_of((1_000, "у фрагменті"), (50_000, "після фрагмента")))
 
-    assert [field_of(row, "Text").split("}", 1)[1] for row in current_rows(document)] == [
-        "у фрагменті"
-    ]
+    assert [field_of(row, "Text").split("}", 1)[1] for row in current_rows(document)] == ["у фрагменті"]
 
 
 def test_a_line_crossing_the_far_edge_is_cut_at_it() -> None:
@@ -282,19 +271,12 @@ def test_two_lines_sharing_a_start_do_not_produce_a_zero_length_event() -> None:
 def test_a_fragment_with_no_lines_in_it_produces_no_file_at_all() -> None:
     """`None`, not an empty document: that is what `text_version=None` is
     computed from, and what keeps «no text» a state instead of a blank."""
-    assert (
-        ass.build_ass_subtitles(
-            lines_of((50_000, "після")), fragment_start_ms=0, fragment_end_ms=45_000
-        )
-        is None
-    )
+    assert ass.build_ass_subtitles(lines_of((50_000, "після")), fragment_start_ms=0, fragment_end_ms=45_000) is None
 
 
 def test_inverted_fragment_bounds_are_our_own_error_and_are_loud() -> None:
     with pytest.raises(ass.AssGenerationError):
-        ass.build_ass_subtitles(
-            lines_of((1_000, "рядок")), fragment_start_ms=45_000, fragment_end_ms=45_000
-        )
+        ass.build_ass_subtitles(lines_of((1_000, "рядок")), fragment_start_ms=45_000, fragment_end_ms=45_000)
 
 
 def test_the_order_of_the_frames_is_the_stored_line_index_never_the_timecode() -> None:
@@ -311,8 +293,7 @@ def test_the_order_of_the_frames_is_the_stored_line_index_never_the_timecode() -
 
 
 def test_a_source_that_timed_its_lines_out_of_order_is_not_resequenced() -> None:
-    """ordering by time would quietly repair the source and draw both lines,
-    which is a different song's order."""
+    """ordering by time would quietly repair the source and draw both lines, which is a different song's order."""
     lines = [
         ass.LyricLine(line_index=0, start_ms=5_000, text="перший"),
         ass.LyricLine(line_index=1, start_ms=1_000, text="другий"),
@@ -360,9 +341,7 @@ def test_an_untimed_line_is_not_even_a_neighbour_in_a_side_slot() -> None:
         ("нуль​ширини", "нульширини"),
     ],
 )
-def test_the_characters_that_make_an_override_block_are_substituted(
-    raw: str, expected: str
-) -> None:
+def test_the_characters_that_make_an_override_block_are_substituted(raw: str, expected: str) -> None:
     """ASS has no escapes inside a line, so this is substitution, not escaping;
     unsubstituted, the first case draws red 90 px pixels outside its slot."""
     assert ass.escape_ass_text(raw) == expected
@@ -402,10 +381,7 @@ def test_a_long_line_is_wrapped_by_us_and_never_by_libass() -> None:
     assert body.count("\\N") == ass.MAX_CURRENT_WRAPPED_LINES - 1
     assert body.endswith(ass.ELLIPSIS)
     for visual_line in body.split("\\N"):
-        assert (
-            text_metrics.text_width_px(visual_line, ass.FONT_SIZE_CURRENT_PX)
-            <= ass.USABLE_TEXT_WIDTH_PX
-        )
+        assert text_metrics.text_width_px(visual_line, ass.FONT_SIZE_CURRENT_PX) <= ass.USABLE_TEXT_WIDTH_PX
 
 
 def test_a_wrapped_line_uses_the_width_the_band_actually_has() -> None:
@@ -417,10 +393,7 @@ def test_a_wrapped_line_uses_the_width_the_band_actually_has() -> None:
     first_visual_line = field_of(current_rows(document)[0], "Text").split("}", 1)[1].split("\\N")[0]
 
     assert len(first_visual_line) > CHARACTERS_AT_AN_AVERAGE_GLYPH_WIDTH
-    assert (
-        text_metrics.text_width_px(first_visual_line, ass.FONT_SIZE_CURRENT_PX)
-        <= ass.USABLE_TEXT_WIDTH_PX
-    )
+    assert text_metrics.text_width_px(first_visual_line, ass.FONT_SIZE_CURRENT_PX) <= ass.USABLE_TEXT_WIDTH_PX
 
 
 def test_an_apostrophe_and_both_quote_shapes_are_measured_from_the_table() -> None:
@@ -431,8 +404,7 @@ def test_an_apostrophe_and_both_quote_shapes_are_measured_from_the_table() -> No
 
 
 def test_a_codepoint_the_table_does_not_cover_is_still_measured() -> None:
-    """song text can hold anything; an unmeasurable glyph must widen the
-    line, never raise and never count as zero."""
+    """song text can hold anything; an unmeasurable glyph must widen the line, never raise and never count as zero."""
     emoji = "\U0001f525"
 
     assert ord(emoji) not in noto_sans_widths.ADVANCE_WIDTHS
@@ -464,15 +436,11 @@ def test_a_word_wider_than_the_band_is_split_instead_of_overflowing() -> None:
     body = field_of(current_rows(document)[0], "Text").split("}", 1)[1]
 
     for visual_line in body.split("\\N"):
-        assert (
-            text_metrics.text_width_px(visual_line, ass.FONT_SIZE_CURRENT_PX)
-            <= ass.USABLE_TEXT_WIDTH_PX
-        )
+        assert text_metrics.text_width_px(visual_line, ass.FONT_SIZE_CURRENT_PX) <= ass.USABLE_TEXT_WIDTH_PX
 
 
 def test_the_number_of_drawn_lines_is_capped() -> None:
-    """a thousand lines over 45 seconds is a broken LRC or a bill for ffmpeg's
-    CPU, not a song."""
+    """a thousand lines over 45 seconds is a broken LRC or a bill for ffmpeg's CPU, not a song."""
     many = lines_of(*((index * 10 + 1, f"рядок {index}") for index in range(400)))
 
     document = build(many)

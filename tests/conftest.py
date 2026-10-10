@@ -1,7 +1,6 @@
-"""Shared test setup: deterministic fake `Settings` values, since some modules call
-`get_settings()` at import time. `os.environ` outranks `.env`, so these never leak
-real secrets on the host; inside Docker `.env` is already the process env, so
-`setdefault` is a no-op there.
+"""Shared test setup: deterministic fake `Settings` values, since some modules call `get_settings()` at import time.
+`os.environ` outranks `.env`, so these never leak real secrets on the host; inside Docker `.env` is already the process
+env, so `setdefault` is a no-op there.
 """
 
 import logging
@@ -27,8 +26,8 @@ os.environ.setdefault("ITUNES_COUNTRY", "UA")
 
 @pytest.fixture
 def preserve_root_logging_state() -> Iterator[None]:
-    """`configure_logging()` replaces root handlers wholesale; a test
-    calling it must restore them or later tests inherit its state.
+    """`configure_logging()` replaces root handlers wholesale; a test calling it must restore them or later tests
+    inherit its state.
     """
     root_logger = logging.getLogger()
     original_handlers = list(root_logger.handlers)

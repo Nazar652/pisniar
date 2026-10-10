@@ -1,7 +1,5 @@
-"""`deliver_draft`: idempotent (draft_message_id set -> no-op), sends with
-explicit `parse_mode="HTML"` and no link preview, and, unlike `send_alert`,
-never swallows a delivery failure.
-"""
+"""`deliver_draft`: idempotent (draft_message_id set -> no-op), sends with explicit `parse_mode="HTML"` and no link
+preview, and, unlike `send_alert`, never swallows a delivery failure."""
 
 from __future__ import annotations
 
@@ -48,14 +46,8 @@ async def test_deliver_draft_attaches_the_render_trigger_alone() -> None:
     await deliver_draft(bot, post, chat_id=999)
 
     reply_markup = bot.send_message.await_args.kwargs["reply_markup"]
-    parsed = [
-        parse_callback(button.callback_data)
-        for row in reply_markup.inline_keyboard
-        for button in row
-    ]
-    assert [(one.action, one.post_id) for one in parsed if one is not None] == [
-        (CallbackAction.RENDER, post.id)
-    ]
+    parsed = [parse_callback(button.callback_data) for row in reply_markup.inline_keyboard for button in row]
+    assert [(one.action, one.post_id) for one in parsed if one is not None] == [(CallbackAction.RENDER, post.id)]
 
 
 async def test_deliver_draft_disables_the_link_preview() -> None:
@@ -88,9 +80,7 @@ async def test_deliver_draft_raises_without_a_caption() -> None:
 
 async def test_deliver_draft_does_not_swallow_telegram_errors() -> None:
     bot = AsyncMock()
-    bot.send_message.side_effect = TelegramAPIError(
-        method=SendMessage(chat_id=999, text="x"), message="boom"
-    )
+    bot.send_message.side_effect = TelegramAPIError(method=SendMessage(chat_id=999, text="x"), message="boom")
     post = make_post()
 
     with pytest.raises(TelegramAPIError):

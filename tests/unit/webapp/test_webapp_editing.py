@@ -146,9 +146,7 @@ def test_an_editable_post_passes_the_gate(status: PostStatus) -> None:
     refuse_unless_editable(post, 1, "event")
 
 
-@pytest.mark.parametrize(
-    "status", [PostStatus.RESOLVING, PostStatus.PUBLISHING, PostStatus.ARCHIVED]
-)
+@pytest.mark.parametrize("status", [PostStatus.RESOLVING, PostStatus.PUBLISHING, PostStatus.ARCHIVED])
 def test_a_post_that_cannot_be_edited_gets_a_409_with_a_sentence_without_the_state(
     status: PostStatus,
 ) -> None:
@@ -177,9 +175,7 @@ async def test_counting_media_posts_returns_zero_for_none(session: MagicMock) ->
     assert await count_media_posts(session, 3) == 2
 
 
-async def test_a_save_writes_flushes_and_returns_the_detail(
-    session: MagicMock, locks: dict[str, AsyncMock]
-) -> None:
+async def test_a_save_writes_flushes_and_returns_the_detail(session: MagicMock, locks: dict[str, AsyncMock]) -> None:
     track = locks["track"].return_value
     update = unchanged_update(track, title="Нова")
 
@@ -237,9 +233,7 @@ async def test_a_stale_post_stamp_is_refused_before_the_track_is_locked(
     session.flush.assert_not_awaited()
 
 
-async def test_a_stale_track_stamp_writes_nothing(
-    session: MagicMock, locks: dict[str, AsyncMock]
-) -> None:
+async def test_a_stale_track_stamp_writes_nothing(session: MagicMock, locks: dict[str, AsyncMock]) -> None:
     track = locks["track"].return_value
     update = unchanged_update(track, title="Нова", expected_track_updated_at=STAMP + timedelta(1))
 
@@ -251,9 +245,7 @@ async def test_a_stale_track_stamp_writes_nothing(
     session.flush.assert_not_awaited()
 
 
-async def test_invalid_fields_write_nothing(
-    session: MagicMock, locks: dict[str, AsyncMock]
-) -> None:
+async def test_invalid_fields_write_nothing(session: MagicMock, locks: dict[str, AsyncMock]) -> None:
     track = locks["track"].return_value
 
     with pytest.raises(FieldsInvalidError):

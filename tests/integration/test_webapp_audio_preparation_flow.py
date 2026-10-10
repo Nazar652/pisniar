@@ -1,8 +1,6 @@
-"""Preparing the audio before the first fragment choice against a real Postgres: the locks the
-request takes, the status it writes, a refused queue followed by `/retry`, a failing keyboard, and
-the whole chain up to a first preview rendered from the chosen bounds. Celery, Telegram and ffmpeg
-are stand-ins; the rows are real.
-"""
+"""Preparing the audio before the first fragment choice against a real Postgres: the locks the request takes, the status
+it writes, a refused queue followed by `/retry`, a failing keyboard, and the whole chain up to a first preview rendered
+from the chosen bounds. Celery, Telegram and ffmpeg are stand-ins; the rows are real."""
 
 from __future__ import annotations
 
@@ -138,7 +136,10 @@ async def environment(migrated_test_database_url: str) -> AsyncIterator[Environm
 
 
 async def seed_post(
-    environment: Environment, path: str = "resolved", *, music_link: bool = True
+    environment: Environment,
+    path: str = "resolved",
+    *,
+    music_link: bool = True,
 ) -> tuple[int, int]:
     """a unique artist and title per call; returns the post id and the track id."""
     marker = uuid.uuid4().hex
@@ -189,9 +190,7 @@ async def test_the_request_holds_the_post_and_the_track_but_lets_a_new_post_of_t
         assert preparation is not None
 
         with pytest.raises(DBAPIError) as post_lock:
-            await other.execute(
-                text("SELECT id FROM post WHERE id = :id FOR UPDATE NOWAIT"), {"id": post_id}
-            )
+            await other.execute(text("SELECT id FROM post WHERE id = :id FOR UPDATE NOWAIT"), {"id": post_id})
         await other.rollback()
         with pytest.raises(DBAPIError) as track_lock:
             await other.execute(
@@ -245,11 +244,11 @@ async def test_a_track_held_by_another_transaction_times_out_as_busy_and_changes
     assert environment.bot.calls == []
 
 
-@pytest.mark.parametrize(
-    ("path", "code"), [("editing", "not_preparable"), ("downloading", "not_preparable")]
-)
+@pytest.mark.parametrize(("path", "code"), [("editing", "not_preparable"), ("downloading", "not_preparable")])
 async def test_a_post_that_cannot_be_prepared_is_refused_and_keeps_its_status(
-    environment: Environment, path: str, code: str
+    environment: Environment,
+    path: str,
+    code: str,
 ) -> None:
     post_id, _ = await seed_post(environment, path)
     before = (await environment.load(post_id)).status
@@ -302,9 +301,7 @@ async def test_a_started_preparation_queues_the_prepare_task_then_clears_the_dra
 
     assert response.status_code == 200
     assert response.json() == {"post_id": post_id, "status_label": "Завантажується аудіо"}
-    environment.queue.send_task.assert_called_once_with(
-        PREPARE_POST_AUDIO_TASK_NAME, kwargs={"post_id": post_id}
-    )
+    environment.queue.send_task.assert_called_once_with(PREPARE_POST_AUDIO_TASK_NAME, kwargs={"post_id": post_id})
     assert environment.bot.calls == [
         {
             "chat_id": DRAFT_CHAT_ID,
@@ -320,9 +317,7 @@ async def test_a_failing_keyboard_removal_does_not_fail_the_request(
     environment: Environment,
 ) -> None:
     post_id, _ = await seed_post(environment)
-    environment.bot.error = TelegramAPIError(
-        method=EditMessageReplyMarkup(chat_id=1, message_id=1), message="gone"
-    )
+    environment.bot.error = TelegramAPIError(method=EditMessageReplyMarkup(chat_id=1, message_id=1), message="gone")
 
     response = await environment.start(post_id)
 
@@ -354,9 +349,7 @@ async def test_a_refused_queue_fails_the_post_at_downloading_and_retry_downloads
     queue = MagicMock()
     await handle_retry(message, environment.session_factory, queue)
 
-    queue.send_task.assert_called_once_with(
-        DOWNLOAD_POST_AUDIO_TASK_NAME, kwargs={"post_id": post_id}
-    )
+    queue.send_task.assert_called_once_with(DOWNLOAD_POST_AUDIO_TASK_NAME, kwargs={"post_id": post_id})
     assert (await environment.load(post_id)).status is PostStatus.DOWNLOADING
 
 
@@ -386,9 +379,7 @@ async def test_a_post_with_ready_audio_ignores_every_button_in_the_chat(
         callback = AsyncMock()
         callback.data = f"{action}:{post_id}"
         callback.from_user = SimpleNamespace(id=ADMIN_ID)
-        callback.message = SimpleNamespace(
-            chat=SimpleNamespace(id=DRAFT_CHAT_ID), message_id=post_id
-        )
+        callback.message = SimpleNamespace(chat=SimpleNamespace(id=DRAFT_CHAT_ID), message_id=post_id)
         await handle_callback(callback, bot, environment.session_factory, queue)
         answers.append(callback.answer.await_args.args[0])
 
@@ -400,7 +391,9 @@ async def test_a_post_with_ready_audio_ignores_every_button_in_the_chat(
 
 @pytest.fixture
 def worker(
-    monkeypatch: pytest.MonkeyPatch, migrated_test_database_url: str, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch,
+    migrated_test_database_url: str,
+    tmp_path: Path,
 ) -> StubRenderer:
     """nothing here may reach Telegram or the network: `.env` carries real credentials in Docker."""
     monkeypatch.setattr(worker_tasks.settings, "database_url", migrated_test_database_url)
@@ -446,7 +439,9 @@ def stub_download(monkeypatch: pytest.MonkeyPatch, track_id: int) -> MagicMock:
 
 
 async def test_the_audio_is_prepared_without_a_render_and_the_post_waits_as_editing(
-    environment: Environment, worker: StubRenderer, monkeypatch: pytest.MonkeyPatch
+    environment: Environment,
+    worker: StubRenderer,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     post_id, track_id = await seed_post(environment)
     chained = stub_download(monkeypatch, track_id)
@@ -462,27 +457,23 @@ async def test_the_audio_is_prepared_without_a_render_and_the_post_waits_as_edit
         asset = await session.scalar(select(AudioAsset).where(AudioAsset.track_id == track_id))
     assert asset is not None and asset.duration_ms == DURATION_MS
 
-    detail = (
-        await environment.http.get(f"/api/posts/{post_id}", headers=environment.headers())
-    ).json()
+    detail = (await environment.http.get(f"/api/posts/{post_id}", headers=environment.headers())).json()
     assert detail["status_label"] == "Аудіо готове — оберіть фрагмент"
     assert detail["fragment"]["choosable"] is True
     assert detail["editable"] is True
 
 
 async def test_the_first_preview_comes_from_the_fragment_chosen_before_any_video(
-    environment: Environment, worker: StubRenderer, monkeypatch: pytest.MonkeyPatch
+    environment: Environment,
+    worker: StubRenderer,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     post_id, track_id = await seed_post(environment)
     async with environment.session_factory() as session:
         session.add_all(
             [
-                Lyric(
-                    track_id=track_id, line_index=0, start_ms=10_000, text="Рано", source="manual"
-                ),
-                Lyric(
-                    track_id=track_id, line_index=1, start_ms=70_000, text="Пізно", source="manual"
-                ),
+                Lyric(track_id=track_id, line_index=0, start_ms=10_000, text="Рано", source="manual"),
+                Lyric(track_id=track_id, line_index=1, start_ms=70_000, text="Пізно", source="manual"),
             ]
         )
         await session.commit()
@@ -490,9 +481,7 @@ async def test_the_first_preview_comes_from_the_fragment_chosen_before_any_video
 
     assert (await environment.start(post_id)).status_code == 200
     await worker_tasks.perform_download_post_audio(post_id, then_render=False)
-    detail = (
-        await environment.http.get(f"/api/posts/{post_id}", headers=environment.headers())
-    ).json()
+    detail = (await environment.http.get(f"/api/posts/{post_id}", headers=environment.headers())).json()
 
     chosen = await environment.http.post(
         f"/api/posts/{post_id}/fragment",
@@ -531,7 +520,9 @@ async def test_a_render_task_that_finds_ready_audio_does_nothing(
 
 
 async def test_a_redelivered_prepare_at_a_post_waiting_for_the_choice_does_nothing(
-    environment: Environment, worker: StubRenderer, monkeypatch: pytest.MonkeyPatch
+    environment: Environment,
+    worker: StubRenderer,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     post_id, track_id = await seed_post(environment, "editing")
     chained = stub_download(monkeypatch, track_id)

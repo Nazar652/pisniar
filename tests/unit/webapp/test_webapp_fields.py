@@ -88,7 +88,9 @@ def make_unchanged_update(stored: StoredFields | None = None, **overrides: Any) 
 
 
 def plan(
-    update: FieldsInput, stored: StoredFields | None = None, year: int = 2026
+    update: FieldsInput,
+    stored: StoredFields | None = None,
+    year: int = 2026,
 ) -> PlannedFields:
     return plan_fields(update, stored or make_stored(), year)
 
@@ -195,9 +197,7 @@ def test_a_field_cannot_be_changed_and_reverted_in_one_save() -> None:
 
 
 def test_an_unknown_name_cannot_be_reverted() -> None:
-    assert "revert_to_automatic" in problems(
-        make_unchanged_update(revert_to_automatic=["cover_url"])
-    )
+    assert "revert_to_automatic" in problems(make_unchanged_update(revert_to_automatic=["cover_url"]))
 
 
 def test_a_hashtag_alone_does_not_freeze_the_artist_names() -> None:
@@ -216,9 +216,7 @@ def test_a_hashtag_alone_does_not_freeze_the_artist_names() -> None:
 
 
 def test_a_new_artist_has_no_spotify_id_and_a_known_one_keeps_it() -> None:
-    update = make_unchanged_update(
-        artists=[ArtistInput(name="Океан Ельзи"), ArtistInput(name="Хтось Новий")]
-    )
+    update = make_unchanged_update(artists=[ArtistInput(name="Океан Ельзи"), ArtistInput(name="Хтось Новий")])
 
     planned = plan(update)
 
@@ -389,9 +387,7 @@ def test_an_unchanged_link_stays_exactly_as_stored_whatever_its_source() -> None
     stored_links = {"tidal": TIDAL_LINK}
     errors: list[FieldError] = []
 
-    links, removed, music_changed = plan_platform_links(
-        {"tidal": TIDAL_LINK["url"]}, stored_links, [], errors
-    )
+    links, removed, music_changed = plan_platform_links({"tidal": TIDAL_LINK["url"]}, stored_links, [], errors)
 
     assert links == {"tidal": TIDAL_LINK}
     assert links["tidal"] is TIDAL_LINK
@@ -503,9 +499,7 @@ def test_the_manual_list_helper_reports_unknown_and_clashing_names() -> None:
 
 
 def test_every_problem_is_reported_at_once_and_nothing_is_planned() -> None:
-    update = make_unchanged_update(
-        title=" ", year=1500, release_type="mixtape", languages=[], artists=[]
-    )
+    update = make_unchanged_update(title=" ", year=1500, release_type="mixtape", languages=[], artists=[])
 
     found = problems(update)
 

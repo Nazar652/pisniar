@@ -30,8 +30,8 @@ HTTP_URL_ADAPTER = TypeAdapter(HttpUrl)
 
 
 def bare_https_origin(value: str) -> str:
-    """the same text Telegram would accept as a `web_app` origin, or a `ValueError` that never
-    echoes the value; the URL parser rejects spaces and stray characters in the host."""
+    """the same text Telegram would accept as a `web_app` origin, or a `ValueError` that never echoes the value; the
+    URL parser rejects spaces and stray characters in the host."""
     try:
         parts = urlsplit(value)
         parsed = HTTP_URL_ADAPTER.validate_python(value)
@@ -56,18 +56,18 @@ class Settings(BaseSettings):
     )
 
     environment: Literal["dev", "docker"] = "dev"
-    # independent of `environment` on purpose: "docker" doesn't always mean
-    # "read JSON logs" — `make up` still wants console output while `environment` stays "dev".
+    # independent of `environment` on purpose: "docker" doesn't always mean "read JSON logs" — `make up` still wants
+    # console output while `environment` stays "dev".
     log_format: Literal["json", "console"] = "json"
     log_level: str = "INFO"
 
     bot_token: SecretStr
-    # `NoDecode`: without it, pydantic-settings JSON-decodes "111,222" before
-    # `split_admin_ids` below ever runs, and that blows up as invalid JSON.
+    # `NoDecode`: without it, pydantic-settings JSON-decodes "111,222" before `split_admin_ids` below ever runs, and
+    # that blows up as invalid JSON.
     admin_ids: Annotated[list[int], NoDecode] = Field(min_length=1)
     alert_chat_id: int
-    # the publish target, and the only source of it. Numeric, not
-    # `@username`: a username can be reassigned to another chat, an id cannot.
+    # the publish target, and the only source of it. Numeric, not `@username`: a username can be reassigned to another
+    # chat, an id cannot.
     channel_id: int
 
     database_url: str
@@ -78,26 +78,25 @@ class Settings(BaseSettings):
 
     spotify_client_id: str
     spotify_client_secret: SecretStr
-    # optional: the `musicbrainz` source stays disabled without a contact,
-    # per MusicBrainz's own policy.
+    # optional: the `musicbrainz` source stays disabled without a contact, per MusicBrainz's own policy.
     musicbrainz_contact: str | None = None
     itunes_country: str = "UA"
-    # both a hit and a `{"found": false}` go stale after an hour, so `/retry`
-    # can recover a release song.link has not indexed yet.
+    # both a hit and a `{"found": false}` go stale after an hour, so `/retry` can recover a release song.link has not
+    # indexed yet.
     source_fetch_ttl_seconds: int = 3600
 
-    # mount point of the `media-data` volume inside the worker container, and
-    # the only root `worker/` ever builds a media path under.
+    # mount point of the `media-data` volume inside the worker container, and the only root `worker/` ever builds a
+    # media path under.
     media_root: Path = Path("/data")
-    # checked with `shutil.disk_usage()` *before* a download starts: running
-    # out mid-render leaves a file that looks finished.
+    # checked with `shutil.disk_usage()` *before* a download starts: running out mid-render leaves a file that looks
+    # finished.
     media_min_free_bytes: int = Field(default=2_000_000_000, gt=0)
-    # per-task limits. The resolve limits in `worker.celery_app` also gate
-    # `/retry`'s "resolve has gone stale" window, so they are never raised here.
+    # per-task limits. The resolve limits in `worker.celery_app` also gate `/retry`'s "resolve has gone stale" window,
+    # so they are never raised here.
     download_task_soft_time_limit_seconds: int = Field(default=120, gt=0)
     download_task_time_limit_seconds: int = Field(default=180, gt=0)
-    # covers LRCLIB's worst case (~187 s of timeouts and retries) on top of a
-    # 120 s turntable render: a slow lyrics source must end as a video without text.
+    # covers LRCLIB's worst case (~187 s of timeouts and retries) on top of a 120 s turntable render: a slow lyrics
+    # source must end as a video without text.
     render_task_soft_time_limit_seconds: int = Field(default=600, gt=0)
     render_task_time_limit_seconds: int = Field(default=660, gt=0)
     # one search and one page from a plain-text source, each with a 30 s timeout.
@@ -133,12 +132,10 @@ class Settings(BaseSettings):
     @field_validator("media_root", "webapp_static_dir")
     @classmethod
     def require_absolute_container_path(cls, value: Path, validation_info: ValidationInfo) -> Path:
-        """a relative path would resolve against the container's `/app` cwd — media
-        would land inside the image instead of on the volume."""
+        """a relative path would resolve against the container's `/app` cwd — media would land inside the image instead
+        of on the volume."""
         if not value.as_posix().startswith("/"):
-            raise ValueError(
-                f"{validation_info.field_name} must be an absolute path inside the container"
-            )
+            raise ValueError(f"{validation_info.field_name} must be an absolute path inside the container")
         return value
 
     @field_validator("webapp_public_url", mode="before")
@@ -158,8 +155,8 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def require_soft_limit_below_hard_limit(self) -> Settings:
-        """a soft limit at or above the hard one never fires, and the task is
-        SIGKILLed with no chance to clean up its `.partial` files."""
+        """a soft limit at or above the hard one never fires, and the task is SIGKILLed with no chance to clean up its
+        `.partial` files."""
         limit_pairs = (
             (
                 "download",
@@ -180,8 +177,7 @@ class Settings(BaseSettings):
         for task_name, soft_limit, hard_limit in limit_pairs:
             if soft_limit >= hard_limit:
                 raise ValueError(
-                    f"{task_name}_task_soft_time_limit_seconds must be below "
-                    f"{task_name}_task_time_limit_seconds"
+                    f"{task_name}_task_soft_time_limit_seconds must be below {task_name}_task_time_limit_seconds"
                 )
         return self
 
@@ -192,8 +188,8 @@ def get_settings() -> Settings:
 
 
 def redaction_secrets(settings: Settings) -> list[str]:
-    """tracebacks count too: `/readyz` logs with `exc_info=True`, and asyncpg or
-    kombu connection errors can embed the DSN password in their message."""
+    """tracebacks count too: `/readyz` logs with `exc_info=True`, and asyncpg or kombu connection errors can embed the
+    DSN password in their message."""
     secrets = [
         settings.bot_token.get_secret_value(),
         settings.spotify_client_secret.get_secret_value(),
@@ -207,8 +203,8 @@ def redaction_secrets(settings: Settings) -> list[str]:
 
 
 def redis_password_forms(redis_url: str) -> list[str]:
-    """both forms: a leaked URL carries the percent-encoded password, while
-    redis-py/kombu unquote it before it reaches a client-side message."""
+    """both forms: a leaked URL carries the percent-encoded password, while redis-py/kombu unquote it before it
+    reaches a client-side message."""
     quoted_password = urlsplit(redis_url).password
     if not quoted_password:
         return []

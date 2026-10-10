@@ -1,6 +1,5 @@
 """The `/api` routes: the session exchange (public), the signed audio route and everything else
-behind `require_admin`.
-"""
+behind `require_admin`."""
 
 from __future__ import annotations
 
@@ -48,9 +47,7 @@ async def create_session(body: SessionRequest, request: Request) -> SessionRespo
         user_id = validate_init_data(body.init_data, context.bot_token, now, context.auth_window)
     except InitDataError as error:
         logger.warning("webapp_auth_rejected", reason=error.reason)
-        raise ApiProblem(
-            401, "invalid_init_data", "Дані Telegram недійсні. Відкрийте застосунок знову."
-        ) from None
+        raise ApiProblem(401, "invalid_init_data", "Дані Telegram недійсні. Відкрийте застосунок знову.") from None
 
     if user_id not in context.admin_ids:
         logger.warning("webapp_auth_rejected", reason="not_admin", user_id=user_id)
@@ -75,8 +72,6 @@ def register_api_routes(app: FastAPI) -> None:
         response_model=SessionResponse,
         responses=ERROR_RESPONSES,
     )
-    app.add_api_route(
-        "/api/me", read_me, methods=["GET"], response_model=MeResponse, responses=ERROR_RESPONSES
-    )
+    app.add_api_route("/api/me", read_me, methods=["GET"], response_model=MeResponse, responses=ERROR_RESPONSES)
     register_post_routes(app)
     register_audio_route(app)

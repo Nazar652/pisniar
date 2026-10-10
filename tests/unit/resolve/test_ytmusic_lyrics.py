@@ -1,6 +1,5 @@
-"""`ytmusic_lyrics`: the answer classes told apart by the shape of the `ytmusicapi`
-result, the music note kept in timed lines, and what must never be cached. The
-client is a fake: no network call is made.
+"""`ytmusic_lyrics`: the answer classes told apart by the shape of the `ytmusicapi` result, the music note kept in
+timed lines, and what must never be cached. The client is a fake: no network call is made.
 """
 
 from __future__ import annotations
@@ -121,9 +120,7 @@ def test_a_timed_gap_mark_stays_as_the_note_and_an_empty_line_stays_a_pause() ->
 
 
 def test_timed_lines_come_out_in_time_order() -> None:
-    result = ytmusic_lyrics.result_from_payload(
-        {"found": True, "timed": [[5_000, "другий"], [1_000, "перший"]]}
-    )
+    result = ytmusic_lyrics.result_from_payload({"found": True, "timed": [[5_000, "другий"], [1_000, "перший"]]})
 
     assert [line.text for line in result.lines] == ["перший", "другий"]
 
@@ -168,9 +165,7 @@ def test_a_cached_row_of_the_wrong_shape_raises(payload: dict[str, object]) -> N
 
 
 def test_a_pair_becomes_a_line() -> None:
-    assert ytmusic_lyrics.timed_line_from_pair([2_000, " раз  два "]) == LyricsLine(
-        start_ms=2_000, text="раз два"
-    )
+    assert ytmusic_lyrics.timed_line_from_pair([2_000, " раз  два "]) == LyricsLine(start_ms=2_000, text="раз два")
 
 
 @pytest.mark.parametrize(

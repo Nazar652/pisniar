@@ -1,6 +1,5 @@
-"""The `source_fetch` cache: one row per `(source, request_key)`, refreshed
-once stale. Every read and write runs in its own short session, never in the
-caller's business transaction, whose rollback would undo it.
+"""The `source_fetch` cache: one row per `(source, request_key)`, refreshed once stale. Every read and write runs in
+its own short session, never in the caller's business transaction, whose rollback would undo it.
 """
 
 from __future__ import annotations
@@ -35,7 +34,11 @@ def normalize_key_part(value: str, *, casefold: bool = True) -> str:
     return collapsed.replace("\\", "\\\\").replace(KEY_SEPARATOR, "\\" + KEY_SEPARATOR)
 
 
-def build_request_key(prefix: str, *parts: str, casefold: bool = True) -> str:
+def build_request_key(
+    prefix: str,
+    *parts: str,
+    casefold: bool = True,
+) -> str:
     """an over-long key keeps a readable head plus a digest of the full value:
     deterministic, so the cache still hits, and within the btree limit."""
     key = prefix + KEY_SEPARATOR.join(normalize_key_part(part, casefold=casefold) for part in parts)
@@ -49,8 +52,7 @@ def build_request_key(prefix: str, *parts: str, casefold: bool = True) -> str:
 
 
 def is_negative_payload(payload: dict[str, object]) -> bool:
-    """`{"found": false}` or an empty result list — a real answer, but the
-    weakest one this cache can hold."""
+    """`{"found": false}` or an empty result list — a real answer, but the weakest one this cache can hold."""
     if payload.get("found") is False:
         return True
     results = payload.get("results")
@@ -92,7 +94,12 @@ class SourceCache:
             row = await session.scalar(statement)
             return row.payload if row is not None else None
 
-    async def upsert(self, source: str, request_key: str, payload: dict[str, object]) -> None:
+    async def upsert(
+        self,
+        source: str,
+        request_key: str,
+        payload: dict[str, object],
+    ) -> None:
         # `fetched_at` from the clock, not `now()`: the latter is the
         # transaction's start time, tens of seconds stale after a resolve.
         fetched_at = datetime.now(UTC)
@@ -108,9 +115,7 @@ class SourceCache:
             .on_conflict_do_update(
                 index_elements=[SourceFetch.source, SourceFetch.request_key],
                 set_={"payload": payload, "fetched_at": fetched_at, "updated_at": fetched_at},
-                where=self.negative_overwrite_allowed(fetched_at)
-                if is_negative_payload(payload)
-                else None,
+                where=self.negative_overwrite_allowed(fetched_at) if is_negative_payload(payload) else None,
             )
         )
         async with self.session_factory() as session:

@@ -1,7 +1,6 @@
-"""`worker.lyrics`, the database-free half: which lines are written, a line past
-the 500-character CHECK, and `prepare_lyrics`' split between "no text" and a loud
-failure. The lock, the guard and the idle database are in `test_lyrics_persist.py`
-and `test_render_lyrics.py`.
+"""`worker.lyrics`, the database-free half: which lines are written, a line past the 500-character CHECK, and
+`prepare_lyrics`' split between "no text" and a loud failure. The lock, the guard and the idle database are in
+`test_lyrics_persist.py` and `test_render_lyrics.py`.
 """
 
 from __future__ import annotations
@@ -90,7 +89,9 @@ def test_the_lines_to_store_are_decided_by_the_class_of_the_answer() -> None:
     ],
 )
 def test_the_stored_text_limits_are_inclusive(
-    line_count: int, character_count: int, fits: bool
+    line_count: int,
+    character_count: int,
+    fits: bool,
 ) -> None:
     assert lyrics.fits_stored_text_limits(line_count, character_count) is fits
 
@@ -162,8 +163,7 @@ def test_too_many_characters_are_not_written() -> None:
 def test_a_line_past_the_check_is_cut_to_it_and_logged_without_its_text(
     persist_logger: MagicMock,
 ) -> None:
-    """cut, not dropped: a gap in `line_index` would read like a line deleted by
-    hand."""
+    """cut, not dropped: a gap in `line_index` would read like a line deleted by hand."""
     long_text = "й" * (MAX_LYRIC_TEXT_LENGTH + 37)
 
     rows, truncated = lyrics.rows_to_write(TRACK_ID, synced((1_000, "раз"), (2_000, long_text)))
@@ -216,16 +216,14 @@ QUERY = lyrics.LyricsQuery(
 )
 STORED_LINES = (LyricLine(line_index=0, start_ms=1_000, text="раз"),)
 NOTHING_STORED = lyrics.StoredLyrics(renderable_lines=(), total_count=0, edited_by_admin=False)
-TIMED_STORED = lyrics.StoredLyrics(
-    renderable_lines=STORED_LINES, total_count=1, edited_by_admin=False
-)
+TIMED_STORED = lyrics.StoredLyrics(renderable_lines=STORED_LINES, total_count=1, edited_by_admin=False)
 UNTIMED_STORED = lyrics.StoredLyrics(renderable_lines=(), total_count=3, edited_by_admin=False)
 REMOVED_STORED = lyrics.StoredLyrics(renderable_lines=(), total_count=0, edited_by_admin=True)
 
 
 class PrepareSpy:
-    """replaces the three collaborators `prepare_lyrics` orchestrates and records
-    the order they ran in, so "no network when lines exist" is observed."""
+    """replaces the three collaborators `prepare_lyrics` orchestrates and records the order they ran in, so
+    "no network when lines exist" is observed."""
 
     def __init__(
         self,
@@ -257,12 +255,15 @@ class PrepareSpy:
         return self.fetch_result
 
     async def persist(
-        self, session_factory: object, track_id: int, result: LyricsResult, *, source: str
+        self,
+        session_factory: object,
+        track_id: int,
+        result: LyricsResult,
+        *,
+        source: str,
     ) -> lyrics.LyricsPersistResult:
         self.calls.append("persist")
-        return lyrics.LyricsPersistResult(
-            outcome=self.persist_outcome, source_outcome=result.outcome
-        )
+        return lyrics.LyricsPersistResult(outcome=self.persist_outcome, source_outcome=result.outcome)
 
 
 async def prepare() -> lyrics.PreparedLyrics:
@@ -277,9 +278,7 @@ async def test_stored_lines_are_used_and_lrclib_is_never_asked(
     prepared = await prepare()
 
     assert spy.calls == ["load"]
-    assert prepared == lyrics.PreparedLyrics(
-        lines=STORED_LINES, reason=lyrics.LYRICS_ALREADY_STORED
-    )
+    assert prepared == lyrics.PreparedLyrics(lines=STORED_LINES, reason=lyrics.LYRICS_ALREADY_STORED)
 
 
 @pytest.mark.parametrize(
@@ -299,7 +298,9 @@ async def test_stored_lines_are_used_and_lrclib_is_never_asked(
     ],
 )
 async def test_stored_lines_or_a_saved_text_mean_no_network_and_a_class_each(
-    monkeypatch: pytest.MonkeyPatch, stored: lyrics.StoredLyrics, reason: str
+    monkeypatch: pytest.MonkeyPatch,
+    stored: lyrics.StoredLyrics,
+    reason: str,
 ) -> None:
     spy = PrepareSpy(monkeypatch, stored_before=stored)
 
@@ -334,7 +335,9 @@ def test_each_stored_state_has_its_own_reason(stored: lyrics.StoredLyrics, reaso
     ],
 )
 async def test_a_writer_that_kept_what_was_there_reports_what_is_there(
-    monkeypatch: pytest.MonkeyPatch, after: lyrics.StoredLyrics, reason: str
+    monkeypatch: pytest.MonkeyPatch,
+    after: lyrics.StoredLyrics,
+    reason: str,
 ) -> None:
     PrepareSpy(
         monkeypatch,
@@ -396,9 +399,7 @@ async def test_lines_written_by_someone_else_meanwhile_count_as_already_stored(
 async def test_an_answer_without_timed_lines_carries_its_own_class(
     monkeypatch: pytest.MonkeyPatch, outcome: LyricsOutcome
 ) -> None:
-    PrepareSpy(
-        monkeypatch, stored_before=NOTHING_STORED, fetch_result=LyricsResult(outcome=outcome)
-    )
+    PrepareSpy(monkeypatch, stored_before=NOTHING_STORED, fetch_result=LyricsResult(outcome=outcome))
 
     prepared = await prepare()
 
@@ -421,9 +422,7 @@ async def test_a_source_that_fails_means_a_video_without_text(
     prepared = await prepare()
 
     assert spy.calls == ["load", "fetch"]
-    assert prepared == lyrics.PreparedLyrics(
-        lines=(), reason=LyricsOutcome.SOURCE_UNAVAILABLE.value
-    )
+    assert prepared == lyrics.PreparedLyrics(lines=(), reason=LyricsOutcome.SOURCE_UNAVAILABLE.value)
 
 
 @pytest.mark.parametrize(
@@ -514,23 +513,18 @@ def test_a_video_with_text_gets_no_notice(reason: str) -> None:
 
 
 def test_a_video_with_text_gets_no_notice_whatever_the_reason_says() -> None:
-    """the subtitle digest decides whether text is in the frames; the reason only
-    explains an absence."""
+    """the subtitle digest decides whether text is in the frames; the reason only explains an absence."""
     assert lyrics.no_text_notice(42, "lyrics_absent", "0123456789abcdef") is None
 
 
 def test_a_video_without_text_is_reported_even_for_an_unforeseen_reason() -> None:
-    assert lyrics.no_text_notice(42, "lyrics_synced", None) == (
-        f"Пост 42: {lyrics.UNEXPLAINED_NO_TEXT_NOTICE}"
-    )
+    assert lyrics.no_text_notice(42, "lyrics_synced", None) == (f"Пост 42: {lyrics.UNEXPLAINED_NO_TEXT_NOTICE}")
 
 
 def test_lines_that_all_miss_the_fragment_are_a_class_of_their_own() -> None:
     prepared = lyrics.PreparedLyrics(lines=STORED_LINES, reason=lyrics.LYRICS_ALREADY_STORED)
 
-    assert lyrics.reason_after_subtitles(TRACK_ID, prepared, None) == (
-        lyrics.LYRICS_OUTSIDE_FRAGMENT
-    )
+    assert lyrics.reason_after_subtitles(TRACK_ID, prepared, None) == (lyrics.LYRICS_OUTSIDE_FRAGMENT)
 
 
 def test_drawn_lines_keep_the_reason_they_came_with() -> None:

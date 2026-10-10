@@ -21,9 +21,7 @@ ALBUM_ID = "4yYXqedvSKuJlgI2IWsB0j"
 def test_genres_from_stored_reads_the_jsonb_column_back() -> None:
     genres = genres_from_stored([{"name": "рок", "hashtag": None, "source": "deezer"}])
 
-    assert [(genre.name, genre.hashtag, genre.source) for genre in genres] == [
-        ("рок", None, "deezer")
-    ]
+    assert [(genre.name, genre.hashtag, genre.source) for genre in genres] == [("рок", None, "deezer")]
 
 
 def test_genres_from_stored_skips_entries_without_a_usable_name() -> None:
@@ -99,15 +97,9 @@ DOMAIN_LINKS = {
         source="user_input",
         match=MatchClass.MANUAL,
     ),
-    "spotify": PlatformLink(
-        url="https://open.spotify.com/track/x", source="spotify", match=MatchClass.EXACT_ISRC
-    ),
-    "tidal": PlatformLink(
-        url="https://listen.tidal.com/track/1", source="songlink", match=MatchClass.AGGREGATOR
-    ),
-    "appleMusic": PlatformLink(
-        url="https://music.apple.com/ua/song/x/1", source="itunes", match=MatchClass.CONFIRMED
-    ),
+    "spotify": PlatformLink(url="https://open.spotify.com/track/x", source="spotify", match=MatchClass.EXACT_ISRC),
+    "tidal": PlatformLink(url="https://listen.tidal.com/track/1", source="songlink", match=MatchClass.AGGREGATOR),
+    "appleMusic": PlatformLink(url="https://music.apple.com/ua/song/x/1", source="itunes", match=MatchClass.CONFIRMED),
 }
 
 
@@ -147,9 +139,7 @@ def test_a_caption_rebuilt_from_rows_is_byte_for_byte_the_resolve_caption() -> N
 
 
 def test_the_report_names_what_did_not_fit() -> None:
-    genres: list[object] = [
-        {"name": f"Жанр{index}", "hashtag": None, "source": "deezer"} for index in range(200)
-    ]
+    genres: list[object] = [{"name": f"Жанр{index}", "hashtag": None, "source": "deezer"} for index in range(200)]
 
     degradation = build_caption_from_rows(
         title="Тема",

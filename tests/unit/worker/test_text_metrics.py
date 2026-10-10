@@ -1,7 +1,6 @@
-"""Per-glyph text measurement, read back against numbers measured on the worker
-image: an em of Noto Sans renders at 0.734 of the ASS `Fontsize`, «Цей рядок
-навмисно довгий,» is 460 px of advance at `Fontsize: 44`, and an unknown
-codepoint is one full em wide.
+"""Per-glyph text measurement, read back against numbers measured on the worker image: an em of Noto Sans renders
+at 0.734 of the ASS `Fontsize`, «Цей рядок навмисно довгий,» is 460 px of advance at `Fontsize: 44`, and an
+unknown codepoint is one full em wide.
 """
 
 from __future__ import annotations
@@ -9,26 +8,22 @@ from __future__ import annotations
 from pisniar.worker import noto_sans_widths, text_metrics
 
 GATE_CALIBRATION_LINE = "Цей рядок навмисно довгий,"
-# measured on the worker image: 456 px of ink against the 454.8 px this table
-# predicts (antialiasing); the em-square reading of `Fontsize` predicts 619.4.
+# measured on the worker image: 456 px of ink against the 454.8 px this table predicts (antialiasing); the
+# em-square reading of `Fontsize` predicts 619.4.
 MEASURED_ADVANCE_PX_AT_44 = 460.4
 
 
 def test_the_font_size_is_the_cell_height_and_not_the_em_square() -> None:
-    """an average of 0.52 em cuts a line a third short, because libass renders
-    the em at `Fontsize * unitsPerEm / (ascender - descender)`."""
-    expected = noto_sans_widths.UNITS_PER_EM / (
-        noto_sans_widths.HHEA_ASCENDER - noto_sans_widths.HHEA_DESCENDER
-    )
+    """an average of 0.52 em cuts a line a third short, because libass renders the em at `Fontsize * unitsPerEm /
+    (ascender - descender)`."""
+    expected = noto_sans_widths.UNITS_PER_EM / (noto_sans_widths.HHEA_ASCENDER - noto_sans_widths.HHEA_DESCENDER)
 
     assert expected == text_metrics.FONT_SIZE_TO_EM_SCALE
     assert round(text_metrics.FONT_SIZE_TO_EM_SCALE, 3) == 0.734
 
 
 def test_a_measured_line_matches_what_the_image_rendered() -> None:
-    assert round(text_metrics.text_width_px(GATE_CALIBRATION_LINE, 44), 1) == (
-        MEASURED_ADVANCE_PX_AT_44
-    )
+    assert round(text_metrics.text_width_px(GATE_CALIBRATION_LINE, 44), 1) == (MEASURED_ADVANCE_PX_AT_44)
 
 
 def test_the_empty_string_is_zero_wide() -> None:
@@ -45,8 +40,7 @@ def test_a_known_codepoint_is_read_from_the_table_and_not_from_the_fallback() ->
 
 
 def test_an_unknown_codepoint_falls_back_to_one_full_em() -> None:
-    """over-estimating is the safe direction: the line wraps early instead
-    of running off the frame."""
+    """over-estimating is the safe direction: the line wraps early instead of running off the frame."""
     emoji = "\U0001f525"
 
     assert ord(emoji) not in noto_sans_widths.ADVANCE_WIDTHS
@@ -57,10 +51,7 @@ def test_an_unknown_codepoint_falls_back_to_one_full_em() -> None:
 def test_the_fallback_is_wider_than_every_letter_the_table_covers() -> None:
     letters = "абвгдеєжзиіїйклмнопрстуфхцчшщьюяabcdefghijklmnopqrstuvwxyz0123456789"
 
-    assert all(
-        text_metrics.advance_units(letter) < text_metrics.FALLBACK_ADVANCE_UNITS
-        for letter in letters
-    )
+    assert all(text_metrics.advance_units(letter) < text_metrics.FALLBACK_ADVANCE_UNITS for letter in letters)
 
 
 def test_a_string_that_fits_is_reported_as_fitting() -> None:
@@ -76,15 +67,11 @@ def test_the_boundary_is_inclusive() -> None:
 
 
 def test_the_longest_prefix_is_the_last_one_that_still_fits() -> None:
-    prefix = text_metrics.longest_prefix_within(
-        GATE_CALIBRATION_LINE, font_size_px=44, available_px=200
-    )
+    prefix = text_metrics.longest_prefix_within(GATE_CALIBRATION_LINE, font_size_px=44, available_px=200)
 
     assert GATE_CALIBRATION_LINE.startswith(prefix)
     assert text_metrics.fits_within(prefix, font_size_px=44, available_px=200)
-    assert not text_metrics.fits_within(
-        GATE_CALIBRATION_LINE[: len(prefix) + 1], font_size_px=44, available_px=200
-    )
+    assert not text_metrics.fits_within(GATE_CALIBRATION_LINE[: len(prefix) + 1], font_size_px=44, available_px=200)
 
 
 def test_the_longest_prefix_of_a_string_that_fits_is_the_whole_string() -> None:

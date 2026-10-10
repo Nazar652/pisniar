@@ -1,6 +1,5 @@
-"""Celery app wiring. `build_celery_app()` is pure/parametrized so
-`bot.handlers` can build a producer-only client without importing
-`worker.tasks` — the two processes stay decoupled.
+"""Celery app wiring. `build_celery_app()` is pure/parametrized so `bot.handlers` can build a producer-only client
+without importing `worker.tasks` — the two processes stay decoupled.
 """
 
 from __future__ import annotations

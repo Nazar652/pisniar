@@ -1,6 +1,5 @@
-"""`render`: UTF-16 visible length (never `len()` on the HTML string), the
-`🇺🇦` = 4 units check that appears in every post, and `href` scheme
-enforcement at the last line of defense."""
+"""`render`: UTF-16 visible length (never `len()` on the HTML string), the `🇺🇦` = 4 units check that appears in
+every post, and `href` scheme enforcement at the last line of defense."""
 
 from __future__ import annotations
 
@@ -27,9 +26,7 @@ def test_utf16_length_of_ascii_matches_python_len() -> None:
 
 def test_visible_length_counts_link_text_not_url() -> None:
     document = CaptionDocument()
-    document.append_link(
-        "Spotify", "https://open.spotify.com/track/aVeryLongIdThatWouldBlowThePlainUrlLength"
-    )
+    document.append_link("Spotify", "https://open.spotify.com/track/aVeryLongIdThatWouldBlowThePlainUrlLength")
 
     # "Spotify" is 7 UTF-16 units; the ~60-char URL must not be counted.
     assert visible_length(document) == 7

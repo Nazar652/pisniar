@@ -32,9 +32,7 @@ class FragmentBounds:
 
 def choose_fragment_bounds(track_duration_ms: int) -> FragmentBounds:
     if track_duration_ms <= 0:
-        raise FragmentBoundsError(
-            f"тривалість треку має бути додатною, отримано {track_duration_ms}"
-        )
+        raise FragmentBoundsError(f"тривалість треку має бути додатною, отримано {track_duration_ms}")
 
     end_ms = min(FRAGMENT_START_MS + FRAGMENT_LENGTH_MS, track_duration_ms)
     bounds = FragmentBounds(start_ms=FRAGMENT_START_MS, end_ms=end_ms)
@@ -58,24 +56,20 @@ def stored_bounds(start_ms: int | None, end_ms: int | None) -> FragmentBounds | 
     return FragmentBounds(start_ms=start_ms, end_ms=end_ms)
 
 
-def validate_chosen_bounds(start_ms: int, end_ms: int, audio_duration_ms: int) -> FragmentBounds:
+def validate_chosen_bounds(
+    start_ms: int,
+    end_ms: int,
+    audio_duration_ms: int,
+) -> FragmentBounds:
     """an admin-chosen fragment: whole ms inside the audio, at most the maximum long."""
     if start_ms < 0:
-        raise FragmentBoundsError(
-            f"початок фрагмента не може бути меншим за 0, отримано {start_ms}"
-        )
+        raise FragmentBoundsError(f"початок фрагмента не може бути меншим за 0, отримано {start_ms}")
     if end_ms <= start_ms:
-        raise FragmentBoundsError(
-            f"кінець фрагмента ({end_ms} мс) має бути пізніше за початок ({start_ms} мс)"
-        )
+        raise FragmentBoundsError(f"кінець фрагмента ({end_ms} мс) має бути пізніше за початок ({start_ms} мс)")
     if end_ms > audio_duration_ms:
-        raise FragmentBoundsError(
-            f"кінець фрагмента ({end_ms} мс) виходить за межі аудіо ({audio_duration_ms} мс)"
-        )
+        raise FragmentBoundsError(f"кінець фрагмента ({end_ms} мс) виходить за межі аудіо ({audio_duration_ms} мс)")
     if end_ms - start_ms > MAX_FRAGMENT_LENGTH_MS:
-        raise FragmentBoundsError(
-            f"фрагмент довший за {MAX_FRAGMENT_LENGTH_MS} мс: {end_ms - start_ms} мс"
-        )
+        raise FragmentBoundsError(f"фрагмент довший за {MAX_FRAGMENT_LENGTH_MS} мс: {end_ms - start_ms} мс")
     return FragmentBounds(start_ms=start_ms, end_ms=end_ms)
 
 

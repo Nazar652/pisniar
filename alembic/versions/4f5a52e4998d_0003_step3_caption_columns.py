@@ -1,8 +1,7 @@
 """0003 caption columns
 
-Three columns the caption needs: `track.album_id_spotify`, `track.languages`
-and `post.published_by_user_id`. `languages` fills existing rows through its
-`server_default`, a DDL default rather than an `UPDATE`, so no row's
+Three columns the caption needs: `track.album_id_spotify`, `track.languages` and `post.published_by_user_id`.
+`languages` fills existing rows through its `server_default`, a DDL default rather than an `UPDATE`, so no row's
 `updated_at` goes stale behind the ORM.
 
 Revision ID: 4f5a52e4998d
@@ -26,8 +25,7 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     """upgrade schema."""
-    # who approved and published, next to `created_by_user_id` (who
-    # submitted the link)
+    # who approved and published, next to `created_by_user_id` (who submitted the link)
     op.add_column("post", sa.Column("published_by_user_id", sa.BigInteger(), nullable=True))
     op.add_column("track", sa.Column("album_id_spotify", sa.Text(), nullable=True))
     op.add_column(
@@ -39,11 +37,8 @@ def upgrade() -> None:
             nullable=False,
         ),
     )
-    # autogenerate never emits CHECK constraints; same guard the other two
-    # JSONB columns on this table already carry.
-    op.create_check_constraint(
-        op.f("ck_track_languages_is_array"), "track", "jsonb_typeof(languages) = 'array'"
-    )
+    # autogenerate never emits CHECK constraints; same guard the other two JSONB columns on this table already carry.
+    op.create_check_constraint(op.f("ck_track_languages_is_array"), "track", "jsonb_typeof(languages) = 'array'")
 
 
 def downgrade() -> None:

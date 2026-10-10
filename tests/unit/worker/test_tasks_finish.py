@@ -1,6 +1,5 @@
-"""Transaction 2 of the media tasks with a faked session: what `finish_download` and
-`finish_render` write, in which order, and what they leave alone when the post has
-moved on or its lock cannot be taken.
+"""Transaction 2 of the media tasks with a faked session: what `finish_download` and `finish_render` write, in which
+order, and what they leave alone when the post has moved on or its lock cannot be taken.
 """
 
 from __future__ import annotations
@@ -42,7 +41,12 @@ class FakeSession:
     async def __aexit__(self, *exception_info: object) -> None:
         return None
 
-    async def get(self, model: type, identifier: int, **options: Any) -> Post | None:
+    async def get(
+        self,
+        model: type,
+        identifier: int,
+        **options: Any,
+    ) -> Post | None:
         assert options == {"with_for_update": True}
         if self.state.lock_error:
             raise DBAPIError("SELECT ... FOR UPDATE", {}, Exception("lock timeout"))
@@ -76,9 +80,7 @@ def make_post(status: PostStatus, **overrides: Any) -> Post:
     return post
 
 
-DOWNLOAD_CLAIM = DownloadClaim(
-    post_id=POST_ID, track_id=3, platform_links={}, track_duration_ms=None
-)
+DOWNLOAD_CLAIM = DownloadClaim(post_id=POST_ID, track_id=3, platform_links={}, track_duration_ms=None)
 DOWNLOAD_OUTCOME = DownloadOutcome(
     video_id="n4bPzdIs_nc",
     path=Path("/data/audio/3/n4bPzdIs_nc.opus"),
@@ -149,21 +151,15 @@ async def test_a_prepared_download_never_sends_a_task(
     send_task.assert_not_called()
 
 
-async def test_bounds_already_on_the_post_survive_the_download(
-    database: SimpleNamespace, chain: AsyncMock
-) -> None:
-    database.post = make_post(
-        PostStatus.DOWNLOADING, fragment_start_ms=60_000, fragment_end_ms=105_000
-    )
+async def test_bounds_already_on_the_post_survive_the_download(database: SimpleNamespace, chain: AsyncMock) -> None:
+    database.post = make_post(PostStatus.DOWNLOADING, fragment_start_ms=60_000, fragment_end_ms=105_000)
 
     await finish_download(database)
 
     assert (database.post.fragment_start_ms, database.post.fragment_end_ms) == (60_000, 105_000)
 
 
-async def test_a_locked_post_ends_the_download_without_chaining(
-    database: SimpleNamespace, chain: AsyncMock
-) -> None:
+async def test_a_locked_post_ends_the_download_without_chaining(database: SimpleNamespace, chain: AsyncMock) -> None:
     database.lock_error = True
 
     await finish_download(database)
@@ -174,7 +170,9 @@ async def test_a_locked_post_ends_the_download_without_chaining(
 
 @pytest.mark.parametrize("status", [None, PostStatus.FAILED, PostStatus.DOWNLOADED])
 async def test_a_post_that_is_no_longer_downloading_is_left_alone(
-    status: PostStatus | None, database: SimpleNamespace, chain: AsyncMock
+    status: PostStatus | None,
+    database: SimpleNamespace,
+    chain: AsyncMock,
 ) -> None:
     post = None if status is None else make_post(status)
     database.post = post
@@ -196,9 +194,7 @@ RENDER_CLAIM = RenderClaim(
     cover_url=None,
     fragment_start_ms=0,
     fragment_end_ms=45_000,
-    lyrics_query=LyricsQuery(
-        track_id=3, artist_names=("A",), title="T", duration_ms=None, video_id=None
-    ),
+    lyrics_query=LyricsQuery(track_id=3, artist_names=("A",), title="T", duration_ms=None, video_id=None),
 )
 RENDER_OUTCOME = RenderOutcome(
     params_hash="a" * 64,
@@ -227,9 +223,7 @@ async def test_a_finished_render_sends_the_preview_then_marks_rendered_and_commi
 ) -> None:
     database.post = make_post(PostStatus.RENDERING)
 
-    reference = await worker_tasks.finish_render(
-        database.session_factory, RENDER_CLAIM, RENDER_OUTCOME
-    )
+    reference = await worker_tasks.finish_render(database.session_factory, RENDER_CLAIM, RENDER_OUTCOME)
 
     assert database.order == ["execute", "preview", "commit"]
     assert database.post.status is PostStatus.RENDERED
@@ -249,14 +243,10 @@ async def test_a_failed_preview_delivery_leaves_the_post_rendering_and_uncommitt
     assert "commit" not in database.order
 
 
-async def test_a_locked_post_ends_the_render_without_a_preview(
-    database: SimpleNamespace, preview: AsyncMock
-) -> None:
+async def test_a_locked_post_ends_the_render_without_a_preview(database: SimpleNamespace, preview: AsyncMock) -> None:
     database.lock_error = True
 
-    reference = await worker_tasks.finish_render(
-        database.session_factory, RENDER_CLAIM, RENDER_OUTCOME
-    )
+    reference = await worker_tasks.finish_render(database.session_factory, RENDER_CLAIM, RENDER_OUTCOME)
 
     assert reference is None
     assert database.order == ["rollback"]
@@ -265,13 +255,13 @@ async def test_a_locked_post_ends_the_render_without_a_preview(
 
 @pytest.mark.parametrize("status", [None, PostStatus.FAILED, PostStatus.RENDERED])
 async def test_a_post_that_is_no_longer_rendering_gets_no_second_preview(
-    status: PostStatus | None, database: SimpleNamespace, preview: AsyncMock
+    status: PostStatus | None,
+    database: SimpleNamespace,
+    preview: AsyncMock,
 ) -> None:
     database.post = None if status is None else make_post(status)
 
-    reference = await worker_tasks.finish_render(
-        database.session_factory, RENDER_CLAIM, RENDER_OUTCOME
-    )
+    reference = await worker_tasks.finish_render(database.session_factory, RENDER_CLAIM, RENDER_OUTCOME)
 
     assert reference is None
     assert database.order == []
@@ -303,7 +293,9 @@ def make_previewed_post(status: PostStatus) -> Post:
 
 
 async def test_the_first_preview_points_the_post_at_its_render_and_removes_nothing(
-    database: SimpleNamespace, preview: AsyncMock, superseded_removal: AsyncMock
+    database: SimpleNamespace,
+    preview: AsyncMock,
+    superseded_removal: AsyncMock,
 ) -> None:
     database.post = make_post(PostStatus.RENDERING)
 
@@ -314,13 +306,13 @@ async def test_the_first_preview_points_the_post_at_its_render_and_removes_nothi
 
 
 async def test_a_new_preview_replaces_the_reference_and_the_hash_in_one_commit(
-    database: SimpleNamespace, preview: AsyncMock, superseded_removal: AsyncMock
+    database: SimpleNamespace,
+    preview: AsyncMock,
+    superseded_removal: AsyncMock,
 ) -> None:
     database.post = make_previewed_post(PostStatus.RENDERING)
 
-    reference = await worker_tasks.finish_render(
-        database.session_factory, RENDER_CLAIM, RENDER_OUTCOME
-    )
+    reference = await worker_tasks.finish_render(database.session_factory, RENDER_CLAIM, RENDER_OUTCOME)
 
     assert database.order == ["execute", "preview", "commit", "remove"]
     assert database.post.status is PostStatus.RENDERED
@@ -333,7 +325,9 @@ async def test_a_new_preview_replaces_the_reference_and_the_hash_in_one_commit(
 
 
 async def test_a_failed_new_preview_keeps_the_old_reference_and_removes_nothing(
-    database: SimpleNamespace, preview: AsyncMock, superseded_removal: AsyncMock
+    database: SimpleNamespace,
+    preview: AsyncMock,
+    superseded_removal: AsyncMock,
 ) -> None:
     preview.side_effect = RuntimeError("telegram is down")
     database.post = make_previewed_post(PostStatus.RENDERING)
@@ -400,9 +394,7 @@ async def test_only_the_first_preview_removes_the_draft_keyboard(
     remove_draft = AsyncMock()
     monkeypatch.setattr(worker_tasks, "deliver_preview", deliver)
     monkeypatch.setattr(worker_tasks, "remove_draft_keyboard", remove_draft)
-    post = (
-        make_previewed_post(PostStatus.RENDERING) if previewed else make_post(PostStatus.RENDERING)
-    )
+    post = make_previewed_post(PostStatus.RENDERING) if previewed else make_post(PostStatus.RENDERING)
     if has_draft:
         post.draft_chat_id, post.draft_message_id = 555, 41
 

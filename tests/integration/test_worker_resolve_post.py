@@ -1,7 +1,6 @@
-"""`worker.tasks.perform_resolve_post()` against a real Postgres: status
-transitions, track persistence, the non-track cleanup path, redelivery
-idempotency, and the failed-resolution path. `resolve_track`/`resolve_genres`/
-`deliver_draft` are faked — those have their own dedicated test suites.
+"""`worker.tasks.perform_resolve_post()` against a real Postgres: status transitions, track persistence, the non-track
+cleanup path, redelivery idempotency, and the failed-resolution path. `resolve_track`/`resolve_genres`/`deliver_draft`
+are faked — those have their own dedicated test suites.
 """
 
 from __future__ import annotations
@@ -27,9 +26,7 @@ pytestmark = pytest.mark.integration
 
 
 @pytest.fixture(autouse=True)
-def point_task_at_test_database(
-    monkeypatch: pytest.MonkeyPatch, migrated_test_database_url: str
-) -> AsyncMock:
+def point_task_at_test_database(monkeypatch: pytest.MonkeyPatch, migrated_test_database_url: str) -> AsyncMock:
     monkeypatch.setattr(worker_tasks.settings, "database_url", migrated_test_database_url)
     monkeypatch.setattr(worker_tasks, "build_bot", MagicMock(return_value=AsyncMock()))
     send_alert_mock = AsyncMock(return_value=True)
@@ -71,7 +68,9 @@ async def make_resolving_post(db_session: AsyncSession) -> int:
 
 
 async def test_resolve_post_persists_track_and_marks_resolved(
-    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch, deliver_draft_mock: AsyncMock
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+    deliver_draft_mock: AsyncMock,
 ) -> None:
     resolved = ResolvedTrack(
         isrc="GBAYE9200070",
@@ -110,7 +109,9 @@ async def test_resolve_post_persists_track_and_marks_resolved(
 
 
 async def test_the_caption_is_built_from_the_row_not_from_the_resolve(
-    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch, deliver_draft_mock: AsyncMock
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+    deliver_draft_mock: AsyncMock,
 ) -> None:
     """the album id must round-trip through its column, and the languages the
     admin sets must beat the schema default no resolve overwrites."""
@@ -149,10 +150,11 @@ async def test_the_caption_is_built_from_the_row_not_from_the_resolve(
 
 
 async def test_resolve_post_cleans_up_a_track_that_was_never_resolved(
-    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch, deliver_draft_mock: AsyncMock
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+    deliver_draft_mock: AsyncMock,
 ) -> None:
-    """with no `resolved_at` and no stored links there is nothing to lose, so an
-    empty first resolve removes the row."""
+    """with no `resolved_at` and no stored links there is nothing to lose, so an empty first resolve removes the row."""
     monkeypatch.setattr(worker_tasks, "resolve_track", AsyncMock(return_value=ResolvedTrack()))
     monkeypatch.setattr(worker_tasks, "resolve_genres", AsyncMock(return_value=[]))
 
@@ -227,7 +229,9 @@ async def test_an_empty_re_resolve_fails_the_post_instead_of_deleting_the_track(
 
 
 async def test_resolve_post_marks_failed_on_resolve_error(
-    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch, deliver_draft_mock: AsyncMock
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+    deliver_draft_mock: AsyncMock,
 ) -> None:
     monkeypatch.setattr(worker_tasks, "resolve_track", AsyncMock(side_effect=RuntimeError("boom")))
 
@@ -244,7 +248,9 @@ async def test_resolve_post_marks_failed_on_resolve_error(
 
 
 async def test_resolve_post_redelivers_without_recomputing_when_already_resolved(
-    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch, deliver_draft_mock: AsyncMock
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+    deliver_draft_mock: AsyncMock,
 ) -> None:
     resolve_track_mock = AsyncMock()
     monkeypatch.setattr(worker_tasks, "resolve_track", resolve_track_mock)
@@ -289,9 +295,7 @@ async def test_delivery_failure_leaves_the_post_failed_with_its_caption(
     )
     monkeypatch.setattr(worker_tasks, "resolve_track", AsyncMock(return_value=resolved))
     monkeypatch.setattr(worker_tasks, "resolve_genres", AsyncMock(return_value=[]))
-    monkeypatch.setattr(
-        worker_tasks, "deliver_draft", AsyncMock(side_effect=RuntimeError("telegram down"))
-    )
+    monkeypatch.setattr(worker_tasks, "deliver_draft", AsyncMock(side_effect=RuntimeError("telegram down")))
 
     post_id = await make_resolving_post(db_session)
     await worker_tasks.perform_resolve_post(post_id)
@@ -310,7 +314,9 @@ async def test_delivery_failure_leaves_the_post_failed_with_its_caption(
 
 
 async def test_cleanup_removes_only_the_post_when_the_track_has_another_one(
-    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch, deliver_draft_mock: AsyncMock
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+    deliver_draft_mock: AsyncMock,
 ) -> None:
     """`ON DELETE RESTRICT` protects the track, but the COUNT guard is what has
     to notice, and the second post must be left untouched."""
@@ -337,7 +343,9 @@ async def test_cleanup_removes_only_the_post_when_the_track_has_another_one(
 
 
 async def test_re_resolve_keeps_the_manual_link_and_the_artist_hashtag(
-    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch, deliver_draft_mock: AsyncMock
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+    deliver_draft_mock: AsyncMock,
 ) -> None:
     """a `manual` link and the admin's hashtag are what automation never
     reproduces; the fresh resolve returns neither and loses Deezer too."""
@@ -395,9 +403,7 @@ async def test_re_resolve_keeps_the_manual_link_and_the_artist_hashtag(
         "source": "deezer",
         "match": "exact_isrc",
     }
-    assert reloaded.artists == [
-        {"name": "0%Mercury", "hashtag": "ZeroPercentMercury", "spotify_id": None}
-    ]
+    assert reloaded.artists == [{"name": "0%Mercury", "hashtag": "ZeroPercentMercury", "spotify_id": None}]
 
     reloaded_post = await db_session.get(Post, post_id)
     assert reloaded_post is not None
@@ -415,9 +421,7 @@ async def test_duplicate_isrc_raises_an_admin_warning(
     `source_url_normalized` never connects; only the ISRC can."""
     shared_isrc = unique_isrc()
     earlier_url = f"https://open.spotify.com/track/{uuid.uuid4().hex}"
-    earlier_track = Track(
-        source_url=earlier_url, source_url_normalized=earlier_url, isrc=shared_isrc
-    )
+    earlier_track = Track(source_url=earlier_url, source_url_normalized=earlier_url, isrc=shared_isrc)
     db_session.add(earlier_track)
     await db_session.flush()
     earlier_track_id = earlier_track.id
@@ -484,9 +488,7 @@ async def test_redelivery_failure_alerts_instead_of_stranding_the_post(
 ) -> None:
     """RESOLVED has no edge back to RESOLVING and `/retry` is closed there, so
     swallowing this would leave the post with no draft and no way out."""
-    monkeypatch.setattr(
-        worker_tasks, "deliver_draft", AsyncMock(side_effect=RuntimeError("telegram down"))
-    )
+    monkeypatch.setattr(worker_tasks, "deliver_draft", AsyncMock(side_effect=RuntimeError("telegram down")))
 
     post_id = await make_resolving_post(db_session)
     post = await db_session.get(Post, post_id)
@@ -550,7 +552,9 @@ async def test_a_commit_failure_after_delivery_still_reaches_failed_with_an_aler
 
 
 async def test_an_empty_re_resolve_never_nulls_the_stored_isrc(
-    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch, deliver_draft_mock: AsyncMock
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+    deliver_draft_mock: AsyncMock,
 ) -> None:
     """a transient source failure must not write `isrc = NULL`: the duplicate-ISRC
     warning for that track could then never fire again."""
@@ -592,10 +596,11 @@ async def test_an_empty_re_resolve_never_nulls_the_stored_isrc(
 
 
 async def test_an_empty_genre_result_does_not_wipe_the_stored_genre_line(
-    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch, deliver_draft_mock: AsyncMock
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+    deliver_draft_mock: AsyncMock,
 ) -> None:
-    """deezer not answering is not the same statement as "this release has no
-    genres"."""
+    """deezer not answering is not the same statement as "this release has no genres"."""
     resolved = ResolvedTrack(
         title="Creep",
         artists=[ArtistInfo(name="Radiohead")],
@@ -623,8 +628,7 @@ async def test_an_empty_genre_result_does_not_wipe_the_stored_genre_line(
     assert reloaded_post is not None
 
     assert reloaded_post.genres == [{"name": "рок", "hashtag": None, "source": "deezer"}]
-    # the caption is built from the kept genres too, or the two columns of one
-    # row would contradict each other.
+    # the caption is built from the kept genres too, or the two columns of one row would contradict each other.
     assert reloaded_post.caption is not None
     assert "#рок" in reloaded_post.caption
 
@@ -665,8 +669,7 @@ async def test_a_permanent_commit_failure_still_reaches_the_admin_with_an_alert(
     deliver_draft_mock: AsyncMock,
     point_task_at_test_database: AsyncMock,
 ) -> None:
-    """telegram does not depend on Postgres, so a Postgres that is down for good
-    must not take the alert with it."""
+    """telegram does not depend on Postgres, so a Postgres that is down for good must not take the alert with it."""
     resolved = ResolvedTrack(
         isrc="GBAYE9200070",
         title="Creep",
@@ -735,9 +738,7 @@ async def test_a_youtube_input_whose_resolve_found_nothing_delivers_no_draft(
     must not make an empty resolve look like a result."""
     video_url = f"https://www.youtube.com/watch?v={uuid.uuid4().hex[:11]}"
     track = Track(source_url=video_url, source_url_normalized=video_url)
-    track.platform_links = {
-        "youtube": {"url": video_url, "source": "user_input", "match": "manual"}
-    }
+    track.platform_links = {"youtube": {"url": video_url, "source": "user_input", "match": "manual"}}
     db_session.add(track)
     await db_session.flush()
     track_id = track.id
@@ -750,9 +751,7 @@ async def test_a_youtube_input_whose_resolve_found_nothing_delivers_no_draft(
     await db_session.commit()
 
     resolved = ResolvedTrack(
-        platform_links={
-            "youtube": PlatformLink(url=video_url, source="user_input", match=MatchClass.MANUAL)
-        }
+        platform_links={"youtube": PlatformLink(url=video_url, source="user_input", match=MatchClass.MANUAL)}
     )
     monkeypatch.setattr(worker_tasks, "resolve_track", AsyncMock(return_value=resolved))
     monkeypatch.setattr(worker_tasks, "resolve_genres", AsyncMock(return_value=[]))
@@ -833,12 +832,14 @@ async def test_cleanup_releases_the_track_lock_before_talking_to_telegram(
     session_factory = build_session_factory(engine)
     lock_was_free = False
 
-    async def probe_the_track_lock(bot: object, chat_id: int, text_message: str) -> bool:
+    async def probe_the_track_lock(
+        bot: object,
+        chat_id: int,
+        text_message: str,
+    ) -> bool:
         nonlocal lock_was_free
         async with session_factory() as probe:
-            await probe.execute(
-                select(Track.id).where(Track.id == track_id).with_for_update(nowait=True)
-            )
+            await probe.execute(select(Track.id).where(Track.id == track_id).with_for_update(nowait=True))
             lock_was_free = True
             await probe.rollback()
         return True
@@ -853,7 +854,9 @@ async def test_cleanup_releases_the_track_lock_before_talking_to_telegram(
 
 
 async def test_two_posts_of_the_same_track_both_resolve_successfully(
-    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch, deliver_draft_mock: AsyncMock
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+    deliver_draft_mock: AsyncMock,
 ) -> None:
     """holding the track lock across the whole resolve would make the second post
     of the same track hit `lock_timeout`."""
@@ -980,8 +983,7 @@ async def test_a_failed_source_is_named_in_the_cleanup_alert_too(
     deliver_draft_mock: AsyncMock,
     point_task_at_test_database: AsyncMock,
 ) -> None:
-    """deletion is the loudest outcome this task has, so it must say which
-    source's silence produced it."""
+    """deletion is the loudest outcome this task has, so it must say which source's silence produced it."""
     resolved = ResolvedTrack(source_failures=["deezer:isrc: quota limit exceeded"])
     monkeypatch.setattr(worker_tasks, "resolve_track", AsyncMock(return_value=resolved))
     monkeypatch.setattr(worker_tasks, "resolve_genres", AsyncMock(return_value=[]))
@@ -999,8 +1001,7 @@ async def test_a_slow_draft_delivery_does_not_fail_the_second_post_of_the_track(
     monkeypatch: pytest.MonkeyPatch,
     point_task_at_test_database: AsyncMock,
 ) -> None:
-    """`deliver_draft` must not run between the track lock and its commit:
-    aiogram's default session timeout is 60 s."""
+    """`deliver_draft` must not run between the track lock and its commit: aiogram's default session timeout is 60 s."""
     monkeypatch.setattr(worker_tasks, "LOCK_TIMEOUT_MS", 300)
     shared_isrc = unique_isrc()
 
@@ -1106,9 +1107,7 @@ async def test_the_duplicate_warning_closes_its_read_transaction_before_telegram
     shared_isrc = unique_isrc()
     marker = uuid.uuid4().hex
     earlier_url = f"https://open.spotify.com/track/earlier{marker}"
-    earlier_track = Track(
-        source_url=earlier_url, source_url_normalized=earlier_url, isrc=shared_isrc
-    )
+    earlier_track = Track(source_url=earlier_url, source_url_normalized=earlier_url, isrc=shared_isrc)
     db_session.add(earlier_track)
 
     post_id = await make_resolving_post(db_session)
@@ -1121,7 +1120,11 @@ async def test_the_duplicate_warning_closes_its_read_transaction_before_telegram
 
     open_transaction_during_alert: list[bool] = []
 
-    async def probe(bot: object, chat_id: int, text_message: str) -> bool:
+    async def probe(
+        bot: object,
+        chat_id: int,
+        text_message: str,
+    ) -> bool:
         open_transaction_during_alert.append(db_session.in_transaction())
         return True
 

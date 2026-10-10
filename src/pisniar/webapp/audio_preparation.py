@@ -1,6 +1,6 @@
-"""Starting the audio preparation that comes before the first fragment choice, and giving it up.
-The database part locks the post, then the track, and writes `DOWNLOADING` (or `RESOLVED` on a
-cancel); the queue and the draft's keyboard come after the commit, never inside it.
+"""Starting the audio preparation that comes before the first fragment choice, and giving it up. The database part
+locks the post, then the track, and writes `DOWNLOADING` (or `RESOLVED` on a cancel); the queue and the draft's
+keyboard come after the commit, never inside it.
 """
 
 from __future__ import annotations
@@ -30,12 +30,8 @@ from pisniar.worker.celery_app import PREPARE_POST_AUDIO_TASK_NAME
 logger = get_logger(__name__)
 
 AUDIO_READY_MESSAGE = "Аудіо вже підготовлено."
-YOUTUBE_MUSIC_MISSING_MESSAGE = (
-    "У треку немає посилання YouTube Music, тому аудіо підготувати не можна."
-)
-DISPATCH_FAILED_MESSAGE = (
-    "Не вдалося поставити підготовку аудіо в чергу. Спробуйте ще раз за хвилину."
-)
+YOUTUBE_MUSIC_MISSING_MESSAGE = "У треку немає посилання YouTube Music, тому аудіо підготувати не можна."
+DISPATCH_FAILED_MESSAGE = "Не вдалося поставити підготовку аудіо в чергу. Спробуйте ще раз за хвилину."
 
 
 @dataclass(frozen=True)
@@ -53,13 +49,21 @@ def draft_of(post: Post) -> tuple[int, int] | None:
     return post.draft_chat_id, post.draft_message_id
 
 
-def refuse(status_code: int, code: str, message: str, user_id: int, post_id: int) -> NoReturn:
+def refuse(
+    status_code: int,
+    code: str,
+    message: str,
+    user_id: int,
+    post_id: int,
+) -> NoReturn:
     logger.warning("audio_preparation_refused", reason=code, user_id=user_id, post_id=post_id)
     raise ApiProblem(status_code, code, message)
 
 
 async def prepare_audio(
-    session: AsyncSession, post_id: int, user_id: int
+    session: AsyncSession,
+    post_id: int,
+    user_id: int,
 ) -> AudioPreparation | None:
     """the caller commits. `None` for a missing post; every refusal leaves the rows untouched."""
     post = await lock_post_without_waiting(session, post_id)
@@ -90,8 +94,7 @@ async def enqueue_audio_preparation(
     preparation: AudioPreparation,
     user_id: int,
 ) -> None:
-    """a queue that refuses the task fails the post, or it would sit in `downloading` with
-    nothing to move it."""
+    """a queue that refuses the task fails the post, or it would sit in `downloading` with nothing to move it."""
     sent = await dispatch_task(
         celery_client,
         PREPARE_POST_AUDIO_TASK_NAME,
@@ -113,22 +116,21 @@ async def enqueue_audio_preparation(
 
 
 async def release_draft_keyboard(
-    bot: Bot, draft: tuple[int, int] | None, post_id: int, user_id: int
+    bot: Bot,
+    draft: tuple[int, int] | None,
+    post_id: int,
+    user_id: int,
 ) -> None:
-    """runs after a successful enqueue: the draft's buttons are dead once the post goes down
-    another path. Cosmetic, so nothing here fails the request."""
+    """runs after a successful enqueue: the draft's buttons are dead once the post goes down another path. Cosmetic,
+    so nothing here fails the request."""
     if draft is None:
         return
 
     chat_id, message_id = draft
     try:
-        await remove_draft_keyboard(
-            bot, chat_id, message_id, post_id, request_timeout=TELEGRAM_TIMEOUT_SECONDS
-        )
+        await remove_draft_keyboard(bot, chat_id, message_id, post_id, request_timeout=TELEGRAM_TIMEOUT_SECONDS)
     except Exception:
-        logger.warning(
-            "draft_keyboard_removal_failed", user_id=user_id, post_id=post_id, exc_info=True
-        )
+        logger.warning("draft_keyboard_removal_failed", user_id=user_id, post_id=post_id, exc_info=True)
 
 
 @dataclass(frozen=True)
@@ -140,19 +142,24 @@ class CancelledPreparation:
 
 
 def refuse_cancel(
-    status_code: int, code: str, message: str, user_id: int, post_id: int
+    status_code: int,
+    code: str,
+    message: str,
+    user_id: int,
+    post_id: int,
 ) -> NoReturn:
-    logger.warning(
-        "audio_preparation_cancel_refused", reason=code, user_id=user_id, post_id=post_id
-    )
+    logger.warning("audio_preparation_cancel_refused", reason=code, user_id=user_id, post_id=post_id)
     raise ApiProblem(status_code, code, message)
 
 
 async def cancel_preparation(
-    session: AsyncSession, post_id: int, request: CancelPreparationRequest, user_id: int
+    session: AsyncSession,
+    post_id: int,
+    request: CancelPreparationRequest,
+    user_id: int,
 ) -> CancelledPreparation | None:
-    """the caller commits. `None` for a missing post; the audio stays on the volume, and the track
-    is locked so no other writer sees the post half-way."""
+    """the caller commits. `None` for a missing post; the audio stays on the volume, and the track is locked so no
+    other writer sees the post half-way."""
     post = await lock_post_without_waiting(session, post_id)
     if post is None:
         return None
@@ -171,16 +178,17 @@ async def cancel_preparation(
 
 
 async def restore_draft(
-    bot: Bot, cancelled: CancelledPreparation, webapp_public_url: str | None, user_id: int
+    bot: Bot,
+    cancelled: CancelledPreparation,
+    webapp_public_url: str | None,
+    user_id: int,
 ) -> None:
     """after the commit: the draft gets back the buttons of a draft. Cosmetic, never raises."""
     if cancelled.draft is None:
         return
 
     chat_id, message_id = cancelled.draft
-    keyboard = keyboard_for_state(
-        PostStatus.RESOLVED, MessageRole.DRAFT, cancelled.post_id, chat_id, webapp_public_url
-    )
+    keyboard = keyboard_for_state(PostStatus.RESOLVED, MessageRole.DRAFT, cancelled.post_id, chat_id, webapp_public_url)
     try:
         await restore_draft_keyboard(
             bot,

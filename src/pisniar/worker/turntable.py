@@ -72,7 +72,11 @@ def frame_canvas() -> tuple[int, int]:
     return (layout.FRAME_WIDTH_PX * FRAME_SUPERSAMPLE, layout.FRAME_HEIGHT_PX * FRAME_SUPERSAMPLE)
 
 
-def rounded_mask(box: Box, radius: float, blur: float = 0) -> Image.Image:
+def rounded_mask(
+    box: Box,
+    radius: float,
+    blur: float = 0,
+) -> Image.Image:
     mask = Image.new("L", frame_canvas(), 0)
     ImageDraw.Draw(mask).rounded_rectangle(
         (up(box[0]), up(box[1]), up(box[2]), up(box[3])), radius=up(radius), fill=255
@@ -80,7 +84,12 @@ def rounded_mask(box: Box, radius: float, blur: float = 0) -> Image.Image:
     return mask.filter(ImageFilter.GaussianBlur(up(blur))) if blur else mask
 
 
-def circle_mask(centre_x: float, centre_y: float, radius: float, blur: float = 0) -> Image.Image:
+def circle_mask(
+    centre_x: float,
+    centre_y: float,
+    radius: float,
+    blur: float = 0,
+) -> Image.Image:
     mask = Image.new("L", frame_canvas(), 0)
     ImageDraw.Draw(mask).ellipse(
         (
@@ -99,12 +108,19 @@ def weakened(mask: Image.Image, strength: float) -> Image.Image:
 
 
 def fill(
-    image: Image.Image, mask: Image.Image, colour: Colour, strength: float = 1.0
+    image: Image.Image,
+    mask: Image.Image,
+    colour: Colour,
+    strength: float = 1.0,
 ) -> Image.Image:
     return Image.composite(Image.new("RGB", image.size, colour), image, weakened(mask, strength))
 
 
-def shift(mask: Image.Image, dx: float, dy: float) -> Image.Image:
+def shift(
+    mask: Image.Image,
+    dx: float,
+    dy: float,
+) -> Image.Image:
     return ImageChops.offset(mask, round(up(dx)), round(up(dy)))
 
 
@@ -126,14 +142,8 @@ def bezier(
         u = 1 - t
         points.append(
             (
-                u**3 * start[0]
-                + 3 * u * u * t * first[0]
-                + 3 * u * t * t * second[0]
-                + t**3 * end[0],
-                u**3 * start[1]
-                + 3 * u * u * t * first[1]
-                + 3 * u * t * t * second[1]
-                + t**3 * end[1],
+                u**3 * start[0] + 3 * u * u * t * first[0] + 3 * u * t * t * second[0] + t**3 * end[0],
+                u**3 * start[1] + 3 * u * u * t * first[1] + 3 * u * t * t * second[1] + t**3 * end[1],
             )
         )
     return points
@@ -142,13 +152,22 @@ def bezier(
 # ---------------------------------------------------------------- the scene background
 
 
-def random_grid(rng: random.Random, columns: int, rows: int, size: tuple[int, int]) -> Image.Image:
+def random_grid(
+    rng: random.Random,
+    columns: int,
+    rows: int,
+    size: tuple[int, int],
+) -> Image.Image:
     data = bytes(rng.randrange(256) for _ in range(columns * rows))
     grid = Image.frombytes("L", (columns, rows), data)
     return grid.resize(size, Image.Resampling.BICUBIC)
 
 
-def wood_texture(width: int, height: int, seed: int) -> Image.Image:
+def wood_texture(
+    width: int,
+    height: int,
+    seed: int,
+) -> Image.Image:
     """horizontal grain: grids at three scales, a slow sine warp of the rows, a 3-stop ramp."""
     rng = random.Random(seed)
     size = (width, height)
@@ -172,9 +191,7 @@ def wood_texture(width: int, height: int, seed: int) -> Image.Image:
 def vignette(image: Image.Image, strength: float) -> Image.Image:
     centre_y = layout.FRAME_HEIGHT_PX // 2
     mask = Image.new("L", image.size, 0)
-    ImageDraw.Draw(mask).ellipse(
-        (-120, centre_y - 760, image.width + 120, centre_y + 760), fill=255
-    )
+    ImageDraw.Draw(mask).ellipse((-120, centre_y - 760, image.width + 120, centre_y + 760), fill=255)
     mask = mask.filter(ImageFilter.GaussianBlur(160)).point(lambda value: 255 - value)
     return fill(image, mask, (0, 0, 0), strength)
 
@@ -190,9 +207,7 @@ def draw_body(image: Image.Image) -> Image.Image:
     )
     body = rounded_mask(layout.BODY_BOX_PX, radius)
     ramp = (
-        Image.linear_gradient("L")
-        .resize((frame_canvas()[0], round(up(bottom - top))))
-        .point(lambda value: 255 - value)
+        Image.linear_gradient("L").resize((frame_canvas()[0], round(up(bottom - top)))).point(lambda value: 255 - value)
     )
     gradient = Image.new("L", image.size, 0)
     gradient.paste(ramp, (0, round(up(top))))
@@ -226,9 +241,7 @@ def draw_knob(image: Image.Image) -> Image.Image:
     )
     for ring_radius, colour in rings:
         image = fill(image, circle_mask(centre_x, centre_y, ring_radius), colour)
-    highlight = circle_mask(
-        centre_x - radius * 0.12, centre_y - radius * 0.16, radius * 0.45, blur=2
-    )
+    highlight = circle_mask(centre_x - radius * 0.12, centre_y - radius * 0.16, radius * 0.45, blur=2)
     image = fill(image, highlight, (215, 217, 222), 0.7)
     ImageDraw.Draw(image).line(
         (
@@ -249,9 +262,7 @@ def draw_speed_switch(image: Image.Image) -> Image.Image:
     half = layout.KNOB_RADIUS_PX
     track = rounded_mask((centre_x - half, centre_y - 6, centre_x + half, centre_y + 6), 6)
     image = fill(image, track, (8, 8, 10))
-    handle = rounded_mask(
-        (centre_x - half + 4, centre_y - 12, centre_x - half + 22, centre_y + 12), 4
-    )
+    handle = rounded_mask((centre_x - half + 4, centre_y - 12, centre_x - half + 22, centre_y + 12), 4)
     image = fill(image, shift(handle, 1, 2), (0, 0, 0), 0.6)
     image = fill(image, handle, (168, 170, 176))
     grip = rounded_mask((centre_x - half + 6, centre_y - 10, centre_x - half + 20, centre_y - 3), 3)
@@ -325,9 +336,7 @@ def draw_screen(image: Image.Image) -> Image.Image:
 
 def build_background() -> Image.Image:
     """RGB frame: wood, body, platter, knob, switch, the title display and the glass screen."""
-    wood = vignette(
-        wood_texture(layout.FRAME_WIDTH_PX, layout.FRAME_HEIGHT_PX, WOOD_SEED), VIGNETTE_STRENGTH
-    )
+    wood = vignette(wood_texture(layout.FRAME_WIDTH_PX, layout.FRAME_HEIGHT_PX, WOOD_SEED), VIGNETTE_STRENGTH)
     image = wood.resize(frame_canvas(), Image.Resampling.BICUBIC)
     image = draw_body(image)
     image = draw_platter(image)
@@ -361,13 +370,21 @@ def filled_disc(radius: float) -> Image.Image:
     return mask
 
 
-def annulus(inner: float, outer: float, softness: float = 0.0) -> Image.Image:
+def annulus(
+    inner: float,
+    outer: float,
+    softness: float = 0.0,
+) -> Image.Image:
     mask = filled_disc(outer)
     ImageDraw.Draw(mask).ellipse(disc_box(inner), fill=0)
     return mask.filter(ImageFilter.GaussianBlur(record_up(softness))) if softness else mask
 
 
-def mix(first: Colour, second: Colour, amount: float) -> Colour:
+def mix(
+    first: Colour,
+    second: Colour,
+    amount: float,
+) -> Colour:
     return (
         round(first[0] + (second[0] - first[0]) * amount),
         round(first[1] + (second[1] - first[1]) * amount),
@@ -379,7 +396,11 @@ def shrink_record(image: Image.Image, size: int) -> Image.Image:
     return image.resize((size, size), Image.Resampling.LANCZOS)
 
 
-def tint_layer(colour: Colour, mask: Image.Image, strength: float) -> Image.Image:
+def tint_layer(
+    colour: Colour,
+    mask: Image.Image,
+    strength: float,
+) -> Image.Image:
     layer = Image.new("RGBA", mask.size, (*colour, 0))
     layer.putalpha(weakened(mask, strength))
     return layer
@@ -403,9 +424,7 @@ def grooves_mask() -> Image.Image:
     span = GROOVE_BAND_OUTER_PX - GROOVE_BAND_INNER_PX
     for fraction, gap_width in ((0.66, 5), (0.37, 4)):
         gap_centre = GROOVE_BAND_INNER_PX + fraction * span
-        draw.ellipse(
-            disc_box(gap_centre + gap_width), outline=0, width=round(record_up(gap_width * 2))
-        )
+        draw.ellipse(disc_box(gap_centre + gap_width), outline=0, width=round(record_up(gap_width * 2)))
     return mask.filter(ImageFilter.GaussianBlur(period * 0.16))
 
 
@@ -459,9 +478,7 @@ def build_hub() -> Image.Image:
     """RGBA, over the label: the seat shadow ring and the spindle hole."""
     seat = layout.LABEL_DIAMETER_PX / 2
     layer = Image.new("RGBA", (RECORD_SIZE_PX, RECORD_SIZE_PX), (0, 0, 0, 0))
-    layer = Image.alpha_composite(
-        layer, tint_layer((0, 0, 0), annulus(seat - 1, seat + 3.5, 0.8), 0.60)
-    )
+    layer = Image.alpha_composite(layer, tint_layer((0, 0, 0), annulus(seat - 1, seat + 3.5, 0.8), 0.60))
     hole = SPINDLE_HOLE_DIAMETER_PX / 2
     layer = Image.alpha_composite(layer, tint_layer((0, 0, 0), annulus(hole, hole + 3, 1), 0.40))
     ImageDraw.Draw(layer).ellipse(disc_box(hole), fill=(0, 0, 0, 255))
@@ -550,11 +567,13 @@ def draw_line(
 
 
 def draw_dot(
-    layer: Image.Image, x: float, y: float, radius: float, colour: tuple[int, int, int, int]
+    layer: Image.Image,
+    x: float,
+    y: float,
+    radius: float,
+    colour: tuple[int, int, int, int],
 ) -> None:
-    ImageDraw.Draw(layer).ellipse(
-        (up(x - radius), up(y - radius), up(x + radius), up(y + radius)), fill=colour
-    )
+    ImageDraw.Draw(layer).ellipse((up(x - radius), up(y - radius), up(x + radius), up(y + radius)), fill=colour)
 
 
 def draw_headshell(
@@ -601,7 +620,11 @@ def build_tonearm() -> Image.Image:
     back = math.hypot(bx, by)
     weight = (pivot_x + bx / back * 48, pivot_y + by / back * 48)
 
-    def headshell_centre(distance: float, dx: float = 0.0, dy: float = 0.0) -> tuple[float, float]:
+    def headshell_centre(
+        distance: float,
+        dx: float = 0.0,
+        dy: float = 0.0,
+    ) -> tuple[float, float]:
         return (end[0] + direction[0] * distance + dx, end[1] + direction[1] * distance + dy)
 
     shadow = Image.new("RGBA", frame_canvas(), (0, 0, 0, 0))
@@ -653,9 +676,7 @@ def build_overlay() -> tuple[Image.Image, tuple[int, int]]:
     """the stationary RGBA layer over the turning record, cropped to what it draws, with its offset:
     the reflection and the spindle peg, then the tonearm and its shadow."""
     frame = Image.new("RGBA", (layout.FRAME_WIDTH_PX, layout.FRAME_HEIGHT_PX), (0, 0, 0, 0))
-    frame.alpha_composite(
-        build_shine_with_peg(), (layout.VINYL_OVERLAY_X_PX, layout.VINYL_OVERLAY_Y_PX)
-    )
+    frame.alpha_composite(build_shine_with_peg(), (layout.VINYL_OVERLAY_X_PX, layout.VINYL_OVERLAY_Y_PX))
     frame = Image.alpha_composite(frame, build_tonearm())
     drawn = frame.getbbox()
     if drawn is None:

@@ -76,9 +76,7 @@ def test_any_other_bad_request_is_not_classified(text: str) -> None:
 
 
 def test_a_non_bad_request_with_a_measured_phrase_is_not_classified() -> None:
-    forbidden = TelegramForbiddenError(
-        method=METHOD, message="Forbidden: message to edit not found"
-    )
+    forbidden = TelegramForbiddenError(method=METHOD, message="Forbidden: message to edit not found")
 
     assert classify_edit_error(forbidden) is None
     assert classify_edit_error(TelegramNetworkError(method=METHOD, message="boom")) is None
@@ -225,9 +223,7 @@ def test_a_rendered_preview_carries_the_preview_keyboard() -> None:
     keyboard = keyboard_for_state(PostStatus.RENDERED, MessageRole.PREVIEW, 7, 5, None)
 
     assert keyboard is not None
-    assert [button.text for row in keyboard.inline_keyboard for button in row] == [
-        "Опублікувати в канал"
-    ]
+    assert [button.text for row in keyboard.inline_keyboard for button in row] == ["Опублікувати в канал"]
 
 
 @pytest.mark.parametrize(
@@ -243,9 +239,7 @@ def test_a_rendered_preview_carries_the_preview_keyboard() -> None:
         (PostStatus.EDITING, MessageRole.DRAFT),
     ],
 )
-def test_a_message_in_any_other_state_carries_no_keyboard(
-    status: PostStatus, role: MessageRole
-) -> None:
+def test_a_message_in_any_other_state_carries_no_keyboard(status: PostStatus, role: MessageRole) -> None:
     assert keyboard_for_state(status, role, 7, 5, "https://x.example") is None
 
 

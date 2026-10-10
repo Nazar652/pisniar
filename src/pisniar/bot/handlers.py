@@ -73,16 +73,12 @@ DISPATCH_FAILED_RETRY_ANSWER = "Не вдалося поставити зада�
 
 # an old draft's publish button may still be tapped during a render, and a
 # refusal naming `downloading` would read to the admin like a breakage.
-MEDIA_IN_PROGRESS_STATUSES = frozenset(
-    {PostStatus.DOWNLOADING, PostStatus.DOWNLOADED, PostStatus.RENDERING}
-)
+MEDIA_IN_PROGRESS_STATUSES = frozenset({PostStatus.DOWNLOADING, PostStatus.DOWNLOADED, PostStatus.RENDERING})
 MEDIA_IN_PROGRESS_ANSWER = (
-    "Для поста {post_id} саме зараз готується відео. Дочекайтесь завершення — "
-    "тоді дії з постом знову будуть доступні."
+    "Для поста {post_id} саме зараз готується відео. Дочекайтесь завершення — тоді дії з постом знову будуть доступні."
 )
 AUDIO_READY_ANSWER = (
-    "Для поста {post_id} аудіо вже підготовлено — оберіть фрагмент у редакторі "
-    "(/edit {post_id}, розділ «Фрагмент»)."
+    "Для поста {post_id} аудіо вже підготовлено — оберіть фрагмент у редакторі (/edit {post_id}, розділ «Фрагмент»)."
 )
 COVER_IN_EDITOR_ANSWER = (
     "Пост {post_id}: з чату публікується лише відео («Зробити відео»). "
@@ -90,12 +86,9 @@ COVER_IN_EDITOR_ANSWER = (
 )
 ALREADY_PUBLISHING_ANSWER = "Пост {post_id} уже публікується."
 MEDIA_FAILED_STAGES = MEDIA_IN_PROGRESS_STATUSES | {PostStatus.EDITING}
-OUTDATED_PREVIEW_ANSWER = (
-    "Пост {post_id}: це застаріле прев'ю. Публікуйте кнопкою під найновішим прев'ю."
-)
+OUTDATED_PREVIEW_ANSWER = "Пост {post_id}: це застаріле прев'ю. Публікуйте кнопкою під найновішим прев'ю."
 MEDIA_FAILED_PUBLISH_ANSWER = (
-    "Відео для поста {post_id} не вдалося підготувати, тож кнопка публікації тут не діє. "
-    "Спробуйте /retry {post_id}."
+    "Відео для поста {post_id} не вдалося підготувати, тож кнопка публікації тут не діє. Спробуйте /retry {post_id}."
 )
 VIDEO_READY_ANSWER = "Відео для поста {post_id} уже готове — публікуйте кнопкою під прев'ю з відео."
 PREVIEW_ALREADY_SHOWN_ANSWER = (
@@ -217,22 +210,17 @@ async def handle_retry(
 
     async with session_scope(session_factory) as session:
         try:
-            # locked, not just read: without it two near-simultaneous
-            # `/retry` both pass the status check and dispatch.
+            # locked, not just read: without it two near-simultaneous `/retry` both pass the status check and dispatch.
             post = await session.get(Post, post_id, with_for_update={"nowait": True})
         except DBAPIError:
             await session.rollback()
-            await message.answer(
-                f"Пост {post_id} зараз обробляється воркером. Зачекайте на чернетку або помилку."
-            )
+            await message.answer(f"Пост {post_id} зараз обробляється воркером. Зачекайте на чернетку або помилку.")
             logger.warning("retry_refused", reason="post_locked", user_id=user_id, post_id=post_id)
             return
 
         if post is None:
             await message.answer(POST_NOT_FOUND_ANSWER.format(post_id=post_id))
-            logger.warning(
-                "retry_refused", reason="post_not_found", user_id=user_id, post_id=post_id
-            )
+            logger.warning("retry_refused", reason="post_not_found", user_id=user_id, post_id=post_id)
             return
 
         if post.status is PostStatus.ARCHIVED:
@@ -243,9 +231,7 @@ async def handle_retry(
         if post.status is PostStatus.EDITING:
             # a person is choosing the fragment: nothing is stuck and no task would help.
             await message.answer(AUDIO_READY_ANSWER.format(post_id=post_id))
-            logger.warning(
-                "retry_refused", reason="awaiting_fragment_choice", user_id=user_id, post_id=post_id
-            )
+            logger.warning("retry_refused", reason="awaiting_fragment_choice", user_id=user_id, post_id=post_id)
             return
 
         if post.status is PostStatus.FAILED:
@@ -274,9 +260,7 @@ async def handle_retry(
         try:
             set_post_status(post, RETRY_TARGET_STATUS[branch])
         except IllegalStatusTransitionError:
-            await message.answer(
-                f"Пост {post_id} зараз у стані «{post.status.value}» — /retry недоступний."
-            )
+            await message.answer(f"Пост {post_id} зараз у стані «{post.status.value}» — /retry недоступний.")
             logger.warning(
                 "retry_refused",
                 reason="illegal_status",
@@ -343,9 +327,7 @@ async def handle_edit(message: Message, session_factory: async_sessionmaker[Asyn
         return
 
     if raw_post_id is None:
-        await message.answer(
-            EDIT_LIST_ANSWER, reply_markup=post_list_keyboard(chat_id, webapp_public_url)
-        )
+        await message.answer(EDIT_LIST_ANSWER, reply_markup=post_list_keyboard(chat_id, webapp_public_url))
         logger.info("edit_list_offered", user_id=user_id)
         return
 
@@ -368,9 +350,7 @@ async def handle_edit(message: Message, session_factory: async_sessionmaker[Asyn
 
     await message.answer(
         EDIT_POST_ANSWER.format(post_id=post_id),
-        reply_markup=InlineKeyboardMarkup(
-            inline_keyboard=edit_button_rows(chat_id, webapp_public_url, post_id)
-        ),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=edit_button_rows(chat_id, webapp_public_url, post_id)),
     )
     logger.info("edit_offered", user_id=user_id, post_id=post_id)
 
@@ -388,13 +368,15 @@ def retry_branch_for_failed_post(post: Post) -> RetryBranch:
     if stage is PostStatus.PUBLISHING:
         return RetryBranch.REPUBLISH
 
-    # a row with no recorded stage: a draft means the resolve succeeded and only
-    # publication could have failed
+    # a row with no recorded stage: a draft means the resolve succeeded and only publication could have failed
     return RetryBranch.REPUBLISH if post.draft_message_id is not None else RetryBranch.RESOLVE
 
 
 async def dispatch_retry_task(
-    celery_client: Celery, branch: RetryBranch, post_id: int, user_id: int
+    celery_client: Celery,
+    branch: RetryBranch,
+    post_id: int,
+    user_id: int,
 ) -> bool:
     if branch is RetryBranch.REPUBLISH:
         return await dispatch_publish_task(celery_client, post_id, user_id)
@@ -427,14 +409,10 @@ async def handle_callback(
     bind_post_id(parsed.post_id)
 
     if parsed.action is CallbackAction.RENDER:
-        await handle_render_tap(
-            callback, parsed.post_id, callback.from_user.id, bot, session_factory, celery_client
-        )
+        await handle_render_tap(callback, parsed.post_id, callback.from_user.id, bot, session_factory, celery_client)
         return
 
-    await handle_publish_tap(
-        callback, parsed.post_id, callback.from_user.id, bot, session_factory, celery_client
-    )
+    await handle_publish_tap(callback, parsed.post_id, callback.from_user.id, bot, session_factory, celery_client)
 
 
 @dataclass(frozen=True)
@@ -475,9 +453,7 @@ async def handle_tap(
         except DBAPIError:
             await session.rollback()
             refusal = POST_BUSY_ANSWER.format(post_id=post_id)
-            logger.warning(
-                spec.refused_event, reason="post_locked", user_id=user_id, post_id=post_id
-            )
+            logger.warning(spec.refused_event, reason="post_locked", user_id=user_id, post_id=post_id)
         else:
             refusal, draft_reference = spec.claim(post, post_id, user_id)
 
@@ -497,9 +473,7 @@ async def handle_tap(
             error=spec.dispatch_failed_error,
         )
         await callback.answer(DISPATCH_FAILED_RETRY_ANSWER.format(post_id=post_id), show_alert=True)
-        logger.warning(
-            spec.refused_event, reason="dispatch_failed", user_id=user_id, post_id=post_id
-        )
+        logger.warning(spec.refused_event, reason="dispatch_failed", user_id=user_id, post_id=post_id)
         return
 
     await callback.answer(spec.dispatched_answer)
@@ -590,17 +564,13 @@ def claim_post_for_publishing(
         return POST_NOT_FOUND_ANSWER.format(post_id=post_id), None
 
     if post.channel_message_id is not None:
-        logger.warning(
-            "publish_refused", reason="already_published", user_id=user_id, post_id=post_id
-        )
+        logger.warning("publish_refused", reason="already_published", user_id=user_id, post_id=post_id)
         return f"Пост {post_id} уже опубліковано.", None
 
     if post.status is PostStatus.PUBLISHING:
         # the `publishing` self-edge is for Celery redelivery, not a button:
         # `set_post_status` accepts it and a second tap would dispatch twice.
-        logger.warning(
-            "publish_refused", reason="already_publishing", user_id=user_id, post_id=post_id
-        )
+        logger.warning("publish_refused", reason="already_publishing", user_id=user_id, post_id=post_id)
         return ALREADY_PUBLISHING_ANSWER.format(post_id=post_id), None
 
     if post.status in MEDIA_IN_PROGRESS_STATUSES:
@@ -616,9 +586,7 @@ def claim_post_for_publishing(
         return MEDIA_IN_PROGRESS_ANSWER.format(post_id=post_id), None
 
     if post.status is PostStatus.EDITING:
-        logger.warning(
-            "publish_refused", reason="awaiting_fragment_choice", user_id=user_id, post_id=post_id
-        )
+        logger.warning("publish_refused", reason="awaiting_fragment_choice", user_id=user_id, post_id=post_id)
         return AUDIO_READY_ANSWER.format(post_id=post_id), None
 
     if post.preview_message_id is None:
@@ -635,9 +603,7 @@ def claim_post_for_publishing(
         post.preview_chat_id,
         post.preview_message_id,
     ):
-        logger.warning(
-            "publish_refused", reason="outdated_preview", user_id=user_id, post_id=post_id
-        )
+        logger.warning("publish_refused", reason="outdated_preview", user_id=user_id, post_id=post_id)
         return OUTDATED_PREVIEW_ANSWER.format(post_id=post_id), None
 
     if post.status is PostStatus.FAILED and post.failed_from_status in MEDIA_FAILED_STAGES:
@@ -666,7 +632,9 @@ def claim_post_for_publishing(
 
 
 def claim_post_for_media(
-    post: Post | None, post_id: int, user_id: int
+    post: Post | None,
+    post_id: int,
+    user_id: int,
 ) -> tuple[str | None, tuple[int, int] | None]:
     """the render button's mirror of `claim_post_for_publishing`."""
     if post is None:
@@ -674,9 +642,7 @@ def claim_post_for_media(
         return POST_NOT_FOUND_ANSWER.format(post_id=post_id), None
 
     if post.channel_message_id is not None:
-        logger.warning(
-            "render_refused", reason="already_published", user_id=user_id, post_id=post_id
-        )
+        logger.warning("render_refused", reason="already_published", user_id=user_id, post_id=post_id)
         return f"Пост {post_id} уже опубліковано — відео йому вже не допоможе.", None
 
     if post.status in MEDIA_IN_PROGRESS_STATUSES:
@@ -690,21 +656,15 @@ def claim_post_for_media(
         return MEDIA_IN_PROGRESS_ANSWER.format(post_id=post_id), None
 
     if post.status is PostStatus.EDITING:
-        logger.warning(
-            "render_refused", reason="awaiting_fragment_choice", user_id=user_id, post_id=post_id
-        )
+        logger.warning("render_refused", reason="awaiting_fragment_choice", user_id=user_id, post_id=post_id)
         return AUDIO_READY_ANSWER.format(post_id=post_id), None
 
     if post.status is PostStatus.PUBLISHING:
-        logger.warning(
-            "render_refused", reason="already_publishing", user_id=user_id, post_id=post_id
-        )
+        logger.warning("render_refused", reason="already_publishing", user_id=user_id, post_id=post_id)
         return ALREADY_PUBLISHING_ANSWER.format(post_id=post_id), None
 
     if post.status is PostStatus.RENDERED:
-        logger.warning(
-            "render_refused", reason="already_rendered", user_id=user_id, post_id=post_id
-        )
+        logger.warning("render_refused", reason="already_rendered", user_id=user_id, post_id=post_id)
         return VIDEO_READY_ANSWER.format(post_id=post_id), None
 
     if post.preview_message_id is not None:
@@ -733,8 +693,7 @@ def claim_post_for_media(
 
 
 def button_message_reference(post: Post) -> tuple[int, int] | None:
-    """once a preview exists it carries the button: the text draft lost its
-    keyboard when the preview arrived."""
+    """once a preview exists it carries the button: the text draft lost its keyboard when the preview arrived."""
     if post.preview_chat_id is not None and post.preview_message_id is not None:
         return post.preview_chat_id, post.preview_message_id
     if post.draft_chat_id is not None and post.draft_message_id is not None:
@@ -743,7 +702,9 @@ def button_message_reference(post: Post) -> tuple[int, int] | None:
 
 
 async def remove_keyboard(
-    bot: Bot, draft_reference: tuple[int, int] | None, failure_event: str
+    bot: Bot,
+    draft_reference: tuple[int, int] | None,
+    failure_event: str,
 ) -> None:
     """cosmetic on its own — the status transition above is the real guard —
     so a failure here must not stop work the database already owns."""
@@ -752,9 +713,7 @@ async def remove_keyboard(
 
     chat_id, message_id = draft_reference
     try:
-        await bot.edit_message_reply_markup(
-            chat_id=chat_id, message_id=message_id, reply_markup=None
-        )
+        await bot.edit_message_reply_markup(chat_id=chat_id, message_id=message_id, reply_markup=None)
     except TelegramAPIError:
         logger.warning(failure_event, message_id=message_id, exc_info=True)
 
@@ -849,8 +808,7 @@ async def handle_link(
             error=DISPATCH_FAILED_ERROR,
         )
         await message.answer(
-            f"Пост {post_id} створено, але не вдалося поставити задачу в чергу. "
-            f"Спробуйте /retry {post_id}."
+            f"Пост {post_id} створено, але не вдалося поставити задачу в чергу. Спробуйте /retry {post_id}."
         )
         return
 
@@ -878,8 +836,7 @@ def stage_time_limit_seconds(status: PostStatus) -> int:
 
 
 def split_links(text: str) -> list[str]:
-    """only when *every* token is a link: prose around a link stays a single
-    unrecognized submission."""
+    """only when *every* token is a link: prose around a link stays a single unrecognized submission."""
     tokens = text.split()
     if len(tokens) > 1 and all(is_safe_url(token) for token in tokens):
         return tokens
@@ -893,8 +850,7 @@ def reject_url(raw_url: str, classified: ClassifiedUrl) -> tuple[str, dict[str, 
     # ProgramLimitExceededError, which `except IntegrityError` misses.
     if not is_within_length_limit(raw_url) or not is_within_length_limit(classified.normalized_url):
         return (
-            f"Посилання задовге (ліміт {MAX_NORMALIZED_URL_BYTES} байтів). "
-            f"Надішліть коротке посилання на трек.",
+            f"Посилання задовге (ліміт {MAX_NORMALIZED_URL_BYTES} байтів). Надішліть коротке посилання на трек.",
             {
                 "reason": "too_long",
                 "raw_url_bytes": len(raw_url.encode("utf-8")),
@@ -915,8 +871,7 @@ def reject_url(raw_url: str, classified: ClassifiedUrl) -> tuple[str, dict[str, 
         )
 
     if classified.kind is UrlKind.UNKNOWN:
-        # only the length: the raw text of an unrecognized message is not a
-        # URL and has no business in the logs.
+        # only the length: the raw text of an unrecognized message is not a URL and has no business in the logs.
         return (
             "Не розпізнав це як посилання на трек.",
             {"reason": "unknown", "raw_text_length": len(raw_url)},
@@ -928,8 +883,7 @@ def reject_url(raw_url: str, classified: ClassifiedUrl) -> tuple[str, dict[str, 
 def select_track_source(
     submitted_urls: list[str], classified_urls: list[ClassifiedUrl]
 ) -> tuple[str, ClassifiedUrl, ClassifiedUrl | None]:
-    """a pair resolves from its platform half: the clip's own metadata is
-    the raw YouTube caption."""
+    """a pair resolves from its platform half: the clip's own metadata is the raw YouTube caption."""
     clip = next((url for url in classified_urls if url.platform == CLIP_PLATFORM), None)
 
     for submitted_url, classified in zip(submitted_urls, classified_urls, strict=True):
@@ -947,9 +901,7 @@ def seed_user_input_clip(track: Track, clip: ClassifiedUrl | None) -> None:
 
     # a clip sent by the admin outweighs an earlier removal of the same platform
     if CLIP_PLATFORM in (track.removed_platforms or []):
-        track.removed_platforms = [
-            platform for platform in track.removed_platforms if platform != CLIP_PLATFORM
-        ]
+        track.removed_platforms = [platform for platform in track.removed_platforms if platform != CLIP_PLATFORM]
 
     stored = track.platform_links or {}
     link = {"url": clip.normalized_url, "source": USER_INPUT_SOURCE, "match": "manual"}
@@ -1006,7 +958,11 @@ async def dispatch_resolve_task(celery_client: Celery, post_id: int) -> bool:
     )
 
 
-async def dispatch_media_task(celery_client: Celery, task_name: str, post_id: int) -> bool:
+async def dispatch_media_task(
+    celery_client: Celery,
+    task_name: str,
+    post_id: int,
+) -> bool:
     return await dispatch_task(
         celery_client,
         task_name,
@@ -1018,10 +974,11 @@ async def dispatch_media_task(celery_client: Celery, task_name: str, post_id: in
 
 
 async def dispatch_publish_task(
-    celery_client: Celery, post_id: int, published_by_user_id: int
+    celery_client: Celery,
+    post_id: int,
+    published_by_user_id: int,
 ) -> bool:
-    """`published_by_user_id` is whoever tapped the button or ran `/retry`, not
-    whoever submitted the link."""
+    """`published_by_user_id` is whoever tapped the button or ran `/retry`, not whoever submitted the link."""
     return await dispatch_task(
         celery_client,
         PUBLISH_POST_TASK_NAME,

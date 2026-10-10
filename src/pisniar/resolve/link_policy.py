@@ -27,9 +27,7 @@ ALLOWED_HOSTS: dict[str, frozenset[str]] = {
     "tidal": frozenset({"listen.tidal.com", "tidal.com"}),
     "pandora": frozenset({"www.pandora.com", "pandora.com"}),
     "amazonMusic": frozenset(f"music.amazon.{tld}" for tld in AMAZON_TLDS),
-    "amazonStore": frozenset(
-        host for tld in AMAZON_TLDS for host in (f"amazon.{tld}", f"www.amazon.{tld}")
-    ),
+    "amazonStore": frozenset(host for tld in AMAZON_TLDS for host in (f"amazon.{tld}", f"www.amazon.{tld}")),
     "napster": frozenset({"play.napster.com", "napster.com", "www.napster.com"}),
     "anghami": frozenset({"play.anghami.com", "anghami.com", "www.anghami.com"}),
     "bandcamp": frozenset({"bandcamp.com"}),

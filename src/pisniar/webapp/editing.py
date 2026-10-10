@@ -1,7 +1,7 @@
 """Previewing and saving an edit of a post's fields.
 
-The preview only reads. The save locks the post `FOR UPDATE NOWAIT`, then the track, checks both
-versions and writes; Telegram is never called here.
+The preview only reads. The save locks the post `FOR UPDATE NOWAIT`, then the track, checks both versions and writes;
+Telegram is never called here.
 """
 
 from __future__ import annotations
@@ -53,16 +53,23 @@ def stored_fields_of(post: Post, track: Track) -> StoredFields:
     )
 
 
-def assign_if_changed(row: Post | Track, name: str, value: object) -> bool:
-    """an equal value is not assigned at all, so a save without changes writes nothing and
-    leaves `updated_at` alone."""
+def assign_if_changed(
+    row: Post | Track,
+    name: str,
+    value: object,
+) -> bool:
+    """an equal value is not assigned at all, so a save without changes writes nothing and leaves `updated_at` alone."""
     if getattr(row, name) == value:
         return False
     setattr(row, name, value)
     return True
 
 
-def apply_plan(post: Post, track: Track, planned: PlannedFields) -> None:
+def apply_plan(
+    post: Post,
+    track: Track,
+    planned: PlannedFields,
+) -> None:
     assign_if_changed(track, "title", planned.title)
     assign_if_changed(track, "artists", planned.artists)
     assign_if_changed(track, "languages", planned.languages)
@@ -76,7 +83,11 @@ def apply_plan(post: Post, track: Track, planned: PlannedFields) -> None:
     assign_if_changed(post, "genres", planned.genres)
 
 
-def refuse_unless_editable(post: Post, user_id: int, refusal_event: str) -> None:
+def refuse_unless_editable(
+    post: Post,
+    user_id: int,
+    refusal_event: str,
+) -> None:
     verdict = editability_of(post.status, post.failed_from_status)
     if not verdict.editable:
         logger.warning(refusal_event, reason="not_editable", user_id=user_id, post_id=post.id)
@@ -104,13 +115,15 @@ def preview_of_plan(planned: PlannedFields, post: Post) -> PreviewResponse:
 
 
 async def preview_fields(
-    session: AsyncSession, post_id: int, update: FieldsInput, current_year: int, user_id: int
+    session: AsyncSession,
+    post_id: int,
+    update: FieldsInput,
+    current_year: int,
+    user_id: int,
 ) -> PreviewResponse | None:
     """what the caption would be with these fields, without writing anything."""
     row = (
-        await session.execute(
-            select(Post, Track).join(Track, Track.id == Post.track_id).where(Post.id == post_id)
-        )
+        await session.execute(select(Post, Track).join(Track, Track.id == Post.track_id).where(Post.id == post_id))
     ).one_or_none()
     if row is None:
         return None
@@ -132,18 +145,20 @@ async def preview_fields(
 
 async def count_media_posts(session: AsyncSession, track_id: int) -> int:
     count = await session.scalar(
-        select(func.count())
-        .select_from(Post)
-        .where(Post.track_id == track_id, Post.status.in_(MEDIA_STATUSES))
+        select(func.count()).select_from(Post).where(Post.track_id == track_id, Post.status.in_(MEDIA_STATUSES))
     )
     return count or 0
 
 
 async def save_fields(
-    session: AsyncSession, post_id: int, update: FieldsUpdate, current_year: int, user_id: int
+    session: AsyncSession,
+    post_id: int,
+    update: FieldsUpdate,
+    current_year: int,
+    user_id: int,
 ) -> PostDetail | None:
-    """the caller commits. The post is locked first, then the track, and nothing is written
-    unless both rows still carry the `updated_at` the editor was opened with."""
+    """the caller commits. The post is locked first, then the track, and nothing is written unless both rows still carry
+    the `updated_at` the editor was opened with."""
     post = await lock_post_without_waiting(session, post_id)
     if post is None:
         return None
@@ -160,9 +175,7 @@ async def save_fields(
 
     planned = plan_fields(update, stored_fields_of(post, track), current_year)
     if planned.youtube_music_changed and await count_media_posts(session, track.id) > 0:
-        logger.warning(
-            "fields_save_refused", reason="media_in_progress", user_id=user_id, post_id=post_id
-        )
+        logger.warning("fields_save_refused", reason="media_in_progress", user_id=user_id, post_id=post_id)
         raise ApiProblem(409, "media_in_progress", MEDIA_IN_PROGRESS_MESSAGE)
 
     apply_plan(post, track, planned)

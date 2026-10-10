@@ -37,9 +37,7 @@ def make_candidate(
 
 
 def match(track: ResolvedTrack, candidates: list[TrackCandidate]) -> TrackCandidate | None:
-    return registry.match_and_merge(
-        track, "deezer", candidates, "Radiohead", "Creep", 238_000, "deezer:search"
-    )
+    return registry.match_and_merge(track, "deezer", candidates, "Radiohead", "Creep", 238_000, "deezer:search")
 
 
 def test_a_matching_candidate_becomes_a_confirmed_link_and_is_returned() -> None:
@@ -71,14 +69,8 @@ def test_rejected_candidates_leave_no_link_but_a_warning_and_a_log_line() -> Non
         assert match(track, candidates) is None
 
     assert track.platform_links == {}
-    assert track.warnings == [
-        "deezer:search: 2 кандидат(и) відхилено звіркою для «Radiohead — Creep»"
-    ]
-    rejected = [
-        entry
-        for entry in captured
-        if entry["event"] == "name_search_candidates_rejected_by_matching"
-    ]
+    assert track.warnings == ["deezer:search: 2 кандидат(и) відхилено звіркою для «Radiohead — Creep»"]
+    rejected = [entry for entry in captured if entry["event"] == "name_search_candidates_rejected_by_matching"]
     assert rejected[0]["candidate_count"] == 2
     assert rejected[0]["platform"] == "deezer"
 
@@ -130,7 +122,9 @@ def bridge(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
 
 
 def spotify_candidate(
-    artist_name: str = "Radiohead", title: str = "Creep", isrc: str | None = "GBAYE9200070"
+    artist_name: str = "Radiohead",
+    title: str = "Creep",
+    isrc: str | None = "GBAYE9200070",
 ) -> TrackCandidate:
     return TrackCandidate(
         platform="spotify",
@@ -146,9 +140,7 @@ def spotify_candidate(
 async def test_a_matched_spotify_candidate_drives_the_isrc_fan_out_and_the_songlink_fetch(
     monkeypatch: pytest.MonkeyPatch, bridge: SimpleNamespace
 ) -> None:
-    monkeypatch.setattr(
-        service.spotify, "search_by_name", AsyncMock(return_value=[spotify_candidate()])
-    )
+    monkeypatch.setattr(service.spotify, "search_by_name", AsyncMock(return_value=[spotify_candidate()]))
     track = make_youtube_track()
 
     await service.bridge_youtube_to_spotify(make_context(), track)
@@ -162,9 +154,7 @@ async def test_a_matched_spotify_candidate_drives_the_isrc_fan_out_and_the_songl
 async def test_a_candidate_without_an_isrc_still_gets_its_songlink_cluster(
     monkeypatch: pytest.MonkeyPatch, bridge: SimpleNamespace
 ) -> None:
-    monkeypatch.setattr(
-        service.spotify, "search_by_name", AsyncMock(return_value=[spotify_candidate(isrc=None)])
-    )
+    monkeypatch.setattr(service.spotify, "search_by_name", AsyncMock(return_value=[spotify_candidate(isrc=None)]))
 
     await service.bridge_youtube_to_spotify(make_context(), make_youtube_track())
 
@@ -178,9 +168,7 @@ async def test_rejected_spotify_candidates_leave_a_warning_and_no_fan_out(
     monkeypatch.setattr(
         service.spotify,
         "search_by_name",
-        AsyncMock(
-            return_value=[spotify_candidate(title="Other"), spotify_candidate(artist_name="X")]
-        ),
+        AsyncMock(return_value=[spotify_candidate(title="Other"), spotify_candidate(artist_name="X")]),
     )
     track = make_youtube_track()
 
@@ -206,9 +194,7 @@ async def test_no_spotify_candidates_leave_the_track_untouched(
 async def test_a_failing_spotify_search_is_recorded_as_a_source_failure(
     monkeypatch: pytest.MonkeyPatch, bridge: SimpleNamespace
 ) -> None:
-    monkeypatch.setattr(
-        service.spotify, "search_by_name", AsyncMock(side_effect=RuntimeError("quota"))
-    )
+    monkeypatch.setattr(service.spotify, "search_by_name", AsyncMock(side_effect=RuntimeError("quota")))
     track = make_youtube_track()
 
     await service.bridge_youtube_to_spotify(make_context(), track)

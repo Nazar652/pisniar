@@ -1,7 +1,6 @@
-"""Publishing the cover without a video and giving up a prepared audio through the Mini App,
-against a real Postgres: the locks, the order of the database, the queue and the keyboard, a
-refused queue followed by `/retry`, and the cover going out through the worker's own task.
-Celery and Telegram are stand-ins; the rows are real.
+"""Publishing the cover without a video and giving up a prepared audio through the Mini App, against a real Postgres:
+the locks, the order of the database, the queue and the keyboard, a refused queue followed by `/retry`, and the cover
+going out through the worker's own task. Celery and Telegram are stand-ins; the rows are real.
 """
 
 from __future__ import annotations
@@ -238,9 +237,7 @@ async def test_a_draft_goes_to_publishing_then_the_task_is_queued_then_its_keybo
 
 
 @pytest.mark.parametrize("path", ["failed_downloading", "failed_publishing"])
-async def test_a_failed_draft_without_a_preview_is_published_as_a_cover(
-    environment: Environment, path: str
-) -> None:
+async def test_a_failed_draft_without_a_preview_is_published_as_a_cover(environment: Environment, path: str) -> None:
     post_id, _ = await seed_post(environment, path)
 
     response = await environment.publish_cover(post_id)
@@ -255,9 +252,7 @@ async def test_a_failed_draft_without_a_preview_is_published_as_a_cover(
 
 
 @pytest.mark.parametrize("path", ["editing", "rendering", "failed_rendering"])
-async def test_a_post_on_the_video_path_is_refused_and_keeps_its_status(
-    environment: Environment, path: str
-) -> None:
+async def test_a_post_on_the_video_path_is_refused_and_keeps_its_status(environment: Environment, path: str) -> None:
     post_id, _ = await seed_post(environment, path)
     before = await environment.load(post_id)
 
@@ -322,9 +317,7 @@ async def test_a_failing_keyboard_removal_does_not_fail_the_request(
     environment: Environment,
 ) -> None:
     post_id, _ = await seed_post(environment)
-    environment.bot.error = TelegramBadRequest(
-        method=EditMessageReplyMarkup(chat_id=1, message_id=1), message="gone"
-    )
+    environment.bot.error = TelegramBadRequest(method=EditMessageReplyMarkup(chat_id=1, message_id=1), message="gone")
 
     response = await environment.publish_cover(post_id)
 
@@ -363,7 +356,9 @@ async def test_a_refused_queue_fails_the_post_at_publishing_and_retry_republishe
 
 
 async def test_the_cover_goes_out_as_a_photo_by_the_admin_and_a_second_request_is_refused(
-    environment: Environment, monkeypatch: pytest.MonkeyPatch, migrated_test_database_url: str
+    environment: Environment,
+    monkeypatch: pytest.MonkeyPatch,
+    migrated_test_database_url: str,
 ) -> None:
     monkeypatch.setattr(worker_tasks.settings, "database_url", migrated_test_database_url)
     monkeypatch.setattr(worker_tasks.settings, "channel_id", CHANNEL_ID)
@@ -375,7 +370,11 @@ async def test_the_cover_goes_out_as_a_photo_by_the_admin_and_a_second_request_i
     monkeypatch.setattr(worker_tasks, "preflight_channel", AsyncMock(return_value=chat))
 
     async def fake_publish(
-        bot: object, post: Post, chat_id: int, cover_url: str | None, video: object | None = None
+        bot: object,
+        post: Post,
+        chat_id: int,
+        cover_url: str | None,
+        video: object | None = None,
     ) -> None:
         post.channel_chat_id = chat_id
         post.channel_message_id = 400_000 + post.id
@@ -447,9 +446,7 @@ async def test_a_cancelled_post_can_prepare_its_audio_again(environment: Environ
 
     assert prepared.status_code == 200
     assert (await environment.load(post_id)).status is PostStatus.DOWNLOADING
-    environment.queue.send_task.assert_called_once_with(
-        PREPARE_POST_AUDIO_TASK_NAME, kwargs={"post_id": post_id}
-    )
+    environment.queue.send_task.assert_called_once_with(PREPARE_POST_AUDIO_TASK_NAME, kwargs={"post_id": post_id})
 
 
 async def test_a_cancelled_post_publishes_its_cover(environment: Environment) -> None:
@@ -480,7 +477,10 @@ async def test_an_old_stamp_cannot_cancel_the_preparation(environment: Environme
     ],
 )
 async def test_nothing_but_prepared_audio_can_be_cancelled(
-    environment: Environment, path: str, preview: bool, sentence_part: str
+    environment: Environment,
+    path: str,
+    preview: bool,
+    sentence_part: str,
 ) -> None:
     post_id, _ = await seed_post(environment, path, preview=preview)
     before = (await environment.load(post_id)).status
@@ -537,7 +537,9 @@ async def test_a_failing_keyboard_restore_does_not_fail_the_cancel(
 
 
 async def test_a_late_download_of_a_cancelled_post_does_nothing(
-    environment: Environment, monkeypatch: pytest.MonkeyPatch, migrated_test_database_url: str
+    environment: Environment,
+    monkeypatch: pytest.MonkeyPatch,
+    migrated_test_database_url: str,
 ) -> None:
     monkeypatch.setattr(worker_tasks.settings, "database_url", migrated_test_database_url)
     download = MagicMock()
@@ -556,12 +558,8 @@ async def test_the_detail_tells_the_editor_what_may_be_done(environment: Environ
     draft_id, _ = await seed_post(environment)
     ready_id, _ = await seed_post(environment, "editing")
 
-    draft = (
-        await environment.http.get(f"/api/posts/{draft_id}", headers=environment.headers())
-    ).json()
-    ready = (
-        await environment.http.get(f"/api/posts/{ready_id}", headers=environment.headers())
-    ).json()
+    draft = (await environment.http.get(f"/api/posts/{draft_id}", headers=environment.headers())).json()
+    ready = (await environment.http.get(f"/api/posts/{ready_id}", headers=environment.headers())).json()
 
     assert draft["cover_publication"] == {"allowed": True, "reason": None}
     assert draft["fragment"]["cancellable"] is False

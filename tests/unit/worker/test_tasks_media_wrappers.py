@@ -75,9 +75,7 @@ async def guard(stage: AsyncMock) -> object | None:
     )
 
 
-async def test_guard_media_stage_returns_the_stage_result(
-    fake_logger: MagicMock, fail_media_post: AsyncMock
-) -> None:
+async def test_guard_media_stage_returns_the_stage_result(fake_logger: MagicMock, fail_media_post: AsyncMock) -> None:
     assert await guard(AsyncMock(return_value="outcome")) == "outcome"
 
     fail_media_post.assert_not_awaited()
@@ -89,9 +87,7 @@ async def test_guard_media_stage_reports_a_timeout_as_a_timeout(
     assert await guard(AsyncMock(side_effect=SoftTimeLimitExceeded())) is None
 
     fake_logger.error.assert_called_once_with("stage_soft_limit", post_id=POST_ID)
-    fail_media_post.assert_awaited_once_with(
-        SESSION_FACTORY, POST_ID, worker_tasks.MEDIA_TASK_TIMEOUT_ERROR
-    )
+    fail_media_post.assert_awaited_once_with(SESSION_FACTORY, POST_ID, worker_tasks.MEDIA_TASK_TIMEOUT_ERROR)
 
 
 async def test_guard_media_stage_names_the_error_class_for_any_other_failure(

@@ -1,6 +1,5 @@
-"""Publishing the cover without a video: the locked database part with its refusals in order, the
-steps after the commit, and the route that orders them (database, then the queue, then the draft's
-keyboard).
+"""Publishing the cover without a video: the locked database part with its refusals in order, the steps after the
+commit, and the route that orders them (database, then the queue, then the draft's keyboard).
 """
 
 from __future__ import annotations
@@ -90,7 +89,11 @@ def held(monkeypatch: pytest.MonkeyPatch) -> Held:
 def session_for(held: Held) -> MagicMock:
     session = MagicMock()
 
-    async def get(model: type, identifier: int, **options: Any) -> Track | None:
+    async def get(
+        model: type,
+        identifier: int,
+        **options: Any,
+    ) -> Track | None:
         assert options == {}
         held.order.append("track")
         return held.track
@@ -101,15 +104,11 @@ def session_for(held: Held) -> MagicMock:
 
 async def refusal_of(held: Held, request: CoverPublicationRequest | None = None) -> ApiProblem:
     with pytest.raises(ApiProblem) as refusal:
-        await start_cover_publication(
-            session_for(held), POST_ID, request or make_request(), ADMIN_ID
-        )
+        await start_cover_publication(session_for(held), POST_ID, request or make_request(), ADMIN_ID)
     return refusal.value
 
 
-async def test_a_draft_goes_to_publishing_and_remembers_its_keyboard(
-    held: Held, logger: RecordingLogger
-) -> None:
+async def test_a_draft_goes_to_publishing_and_remembers_its_keyboard(held: Held, logger: RecordingLogger) -> None:
     started = await start_cover_publication(session_for(held), POST_ID, make_request(), ADMIN_ID)
 
     assert started == STARTED
@@ -120,9 +119,7 @@ async def test_a_draft_goes_to_publishing_and_remembers_its_keyboard(
 
 
 @pytest.mark.parametrize("stage", [PostStatus.DOWNLOADING, PostStatus.PUBLISHING])
-async def test_a_failed_post_without_a_preview_is_published_again_as_a_cover(
-    held: Held, stage: PostStatus
-) -> None:
+async def test_a_failed_post_without_a_preview_is_published_again_as_a_cover(held: Held, stage: PostStatus) -> None:
     held.post, held.track = make_post_and_track(PostStatus.FAILED)
     held.post.failed_from_status = stage
 
@@ -163,7 +160,9 @@ async def test_a_missing_post_or_track_is_none(held: Held) -> None:
     ],
 )
 async def test_a_post_that_cannot_be_published_as_a_cover_is_409_with_a_sentence_and_no_state_name(
-    held: Held, logger: RecordingLogger, status: PostStatus
+    held: Held,
+    logger: RecordingLogger,
+    status: PostStatus,
 ) -> None:
     held.post, held.track = make_post_and_track(status)
 
@@ -189,9 +188,7 @@ async def test_a_post_that_has_a_preview_is_not_published_as_a_cover(held: Held)
 async def test_a_post_changed_since_the_editor_opened_is_stale_before_the_track_is_read(
     held: Held, logger: RecordingLogger
 ) -> None:
-    problem = await refusal_of(
-        held, make_request(expected_post_updated_at=datetime(2026, 1, 1, tzinfo=UTC))
-    )
+    problem = await refusal_of(held, make_request(expected_post_updated_at=datetime(2026, 1, 1, tzinfo=UTC)))
 
     assert (problem.status_code, problem.code) == (409, "stale_data")
     assert held.order == ["post"]
@@ -284,14 +281,26 @@ class Journal:
         self.started: StartedCoverPublication | None = STARTED
         self.error: Exception | None = None
 
-    async def start(self, session: object, post_id: int, request: object, user_id: int) -> Any:
+    async def start(
+        self,
+        session: object,
+        post_id: int,
+        request: object,
+        user_id: int,
+    ) -> Any:
         self.order.append("start")
         self.asked_inside_transaction += [*self.bot.mock_calls, *self.celery_client.mock_calls]
         if self.error is not None:
             raise self.error
         return self.started
 
-    async def release(self, bot: object, draft: object, post_id: int, user_id: int) -> None:
+    async def release(
+        self,
+        bot: object,
+        draft: object,
+        post_id: int,
+        user_id: int,
+    ) -> None:
         self.order.append("keyboard")
 
     async def enqueue(self, *arguments: object) -> None:
@@ -316,7 +325,11 @@ def journal(monkeypatch: pytest.MonkeyPatch) -> Journal:
 
 
 def make_client(
-    settings: Settings, recorded: Journal, *, with_bot: bool = True, with_queue: bool = True
+    settings: Settings,
+    recorded: Journal,
+    *,
+    with_bot: bool = True,
+    with_queue: bool = True,
 ) -> tuple[TestClient, MagicMock]:
     session_factory = MagicMock(side_effect=lambda: JournalSession(recorded))
     app = create_webapp(
@@ -329,9 +342,7 @@ def make_client(
     return TestClient(app), session_factory
 
 
-def test_an_anonymous_or_foreign_caller_is_refused_before_everything(
-    settings: Settings, journal: Journal
-) -> None:
+def test_an_anonymous_or_foreign_caller_is_refused_before_everything(settings: Settings, journal: Journal) -> None:
     client, session_factory = make_client(settings, journal)
 
     anonymous = client.post(PATH, json=BODY)
@@ -355,9 +366,7 @@ def test_the_database_commits_then_the_task_is_enqueued_then_the_draft_keyboard_
     assert journal.asked_inside_transaction == []
 
 
-def test_a_missing_post_is_404_and_nothing_follows_the_transaction(
-    settings: Settings, journal: Journal
-) -> None:
+def test_a_missing_post_is_404_and_nothing_follows_the_transaction(settings: Settings, journal: Journal) -> None:
     journal.started = None
     client, _ = make_client(settings, journal)
 
@@ -378,7 +387,11 @@ def test_a_missing_post_is_404_and_nothing_follows_the_transaction(
     ],
 )
 def test_a_refused_lock_a_database_failure_and_a_refusal_stop_before_the_queue(
-    settings: Settings, journal: Journal, error: Exception, status_code: int, code: str
+    settings: Settings,
+    journal: Journal,
+    error: Exception,
+    status_code: int,
+    code: str,
 ) -> None:
     journal.error = error
     client, _ = make_client(settings, journal)
@@ -401,11 +414,13 @@ def test_a_busy_post_answers_with_the_busy_sentence(settings: Settings, journal:
     [(False, True, "telegram_unavailable"), (True, False, "queue_unavailable")],
 )
 def test_a_missing_bot_or_queue_is_503_before_the_database_is_touched(
-    settings: Settings, journal: Journal, with_bot: bool, with_queue: bool, code: str
+    settings: Settings,
+    journal: Journal,
+    with_bot: bool,
+    with_queue: bool,
+    code: str,
 ) -> None:
-    client, session_factory = make_client(
-        settings, journal, with_bot=with_bot, with_queue=with_queue
-    )
+    client, session_factory = make_client(settings, journal, with_bot=with_bot, with_queue=with_queue)
 
     response = client.post(PATH, json=BODY, headers=bearer())
 
@@ -415,7 +430,9 @@ def test_a_missing_bot_or_queue_is_503_before_the_database_is_touched(
 
 @pytest.mark.parametrize("body", [{}, {**BODY, "extra": 1}, {"expected_post_updated_at": "x"}])
 def test_a_malformed_body_is_422_before_the_database(
-    settings: Settings, journal: Journal, body: dict[str, Any]
+    settings: Settings,
+    journal: Journal,
+    body: dict[str, Any],
 ) -> None:
     client, session_factory = make_client(settings, journal)
 
@@ -426,11 +443,11 @@ def test_a_malformed_body_is_422_before_the_database(
 
 
 def test_a_refused_queue_fails_the_post_through_the_route(
-    settings: Settings, monkeypatch: pytest.MonkeyPatch, journal: Journal
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+    journal: Journal,
 ) -> None:
-    monkeypatch.setattr(
-        posts_module, "enqueue_cover_publication", cover_publication.enqueue_cover_publication
-    )
+    monkeypatch.setattr(posts_module, "enqueue_cover_publication", cover_publication.enqueue_cover_publication)
     monkeypatch.setattr(cover_publication, "dispatch_task", AsyncMock(return_value=False))
     mark = AsyncMock()
     monkeypatch.setattr(cover_publication, "mark_dispatch_failure", mark)
@@ -444,7 +461,9 @@ def test_a_refused_queue_fails_the_post_through_the_route(
 
 
 def test_the_route_logs_the_request_and_the_refusals_it_alone_sees(
-    settings: Settings, monkeypatch: pytest.MonkeyPatch, journal: Journal
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+    journal: Journal,
 ) -> None:
     recorder = RecordingLogger()
     monkeypatch.setattr(posts_module, "logger", recorder)

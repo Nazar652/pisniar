@@ -1,7 +1,5 @@
-"""Pure `.ass` generator: stored lyric lines in, subtitle file text out. Song text
-is untrusted and ASS has no escapes inside a line, so `{`/`}` become `(`/`)` and
-`\\` is dropped: override blocks like `{\\an7\\fs90}` cannot be spelled.
-"""
+"""Pure `.ass` generator: stored lyric lines in, subtitle file text out. Song text is untrusted and ASS has no escapes
+inside a line, so `{`/`}` become `(`/`)` and `\\` is dropped: override blocks like `{\\an7\\fs90}` cannot be spelled."""
 
 from __future__ import annotations
 
@@ -45,19 +43,16 @@ HORIZONTAL_MARGIN_PX = 40
 # measured against the font's real advance widths (`text_metrics`).
 USABLE_TEXT_WIDTH_PX = PLAY_RES_X - 2 * HORIZONTAL_MARGIN_PX
 MAX_CURRENT_WRAPPED_LINES = 2
-# one, not two: a second wrapped line in a side slot is exactly how a long
-# line climbs into the neighbouring one.
+# one, not two: a second wrapped line in a side slot is exactly how a long line climbs into the neighbouring one.
 MAX_ADJACENT_WRAPPED_LINES = 1
 ELLIPSIS = "…"
 
 # without a ceiling the last line of a fragment hangs for the rest of it, and a
 # 60-second gap in the source hangs for a minute.
 MAX_LINE_MS = 8_000
-# a 45-second fragment with more than this many lines is a broken LRC or an
-# attempt to spend ffmpeg's CPU, not a song.
+# a 45-second fragment with more than this many lines is a broken LRC or an attempt to spend ffmpeg's CPU, not a song.
 MAX_RENDERED_LINES = 120
-# mirrors `models.MAX_LYRIC_TEXT_LENGTH`: past it the wrapper would be
-# word-splitting a payload, not a lyric.
+# mirrors `models.MAX_LYRIC_TEXT_LENGTH`: past it the wrapper would be word-splitting a payload, not a lyric.
 MAX_SOURCE_TEXT_CHARACTERS = 500
 
 STYLE_CURRENT = "current"
@@ -104,8 +99,7 @@ EVENT_FORMAT_FIELDS = (
     "Text",
 )
 
-# `\an5` centres on the `\pos` point and ignores `MarginV` entirely,
-# so the vertical margin is honestly zero here.
+# `\an5` centres on the `\pos` point and ignores `MarginV` entirely, so the vertical margin is honestly zero here.
 ALIGNMENT_MIDDLE_CENTER = 5
 
 ASS_SUBSTITUTIONS = str.maketrans({"{": "(", "}": ")", "\\": None})
@@ -140,7 +134,12 @@ def escape_ass_text(value: str) -> str:
     return " ".join(substituted.split())
 
 
-def wrap_for_slot(text: str, *, font_size_px: int, max_lines: int) -> str:
+def wrap_for_slot(
+    text: str,
+    *,
+    font_size_px: int,
+    max_lines: int,
+) -> str:
     """the literal `\\N` is safe only because `escape_ass_text` already removed
     every backslash the source could contribute."""
     wrapped = wrap_words(text[:MAX_SOURCE_TEXT_CHARACTERS], font_size_px)
@@ -153,14 +152,15 @@ def wrap_for_slot(text: str, *, font_size_px: int, max_lines: int) -> str:
 
 
 def build_ass_subtitles(
-    lines: Sequence[LyricLine], *, fragment_start_ms: int, fragment_end_ms: int
+    lines: Sequence[LyricLine],
+    *,
+    fragment_start_ms: int,
+    fragment_end_ms: int,
 ) -> str | None:
     """`None` when the fragment has nothing to draw: «no text» is a state
     (`text_version=None`), not an empty file."""
     if fragment_end_ms <= fragment_start_ms:
-        raise AssGenerationError(
-            f"межі фрагмента невалідні: [{fragment_start_ms}, {fragment_end_ms})"
-        )
+        raise AssGenerationError(f"межі фрагмента невалідні: [{fragment_start_ms}, {fragment_end_ms})")
 
     fragment_length_ms = fragment_end_ms - fragment_start_ms
     placed = place_lines(lines, fragment_start_ms)
@@ -171,10 +171,7 @@ def build_ass_subtitles(
         return None
 
     logger.info("ass_generated", line_count=len(lines), event_count=len(events))
-    return (
-        "\n".join([*script_info_section(), "", *styles_section(), "", *events_section(events)])
-        + "\n"
-    )
+    return "\n".join([*script_info_section(), "", *styles_section(), "", *events_section(events)]) + "\n"
 
 
 def place_lines(lines: Sequence[LyricLine], fragment_start_ms: int) -> list[PlacedLine]:
@@ -227,7 +224,9 @@ def build_events(placed: Sequence[PlacedLine], fragment_length_ms: int) -> list[
 
 
 def display_window(
-    placed: Sequence[PlacedLine], index: int, fragment_length_ms: int
+    placed: Sequence[PlacedLine],
+    index: int,
+    fragment_length_ms: int,
 ) -> tuple[int, int] | None:
     """a pause entry counts as the next line, which is exactly what ends a verse."""
     start_ms = placed[index].start_ms
@@ -243,10 +242,12 @@ def display_window(
 
 
 def slot_events(
-    placed: Sequence[PlacedLine], index: int, start_ms: int, end_ms: int
+    placed: Sequence[PlacedLine],
+    index: int,
+    start_ms: int,
+    end_ms: int,
 ) -> list[dict[str, str]]:
-    """the neighbours are the nearest lines that draw something, so a pause
-    between verses never leaves a blank slot."""
+    """the neighbours are the nearest lines that draw something, so a pause between verses never leaves a blank slot."""
     previous = neighbour_text(placed, index, step=-1)
     following = neighbour_text(placed, index, step=1)
 
@@ -261,9 +262,7 @@ def slot_events(
         if not text:
             continue
 
-        max_lines = (
-            MAX_CURRENT_WRAPPED_LINES if style == STYLE_CURRENT else MAX_ADJACENT_WRAPPED_LINES
-        )
+        max_lines = MAX_CURRENT_WRAPPED_LINES if style == STYLE_CURRENT else MAX_ADJACENT_WRAPPED_LINES
         wrapped = wrap_for_slot(text, font_size_px=font_size_px, max_lines=max_lines)
         events.append(
             {
@@ -282,7 +281,12 @@ def slot_events(
     return events
 
 
-def neighbour_text(placed: Sequence[PlacedLine], index: int, *, step: int) -> str:
+def neighbour_text(
+    placed: Sequence[PlacedLine],
+    index: int,
+    *,
+    step: int,
+) -> str:
     position = index + step
     while 0 <= position < len(placed):
         if placed[position].text:
@@ -292,8 +296,7 @@ def neighbour_text(placed: Sequence[PlacedLine], index: int, *, step: int) -> st
 
 
 def ass_timestamp(milliseconds: int) -> str:
-    """`H:MM:SS.CC` — ASS keeps centiseconds, so the tail is truncated, never
-    rounded up past the next line's start."""
+    """`H:MM:SS.CC` — ASS keeps centiseconds, so the tail is truncated, never rounded up past the next line's start."""
     total_centiseconds, _ = divmod(max(milliseconds, 0), 10)
     total_seconds, centiseconds = divmod(total_centiseconds, 100)
     total_minutes, seconds = divmod(total_seconds, 60)
@@ -322,7 +325,12 @@ def styles_section() -> list[str]:
     ]
 
 
-def style_row(name: str, font_size_px: int, primary_colour: str, outline_colour: str) -> str:
+def style_row(
+    name: str,
+    font_size_px: int,
+    primary_colour: str,
+    outline_colour: str,
+) -> str:
     """a forgotten field is a `KeyError` here, not a style libass silently ignores."""
     values: dict[str, object] = {
         "Name": name,
@@ -361,8 +369,7 @@ def events_section(events: Sequence[dict[str, str]]) -> list[str]:
 
 
 def event_row(event: dict[str, str]) -> str:
-    """`Text` is the last field, the only reason a comma inside the lyrics is
-    harmless; a test pins it."""
+    """`Text` is the last field, the only reason a comma inside the lyrics is harmless; a test pins it."""
     return "Dialogue: " + ",".join(event[field] for field in EVENT_FORMAT_FIELDS)
 
 
@@ -373,9 +380,7 @@ def wrap_words(text: str, font_size_px: int) -> list[str]:
     for word in text.split():
         remainder = word
         while not fits_text_width(remainder, font_size_px):
-            head = longest_prefix_within(
-                remainder, font_size_px=font_size_px, available_px=USABLE_TEXT_WIDTH_PX
-            )
+            head = longest_prefix_within(remainder, font_size_px=font_size_px, available_px=USABLE_TEXT_WIDTH_PX)
             if current:
                 wrapped.append(current)
                 current = ""

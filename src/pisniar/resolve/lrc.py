@@ -1,6 +1,5 @@
-"""LRC parsing: a pure function from a source payload to timed lines. The lyrics
-themselves are never logged, only their shape. A malformed line is dropped with
-a WARN; more than `MAX_DROPPED_LINE_RATIO` of them means the payload is not LRC.
+"""LRC parsing: a pure function from a source payload to timed lines. The lyrics themselves are never logged, only their
+shape. A malformed line is dropped with a WARN; more than `MAX_DROPPED_LINE_RATIO` of them means the payload is not LRC.
 """
 
 from __future__ import annotations
@@ -38,8 +37,7 @@ class LrcLine:
 
     @property
     def is_pause(self) -> bool:
-        """an empty text under a timecode is a gap marker: it draws nothing
-        and it is what ends the line before it."""
+        """an empty text under a timecode is a gap marker: it draws nothing and it is what ends the line before it."""
         return not self.text
 
 
@@ -58,12 +56,7 @@ def parse_lrc(content: str) -> list[LrcLine]:
         tags, text = split_tags(source_line)
         timestamps = timestamps_of(tags)
 
-        if (
-            not timestamps
-            and not text
-            and tags
-            and all(METADATA_PATTERN.match(tag) for tag in tags)
-        ):
+        if not timestamps and not text and tags and all(METADATA_PATTERN.match(tag) for tag in tags):
             continue
 
         considered_count += 1

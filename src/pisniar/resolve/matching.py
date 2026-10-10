@@ -1,6 +1,4 @@
-"""Name-search verification: exact artist+title match after normalization,
-plus a duration tolerance.
-"""
+"""Name-search verification: exact artist+title match after normalization, plus a duration tolerance."""
 
 from __future__ import annotations
 
@@ -10,8 +8,8 @@ from typing import TypeGuard
 
 from pisniar.resolve.types import TrackCandidate
 
-# across 9 reference tracks the widest gap between two platforms holding the
-# same recording is 965 ms, so 3000 ms has headroom.
+# across 9 reference tracks the widest gap between two platforms holding the same recording is 965 ms, so 3000 ms has
+# headroom.
 DURATION_TOLERANCE_MS = 3000
 
 SUFFIX_PATTERN_SOURCES = (
@@ -36,8 +34,8 @@ YOUTUBE_VIDEO_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{11}$")
 
 
 def is_valid_isrc(value: str | None) -> bool:
-    """checked before an ISRC goes into a URL path (`/track/isrc:...`), where a
-    stray `/` or `?` from a source would change which endpoint we call."""
+    """checked before an ISRC goes into a URL path (`/track/isrc:...`), where a stray `/` or `?` from a source would
+    change which endpoint we call."""
     return value is not None and ISRC_PATTERN.match(value) is not None
 
 
@@ -65,15 +63,14 @@ def normalize_text(value: str) -> str:
 
 
 def normalize_artist_set(value: str) -> frozenset[str]:
-    """order- and separator-independent: `"A & B"` and `"A, B"` normalize to
-    the same set, so a platform crediting artists differently still matches."""
+    """order- and separator-independent: `"A & B"` and `"A, B"` normalize to the same set, so a platform crediting
+    artists differently still matches."""
     parts = ARTIST_SEPARATOR_PATTERN.split(value)
     return frozenset(normalize_text(part) for part in parts if normalize_text(part))
 
 
 def known_duration(value: int | None) -> int | None:
-    """song.link's YouTube entity answers `duration: 0`, and 0 ms is an absence,
-    not a track length."""
+    """song.link's YouTube entity answers `duration: 0`, and 0 ms is an absence, not a track length."""
     return value if value is not None and value > 0 else None
 
 
@@ -102,7 +99,11 @@ def is_match(
 
 
 def find_matching_candidate(
-    candidates: list[TrackCandidate], *, artist: str, title: str, duration_ms: int | None
+    candidates: list[TrackCandidate],
+    *,
+    artist: str,
+    title: str,
+    duration_ms: int | None,
 ) -> TrackCandidate | None:
     """the first candidate that passes `is_match()`; the order is the source's relevance order."""
     for candidate in candidates:
@@ -119,8 +120,9 @@ def find_matching_candidate(
 
 
 def rejected_candidates_warning(
-    source_label: str, candidate_count: int, artist: str, title: str
+    source_label: str,
+    candidate_count: int,
+    artist: str,
+    title: str,
 ) -> str:
-    return (
-        f"{source_label}: {candidate_count} кандидат(и) відхилено звіркою для «{artist} — {title}»"
-    )
+    return f"{source_label}: {candidate_count} кандидат(и) відхилено звіркою для «{artist} — {title}»"

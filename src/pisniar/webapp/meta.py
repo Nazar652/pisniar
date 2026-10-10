@@ -26,10 +26,7 @@ def build_meta() -> MetaResponse:
             )
             for platform in sorted(ALLOWED_HOSTS)
         ],
-        release_types=[
-            ReleaseTypeOption(value=value, label=label)
-            for value, label in RELEASE_TYPE_NAMES.items()
-        ],
+        release_types=[ReleaseTypeOption(value=value, label=label) for value, label in RELEASE_TYPE_NAMES.items()],
         languages=list(LANGUAGE_HINTS),
         genres=[
             GenreHint(name=ukrainian_name, default_hashtag=default_hashtag(ukrainian_name))

@@ -1,7 +1,7 @@
 """Structured logging: one channel, JSON or console, chosen by `log_format`.
 
-`structlog` and stdlib `logging` (aiogram/uvicorn/SQLAlchemy/Celery) share one
-pipeline and redaction; correlation ids travel via `structlog.contextvars`.
+`structlog` and stdlib `logging` (aiogram/uvicorn/SQLAlchemy/Celery) share one pipeline and redaction; correlation ids
+travel via `structlog.contextvars`.
 """
 
 from __future__ import annotations
@@ -16,26 +16,25 @@ import structlog.typing
 
 REDACTED_PLACEHOLDER = "***REDACTED***"
 
-# secrets that only exist after startup, so `configure_logging()` could not
-# have been given them — keyed by name, so a rotation replaces, not grows.
+# secrets that only exist after startup, so `configure_logging()` could not have been given them — keyed by name, so a
+# rotation replaces, not grows.
 registered_runtime_secrets: dict[str, str] = {}
 
 
 def register_runtime_secret(name: str, value: str) -> None:
-    """add a secret obtained at runtime (the Spotify access token) to the
-    redaction set — an httpx error carries the `Authorization` header."""
+    """add a secret obtained at runtime (the Spotify access token) to the redaction set — an httpx error carries the
+    `Authorization` header."""
     if value:
         registered_runtime_secrets[name] = value
 
 
-# narrower than `structlog.types.Processor`: always takes/returns an event
-# dict, never a rendered `str`/`bytes`/`tuple` — see `test_logging.py`.
+# narrower than `structlog.types.Processor`: always takes/returns an event dict, never a rendered `str`/`bytes`/`tuple`
+# — see `test_logging.py`.
 EventDictProcessor = Callable[[Any, str, MutableMapping[str, Any]], MutableMapping[str, Any]]
 
 
 def redact_secrets_in_text(value: str, secrets: Iterable[str] = ()) -> str:
-    """also used outside the log pipeline: `send_alert` and `post.last_error`
-    pass through no processor."""
+    """also used outside the log pipeline: `send_alert` and `post.last_error` pass through no processor."""
     redacted = value
     for secret in [*[secret for secret in secrets if secret], *registered_runtime_secrets.values()]:
         if secret in redacted:
@@ -47,8 +46,8 @@ def make_redact_secrets_processor(secrets: Iterable[str]) -> EventDictProcessor:
     configured_secrets = [secret for secret in secrets if secret]
 
     def all_secrets() -> list[str]:
-        # snapshot first: this runs from service threads too (`ytmusicapi`
-        # logs from `to_thread`) while registration mutates the dict.
+        # snapshot first: this runs from service threads too (`ytmusicapi` logs from `to_thread`) while registration
+        # mutates the dict.
         runtime_secrets = list(registered_runtime_secrets.values())
         return [*configured_secrets, *runtime_secrets]
 
@@ -69,7 +68,9 @@ def make_redact_secrets_processor(secrets: Iterable[str]) -> EventDictProcessor:
         return redact_string(str(value))
 
     def redact_secrets(
-        logger: Any, method_name: str, event_dict: MutableMapping[str, Any]
+        logger: Any,
+        method_name: str,
+        event_dict: MutableMapping[str, Any],
     ) -> MutableMapping[str, Any]:
         if not all_secrets():
             return event_dict
@@ -98,9 +99,7 @@ def configure_logging(
     ]
 
     renderer: structlog.types.Processor = (
-        structlog.processors.JSONRenderer()
-        if log_format == "json"
-        else structlog.dev.ConsoleRenderer()
+        structlog.processors.JSONRenderer() if log_format == "json" else structlog.dev.ConsoleRenderer()
     )
 
     structlog.configure(
@@ -114,8 +113,8 @@ def configure_logging(
         cache_logger_on_first_use=True,
     )
 
-    # foreign_pre_chain: runs shared_processors (redaction included) on
-    # stdlib `logging` records too, so both sources share one format/pass.
+    # foreign_pre_chain: runs shared_processors (redaction included) on stdlib `logging` records too, so both sources
+    # share one format/pass.
     formatter = structlog.stdlib.ProcessorFormatter(
         processor=renderer,
         foreign_pre_chain=shared_processors,
@@ -129,8 +128,8 @@ def configure_logging(
 
 
 def get_logger(*args: Any, **kwargs: Any) -> structlog.typing.FilteringBoundLogger:
-    """typed wrapper: upstream `get_logger()` returns `Any`, but
-    `configure_logging()` always installs `make_filtering_bound_logger()`.
+    """typed wrapper: upstream `get_logger()` returns `Any`, but `configure_logging()` always installs
+    `make_filtering_bound_logger()`.
     """
     return cast(structlog.typing.FilteringBoundLogger, structlog.get_logger(*args, **kwargs))
 

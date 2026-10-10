@@ -1,7 +1,6 @@
-"""`AdminAllowlistMiddleware`: the single barrier between this bot and all of
-Telegram. Swapping the outer-middleware registration for a per-observer one,
-so that only `message` updates get checked, must fail a test on its own, not
-slip through `make check` silently."""
+"""`AdminAllowlistMiddleware`: the single barrier between this bot and all of Telegram. Swapping the outer-middleware
+registration for a per-observer one, so that only `message` updates get checked, must fail a test on its own, not slip
+through `make check` silently."""
 
 from __future__ import annotations
 
@@ -50,8 +49,8 @@ async def test_admin_update_reaches_the_handler() -> None:
 
 
 async def test_update_with_no_event_from_user_is_dropped() -> None:
-    """`UserContextMiddleware` leaves `event_from_user` unset for some updates (an
-    anonymous poll answer): no user must mean no access, not a crash."""
+    """`UserContextMiddleware` leaves `event_from_user` unset for some updates (an anonymous poll answer): no user must
+    mean no access, not a crash."""
     middleware = AdminAllowlistMiddleware(frozenset({ADMIN_ID}))
     handler = AsyncMock()
     event: TelegramObject = make_update()

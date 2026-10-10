@@ -13,8 +13,8 @@ LINE_BREAK_CHARACTERS = frozenset("\n\r\t\v\f\u2028\u2029")
 
 
 def sanitize_metadata_text(value: str) -> str:
-    """`U+202E` flips a title's visible order and a raw newline forges a hashtag
-    block: the admin would approve one draft and the channel get another."""
+    """`U+202E` flips a title's visible order and a raw newline forges a hashtag block: the admin would approve one
+    draft and the channel get another."""
     characters: list[str] = []
     for character in value:
         if character in LINE_BREAK_CHARACTERS:
@@ -34,6 +34,5 @@ def escape_attribute(value: str) -> str:
 
 
 def is_safe_href(url: str) -> bool:
-    """delegates, so the check on a candidate's way in and on its way out
-    can never drift apart."""
+    """delegates, so the check on a candidate's way in and on its way out can never drift apart."""
     return is_safe_url(url)

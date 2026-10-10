@@ -32,7 +32,12 @@ class FakeSession:
     async def __aexit__(self, *exception_info: object) -> None:
         return None
 
-    async def get(self, model: type, identifier: int, **options: Any) -> Post | None:
+    async def get(
+        self,
+        model: type,
+        identifier: int,
+        **options: Any,
+    ) -> Post | None:
         self.options.append(options)
         if self.lock_error:
             raise DBAPIError("SELECT", {}, Exception("lock"))

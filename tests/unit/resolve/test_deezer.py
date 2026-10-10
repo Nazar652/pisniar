@@ -1,5 +1,5 @@
-"""`deezer`: the HTTP-200-with-`error`-body pitfall, `limit=5` search, and
-album genre extraction — via `httpx.MockTransport`, trimmed real payloads."""
+"""`deezer`: the HTTP-200-with-`error`-body pitfall, `limit=5` search, and album genre extraction — via
+`httpx.MockTransport`, trimmed real payloads."""
 
 from __future__ import annotations
 
@@ -56,8 +56,7 @@ async def test_fetch_by_isrc_treats_200_with_error_body_as_not_found() -> None:
 
 
 def test_quota_error_body_raises_instead_of_being_cached_as_not_found() -> None:
-    """a quota failure cached as `{"found": false}` would blank every track of
-    that release for a whole TTL."""
+    """a quota failure cached as `{"found": false}` would blank every track of that release for a whole TTL."""
     with pytest.raises(deezer.DeezerApiError) as raised:
         deezer.is_not_found_body(QUOTA_ERROR_BODY)
 
@@ -69,8 +68,7 @@ def test_a_body_without_an_error_key_is_not_a_miss() -> None:
 
 
 async def test_search_raises_on_an_error_body_instead_of_caching_empty_results() -> None:
-    """search answers a genuine miss with an empty `data` list, so an error body
-    here can only be an outage."""
+    """search answers a genuine miss with an empty `data` list, so an error body here can only be an outage."""
     transport = httpx.MockTransport(lambda request: httpx.Response(200, json=QUOTA_ERROR_BODY))
 
     async with make_client(transport) as client:
@@ -115,13 +113,10 @@ def test_track_result_from_not_found_payload() -> None:
 
 def test_search_candidates_are_capped_at_five() -> None:
     many_results: list[dict[str, object]] = [
-        {"id": index, "title": "Song", "duration": 200, "link": "u", "artist": {"name": "A"}}
-        for index in range(20)
+        {"id": index, "title": "Song", "duration": 200, "link": "u", "artist": {"name": "A"}} for index in range(20)
     ]
 
-    candidates = [
-        deezer.candidate_from_search_item(item) for item in many_results[: deezer.SEARCH_LIMIT]
-    ]
+    candidates = [deezer.candidate_from_search_item(item) for item in many_results[: deezer.SEARCH_LIMIT]]
 
     assert deezer.SEARCH_LIMIT == 5
     assert len(candidates) == 5

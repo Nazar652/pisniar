@@ -93,7 +93,11 @@ LOGGED_AT_THE_ROUTE = frozenset(
 
 
 @asynccontextmanager
-async def refusals_logged(event: str, user_id: int, post_id: int) -> AsyncIterator[None]:
+async def refusals_logged(
+    event: str,
+    user_id: int,
+    post_id: int,
+) -> AsyncIterator[None]:
     """one warning with the user and the post for a refusal that has no log line of its own."""
     try:
         yield
@@ -103,9 +107,7 @@ async def refusals_logged(event: str, user_id: int, post_id: int) -> AsyncIterat
         raise
     except FieldsInvalidError as invalid:
         fields = [error.field for error in invalid.errors]
-        logger.warning(
-            event, reason="invalid_fields", fields=fields, user_id=user_id, post_id=post_id
-        )
+        logger.warning(event, reason="invalid_fields", fields=fields, user_id=user_id, post_id=post_id)
         raise
 
 
@@ -114,14 +116,10 @@ async def list_posts(
     before_id: Annotated[int | None, Query(ge=1, le=POST_ID_MAX)] = None,
     limit: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = DEFAULT_PAGE_SIZE,
 ) -> PostListResponse:
-    return await read_from_database(
-        request, lambda session: fetch_post_page(session, before_id, limit)
-    )
+    return await read_from_database(request, lambda session: fetch_post_page(session, before_id, limit))
 
 
-async def read_post(
-    request: Request, post_id: Annotated[int, Path(ge=1, le=POST_ID_MAX)]
-) -> PostDetail:
+async def read_post(request: Request, post_id: Annotated[int, Path(ge=1, le=POST_ID_MAX)]) -> PostDetail:
     detail = await read_from_database(request, lambda session: fetch_post_detail(session, post_id))
     if detail is None:
         raise ApiProblem(404, "post_not_found", "Пост не знайдено.")
@@ -209,9 +207,7 @@ async def archive_published_post(
 ) -> ArchiveResponse:
     async with refusals_logged("post_archive_refused", admin.user_id, post_id):
         bot = telegram_bot_of(request)
-        archived = await write_to_database(
-            request, lambda session: archive_post(session, bot, post_id, admin.user_id)
-        )
+        archived = await write_to_database(request, lambda session: archive_post(session, bot, post_id, admin.user_id))
         if archived is None:
             raise ApiProblem(404, "post_not_found", POST_NOT_FOUND_MESSAGE)
         return archived
@@ -273,19 +269,13 @@ async def start_audio_preparation(
     async with refusals_logged("audio_preparation_refused", admin.user_id, post_id):
         bot = telegram_bot_of(request)
         celery_client = celery_client_of(request)
-        preparation = await write_to_database(
-            request, lambda session: prepare_audio(session, post_id, admin.user_id)
-        )
+        preparation = await write_to_database(request, lambda session: prepare_audio(session, post_id, admin.user_id))
         if preparation is None:
             raise ApiProblem(404, "post_not_found", POST_NOT_FOUND_MESSAGE)
 
-    await enqueue_audio_preparation(
-        celery_client, request.app.state.session_factory, preparation, admin.user_id
-    )
+    await enqueue_audio_preparation(celery_client, request.app.state.session_factory, preparation, admin.user_id)
     await release_draft_keyboard(bot, preparation.draft, post_id, admin.user_id)
-    return AudioPreparationStarted(
-        post_id=post_id, status_label=STATUS_LABELS[PostStatus.DOWNLOADING]
-    )
+    return AudioPreparationStarted(post_id=post_id, status_label=STATUS_LABELS[PostStatus.DOWNLOADING])
 
 
 async def cancel_audio_preparation(
@@ -306,9 +296,7 @@ async def cancel_audio_preparation(
 
     logger.info("audio_preparation_cancelled", user_id=admin.user_id, post_id=post_id)
     await restore_draft(bot, cancelled, public_url, admin.user_id)
-    return AudioPreparationCancelled(
-        post_id=post_id, status_label=STATUS_LABELS[PostStatus.RESOLVED]
-    )
+    return AudioPreparationCancelled(post_id=post_id, status_label=STATUS_LABELS[PostStatus.RESOLVED])
 
 
 async def publish_cover(
@@ -328,13 +316,9 @@ async def publish_cover(
         if publication is None:
             raise ApiProblem(404, "post_not_found", POST_NOT_FOUND_MESSAGE)
 
-    await enqueue_cover_publication(
-        celery_client, request.app.state.session_factory, publication, admin.user_id
-    )
+    await enqueue_cover_publication(celery_client, request.app.state.session_factory, publication, admin.user_id)
     await release_draft_keyboard(bot, publication.draft, post_id, admin.user_id)
-    return CoverPublicationStarted(
-        post_id=post_id, status_label=STATUS_LABELS[PostStatus.PUBLISHING]
-    )
+    return CoverPublicationStarted(post_id=post_id, status_label=STATUS_LABELS[PostStatus.PUBLISHING])
 
 
 async def read_meta() -> MetaResponse:

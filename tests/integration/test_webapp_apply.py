@@ -1,6 +1,6 @@
-"""Applying a caption and archiving through the Mini App against a real Postgres with a fake
-Telegram: the order of Telegram and the database, which locks are held during the Telegram call,
-and what each answer leaves behind. The real channel is never touched.
+"""Applying a caption and archiving through the Mini App against a real Postgres with a fake Telegram: the order of
+Telegram and the database, which locks are held during the Telegram call, and what each answer leaves behind. The real
+channel is never touched.
 """
 
 from __future__ import annotations
@@ -55,8 +55,8 @@ TRACK_RELATION_MODES_SQL = """
 
 @dataclass
 class FakeBot:
-    """records every edit; `answers` maps a method name to the error it raises, and `hook`
-    runs inside the call, while the caller's transaction is open."""
+    """records every edit; `answers` maps a method name to the error it raises, and `hook` runs inside the call, while
+    the caller's transaction is open."""
 
     calls: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
     answers: dict[str, Exception] = field(default_factory=dict)
@@ -97,9 +97,7 @@ class Environment:
 
     async def apply(self, post_id: int, sha: str | None = None) -> httpx.Response:
         body = {"expected_caption_sha256": sha or await self.sha_of(post_id)}
-        return await self.http.post(
-            f"/api/posts/{post_id}/apply", json=body, headers=self.headers()
-        )
+        return await self.http.post(f"/api/posts/{post_id}/apply", json=body, headers=self.headers())
 
     async def archive(self, post_id: int) -> httpx.Response:
         return await self.http.post(f"/api/posts/{post_id}/archive", headers=self.headers())
@@ -140,9 +138,7 @@ async def environment(migrated_test_database_url: str) -> AsyncIterator[Environm
     engine = build_engine(migrated_test_database_url, lock_timeout_ms=LOCK_TIMEOUT_MS)
     session_factory = build_session_factory(engine)
     bot = FakeBot()
-    app = create_webapp(
-        settings, clock=lambda: float(NOW), session_factory=session_factory, bot=cast(Bot, bot)
-    )
+    app = create_webapp(settings, clock=lambda: float(NOW), session_factory=session_factory, bot=cast(Bot, bot))
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as http:
         yield Environment(http=http, engine=engine, session_factory=session_factory, bot=bot)
@@ -236,7 +232,11 @@ async def seeded(environment: Environment) -> AsyncIterator[Seeded]:
         await session.commit()
 
 
-async def lock_state(environment: Environment, seeded: Seeded, post_id: int) -> dict[str, Any]:
+async def lock_state(
+    environment: Environment,
+    seeded: Seeded,
+    post_id: int,
+) -> dict[str, Any]:
     """what a second connection sees while the first one is inside its Telegram call."""
     state: dict[str, Any] = {}
     async with environment.session_factory() as probe:
@@ -285,12 +285,8 @@ async def test_a_resolved_post_edits_its_draft_then_stores_the_caption(
     assert arguments["reply_markup"] is not None
 
 
-async def test_a_refused_edit_leaves_the_stored_caption_alone(
-    environment: Environment, seeded: Seeded
-) -> None:
-    environment.bot.answers["edit_message_text"] = TelegramNetworkError(
-        method=METHOD, message="timeout"
-    )
+async def test_a_refused_edit_leaves_the_stored_caption_alone(environment: Environment, seeded: Seeded) -> None:
+    environment.bot.answers["edit_message_text"] = TelegramNetworkError(method=METHOD, message="timeout")
 
     response = await environment.apply(seeded.resolved_id)
 
@@ -298,12 +294,8 @@ async def test_a_refused_edit_leaves_the_stored_caption_alone(
     assert await environment.caption_of(seeded.resolved_id) is None
 
 
-async def test_not_modified_is_a_success_and_the_caption_is_stored(
-    environment: Environment, seeded: Seeded
-) -> None:
-    environment.bot.answers["edit_message_text"] = TelegramBadRequest(
-        method=METHOD, message=NOT_MODIFIED
-    )
+async def test_not_modified_is_a_success_and_the_caption_is_stored(environment: Environment, seeded: Seeded) -> None:
+    environment.bot.answers["edit_message_text"] = TelegramBadRequest(method=METHOD, message=NOT_MODIFIED)
 
     response = await environment.apply(seeded.resolved_id)
 
@@ -311,12 +303,8 @@ async def test_not_modified_is_a_success_and_the_caption_is_stored(
     assert await environment.caption_of(seeded.resolved_id) is not None
 
 
-async def test_a_deleted_message_is_a_409_and_nothing_is_stored(
-    environment: Environment, seeded: Seeded
-) -> None:
-    environment.bot.answers["edit_message_text"] = TelegramBadRequest(
-        method=METHOD, message=NOT_FOUND
-    )
+async def test_a_deleted_message_is_a_409_and_nothing_is_stored(environment: Environment, seeded: Seeded) -> None:
+    environment.bot.answers["edit_message_text"] = TelegramBadRequest(method=METHOD, message=NOT_FOUND)
 
     response = await environment.apply(seeded.resolved_id)
 
@@ -324,9 +312,7 @@ async def test_a_deleted_message_is_a_409_and_nothing_is_stored(
     assert await environment.caption_of(seeded.resolved_id) is None
 
 
-async def test_a_rate_limit_names_the_wait_and_stores_nothing(
-    environment: Environment, seeded: Seeded
-) -> None:
+async def test_a_rate_limit_names_the_wait_and_stores_nothing(environment: Environment, seeded: Seeded) -> None:
     environment.bot.answers["edit_message_text"] = TelegramRetryAfter(
         method=METHOD, message="Too Many Requests", retry_after=17
     )
@@ -338,9 +324,7 @@ async def test_a_rate_limit_names_the_wait_and_stores_nothing(
     assert await environment.caption_of(seeded.resolved_id) is None
 
 
-async def test_a_stale_hash_is_a_409_and_telegram_is_not_called(
-    environment: Environment, seeded: Seeded
-) -> None:
+async def test_a_stale_hash_is_a_409_and_telegram_is_not_called(environment: Environment, seeded: Seeded) -> None:
     response = await environment.apply(seeded.resolved_id, "0" * 64)
 
     assert (response.status_code, response.json()["code"]) == (409, "caption_changed")
@@ -348,9 +332,7 @@ async def test_a_stale_hash_is_a_409_and_telegram_is_not_called(
     assert await environment.caption_of(seeded.resolved_id) is None
 
 
-async def test_a_caption_over_the_limit_is_a_422_with_the_number(
-    environment: Environment, seeded: Seeded
-) -> None:
+async def test_a_caption_over_the_limit_is_a_422_with_the_number(environment: Environment, seeded: Seeded) -> None:
     async with environment.session_factory() as session:
         track = await session.get(Track, seeded.track_id)
         assert track is not None
@@ -383,18 +365,14 @@ async def test_no_track_lock_is_held_during_the_telegram_call_but_the_post_is(
     assert set(states[0]["track_modes"]) <= {"AccessShareLock"}
 
 
-async def test_no_track_lock_is_held_while_the_channel_is_probed(
-    environment: Environment, seeded: Seeded
-) -> None:
+async def test_no_track_lock_is_held_while_the_channel_is_probed(environment: Environment, seeded: Seeded) -> None:
     states: list[dict[str, Any]] = []
 
     async def hook() -> None:
         states.append(await lock_state(environment, seeded, seeded.published_id))
 
     environment.bot.hook = hook
-    environment.bot.answers["edit_message_reply_markup"] = TelegramBadRequest(
-        method=METHOD, message=NOT_FOUND
-    )
+    environment.bot.answers["edit_message_reply_markup"] = TelegramBadRequest(method=METHOD, message=NOT_FOUND)
 
     response = await environment.archive(seeded.published_id)
 
@@ -453,9 +431,7 @@ async def test_a_failed_draft_edit_after_the_commit_is_named_and_not_undone(
     environment: Environment, seeded: Seeded
 ) -> None:
     async def hook() -> None:
-        environment.bot.answers["edit_message_text"] = TelegramNetworkError(
-            method=METHOD, message="timeout"
-        )
+        environment.bot.answers["edit_message_text"] = TelegramNetworkError(method=METHOD, message="timeout")
 
     environment.bot.hook = hook
 
@@ -466,9 +442,7 @@ async def test_a_failed_draft_edit_after_the_commit_is_named_and_not_undone(
     assert await environment.caption_of(seeded.rendered_id) is not None
 
 
-async def test_a_failed_post_edits_its_draft_without_a_keyboard(
-    environment: Environment, seeded: Seeded
-) -> None:
+async def test_a_failed_post_edits_its_draft_without_a_keyboard(environment: Environment, seeded: Seeded) -> None:
     response = await environment.apply(seeded.failed_id)
 
     assert response.status_code == 200
@@ -477,9 +451,7 @@ async def test_a_failed_post_edits_its_draft_without_a_keyboard(
     assert await environment.status_of(seeded.failed_id) is PostStatus.FAILED
 
 
-async def test_a_published_post_edits_the_channel_message_by_its_kind(
-    environment: Environment, seeded: Seeded
-) -> None:
+async def test_a_published_post_edits_the_channel_message_by_its_kind(environment: Environment, seeded: Seeded) -> None:
     response = await environment.apply(seeded.published_id)
 
     assert response.status_code == 200
@@ -509,9 +481,7 @@ async def test_a_missing_post_is_a_404(environment: Environment, seeded: Seeded)
     body = {"expected_caption_sha256": "0" * 64}
     gone = seeded.resolved_id + 10_000_000
 
-    apply = await environment.http.post(
-        f"/api/posts/{gone}/apply", json=body, headers=environment.headers()
-    )
+    apply = await environment.http.post(f"/api/posts/{gone}/apply", json=body, headers=environment.headers())
     archive = await environment.archive(gone)
 
     assert (apply.status_code, archive.status_code) == (404, 404)
@@ -520,9 +490,7 @@ async def test_a_missing_post_is_a_404(environment: Environment, seeded: Seeded)
 async def test_a_deleted_channel_message_archives_the_post_and_is_logged(
     environment: Environment, seeded: Seeded
 ) -> None:
-    environment.bot.answers["edit_message_reply_markup"] = TelegramBadRequest(
-        method=METHOD, message=NOT_FOUND
-    )
+    environment.bot.answers["edit_message_reply_markup"] = TelegramBadRequest(method=METHOD, message=NOT_FOUND)
 
     with structlog.testing.capture_logs() as captured:
         response = await environment.archive(seeded.published_id)
@@ -538,12 +506,8 @@ async def test_a_deleted_channel_message_archives_the_post_and_is_logged(
     assert arguments["reply_markup"] is None
 
 
-async def test_a_live_channel_message_is_never_archived(
-    environment: Environment, seeded: Seeded
-) -> None:
-    environment.bot.answers["edit_message_reply_markup"] = TelegramBadRequest(
-        method=METHOD, message=NOT_MODIFIED
-    )
+async def test_a_live_channel_message_is_never_archived(environment: Environment, seeded: Seeded) -> None:
+    environment.bot.answers["edit_message_reply_markup"] = TelegramBadRequest(method=METHOD, message=NOT_MODIFIED)
 
     response = await environment.archive(seeded.published_id)
 
@@ -561,7 +525,9 @@ async def test_a_live_channel_message_is_never_archived(
     ],
 )
 async def test_any_other_answer_changes_nothing(
-    environment: Environment, seeded: Seeded, error: Exception
+    environment: Environment,
+    seeded: Seeded,
+    error: Exception,
 ) -> None:
     environment.bot.answers["edit_message_reply_markup"] = error
 
@@ -571,9 +537,7 @@ async def test_any_other_answer_changes_nothing(
     assert await environment.status_of(seeded.published_id) is PostStatus.PUBLISHED
 
 
-async def test_a_post_that_is_not_published_is_not_archived(
-    environment: Environment, seeded: Seeded
-) -> None:
+async def test_a_post_that_is_not_published_is_not_archived(environment: Environment, seeded: Seeded) -> None:
     response = await environment.archive(seeded.resolved_id)
 
     assert (response.status_code, response.json()["code"]) == (409, "not_published")

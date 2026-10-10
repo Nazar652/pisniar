@@ -63,7 +63,11 @@ class PlannedFields:
     youtube_music_changed: bool
 
 
-def collect(errors: list[FieldError], field: str, message: str) -> None:
+def collect(
+    errors: list[FieldError],
+    field: str,
+    message: str,
+) -> None:
     errors.append(FieldError(field=field, message=message))
 
 
@@ -71,7 +75,11 @@ def valid_hashtag(value: str) -> bool:
     return HASHTAG_PATTERN.match(value) is not None and not value.isdigit()
 
 
-def plan_hashtag(value: str | None, field: str, errors: list[FieldError]) -> str | None:
+def plan_hashtag(
+    value: str | None,
+    field: str,
+    errors: list[FieldError],
+) -> str | None:
     """`None` stays unset (the default is computed at caption time); a given one must fit."""
     if value is None or not value.strip():
         return None
@@ -95,7 +103,9 @@ def plan_title(value: str, errors: list[FieldError]) -> str:
 
 
 def plan_artists(
-    inputs: Iterable[tuple[str, str | None]], stored: Sequence[object], errors: list[FieldError]
+    inputs: Iterable[tuple[str, str | None]],
+    stored: Sequence[object],
+    errors: list[FieldError],
 ) -> tuple[list[dict[str, object]], bool]:
     """a known name keeps its Spotify id, a new one has none; the flag says the names changed
     (a hashtag alone never freezes the names against a re-resolve)."""
@@ -138,7 +148,9 @@ def plan_languages(values: Iterable[str], errors: list[FieldError]) -> list[str]
 
 
 def plan_genres(
-    inputs: Iterable[tuple[str, str | None]], stored: Sequence[object], errors: list[FieldError]
+    inputs: Iterable[tuple[str, str | None]],
+    stored: Sequence[object],
+    errors: list[FieldError],
 ) -> list[dict[str, object]]:
     """a known genre keeps its source, a new one is marked as entered by hand."""
     sources = {genre.name: genre.source for genre in genres_from_stored(stored)}
@@ -155,13 +167,15 @@ def plan_genres(
             continue
         seen.add(name.casefold())
         hashtag = plan_hashtag(raw_hashtag, f"genres[{index}].hashtag", errors)
-        genres.append(
-            {"name": name, "hashtag": hashtag, "source": sources.get(name, MANUAL_SOURCE)}
-        )
+        genres.append({"name": name, "hashtag": hashtag, "source": sources.get(name, MANUAL_SOURCE)})
     return genres
 
 
-def plan_year(value: int | None, current_year: int, errors: list[FieldError]) -> int | None:
+def plan_year(
+    value: int | None,
+    current_year: int,
+    errors: list[FieldError],
+) -> int | None:
     if value is None:
         return None
     if not MIN_YEAR <= value <= current_year + 1:
@@ -170,7 +184,9 @@ def plan_year(value: int | None, current_year: int, errors: list[FieldError]) ->
 
 
 def plan_release_type(
-    value: str | None, stored: str | None, errors: list[FieldError]
+    value: str | None,
+    stored: str | None,
+    errors: list[FieldError],
 ) -> str | None:
     """a type a source reported outside the known ones is accepted only as it already is."""
     release_type = (value or "").strip() or None
@@ -254,16 +270,18 @@ def plan_manual_fields(
         collect(
             errors,
             "revert_to_automatic",
-            "Поле не можна змінити й повернути до автоматичного разом: "
-            + ", ".join(sorted(clash))
-            + ".",
+            "Поле не можна змінити й повернути до автоматичного разом: " + ", ".join(sorted(clash)) + ".",
         )
 
     keep = {name for name in stored if isinstance(name, str)} | changed_names
     return [name for name in MANUAL_FIELD_NAMES if name in keep and name not in reverted_names]
 
 
-def plan_fields(update: FieldsInput, stored: StoredFields, current_year: int) -> PlannedFields:
+def plan_fields(
+    update: FieldsInput,
+    stored: StoredFields,
+    current_year: int,
+) -> PlannedFields:
     """raises `FieldsInvalidError` with every problem at once, never half a plan."""
     errors: list[FieldError] = []
 
@@ -272,9 +290,7 @@ def plan_fields(update: FieldsInput, stored: StoredFields, current_year: int) ->
         [(artist.name, artist.hashtag) for artist in update.artists], stored.artists, errors
     )
     languages = plan_languages(update.languages, errors)
-    genres = plan_genres(
-        [(genre.name, genre.hashtag) for genre in update.genres], stored.genres, errors
-    )
+    genres = plan_genres([(genre.name, genre.hashtag) for genre in update.genres], stored.genres, errors)
     year = plan_year(update.year, current_year, errors)
     release_type = plan_release_type(update.release_type, stored.release_type, errors)
     release_title = plan_release_title(update.release_title)
@@ -295,9 +311,7 @@ def plan_fields(update: FieldsInput, stored: StoredFields, current_year: int) ->
         )
         if differs
     ]
-    manual_fields = plan_manual_fields(
-        stored.manual_fields, changed_manual, update.revert_to_automatic, errors
-    )
+    manual_fields = plan_manual_fields(stored.manual_fields, changed_manual, update.revert_to_automatic, errors)
 
     if errors:
         raise FieldsInvalidError(errors)

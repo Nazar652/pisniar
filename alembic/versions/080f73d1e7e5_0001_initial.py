@@ -37,8 +37,7 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("source_url", sa.Text(), nullable=False),
-        # cache key: the Odesli-normalized URL, so the same track is never
-        # re-resolved twice.
+        # cache key: the Odesli-normalized URL, so the same track is never re-resolved twice.
         sa.Column("source_url_normalized", sa.Text(), nullable=False),
         sa.Column("isrc", sa.Text(), nullable=True),
         sa.Column("title", sa.Text(), nullable=True),
@@ -61,9 +60,7 @@ def upgrade() -> None:
         ),
         sa.Column("odesli_raw", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column("odesli_fetched_at", postgresql.TIMESTAMP(timezone=True), nullable=True),
-        sa.CheckConstraint(
-            "jsonb_typeof(artists) = 'array'", name=op.f("ck_track_artists_is_array")
-        ),
+        sa.CheckConstraint("jsonb_typeof(artists) = 'array'", name=op.f("ck_track_artists_is_array")),
         sa.CheckConstraint(
             "jsonb_typeof(platform_links) = 'object'",
             name=op.f("ck_track_platform_links_is_object"),
@@ -106,8 +103,7 @@ def upgrade() -> None:
         sa.Column("created_by_user_id", sa.BigInteger(), nullable=False),
         sa.CheckConstraint(
             "status IN ('draft', 'resolving', 'resolved', 'downloading', 'downloaded', "
-            "'editing', 'rendering', 'rendered', 'publishing', 'published', 'failed', "
-            "'archived')",
+            "'editing', 'rendering', 'rendered', 'publishing', 'published', 'failed', 'archived')",
             name=op.f("ck_post_status_valid"),
         ),
         # `(NULL, NULL)` means no fragment yet; a one-sided bound or a negative
@@ -125,9 +121,7 @@ def upgrade() -> None:
             "num_nonnulls(channel_chat_id, channel_message_id) <> 1",
             name=op.f("ck_post_channel_ref_complete"),
         ),
-        sa.ForeignKeyConstraint(
-            ["track_id"], ["track.id"], name=op.f("fk_post_track_id_track"), ondelete="RESTRICT"
-        ),
+        sa.ForeignKeyConstraint(["track_id"], ["track.id"], name=op.f("fk_post_track_id_track"), ondelete="RESTRICT"),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_post")),
     )
     op.create_index(op.f("ix_post_status"), "post", ["status"], unique=False)

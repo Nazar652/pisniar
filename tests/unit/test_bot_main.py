@@ -1,7 +1,5 @@
-"""`build_dispatcher()`: the admin allowlist must land on
-`dispatcher.update.outer_middleware`, not e.g. `dispatcher.message.middleware`
-— `test_middlewares.py` only exercises the middleware directly, not this
-wiring.
+"""`build_dispatcher()`: the admin allowlist must land on `dispatcher.update.outer_middleware`, not e.g.
+`dispatcher.message.middleware` — `test_middlewares.py` only exercises the middleware directly, not this wiring.
 """
 
 from __future__ import annotations
@@ -31,9 +29,7 @@ def test_admin_allowlist_is_registered_as_an_outer_update_middleware(
     dispatcher: Dispatcher,
 ) -> None:
     outer_update_middlewares = list(dispatcher.update.outer_middleware)
-    assert any(
-        isinstance(middleware, AdminAllowlistMiddleware) for middleware in outer_update_middlewares
-    )
+    assert any(isinstance(middleware, AdminAllowlistMiddleware) for middleware in outer_update_middlewares)
 
 
 def test_admin_allowlist_is_not_registered_on_a_single_observer_instead(
@@ -42,16 +38,12 @@ def test_admin_allowlist_is_not_registered_on_a_single_observer_instead(
     """a per-observer registration would leave `callback_query` and the rest
     unchecked while the `message` tests stay green."""
     message_inner_middlewares = list(dispatcher.message.middleware)
-    assert not any(
-        isinstance(middleware, AdminAllowlistMiddleware) for middleware in message_inner_middlewares
-    )
+    assert not any(isinstance(middleware, AdminAllowlistMiddleware) for middleware in message_inner_middlewares)
 
 
 def test_admin_allowlist_carries_the_configured_admin_ids(dispatcher: Dispatcher) -> None:
     (middleware,) = [
-        entry
-        for entry in dispatcher.update.outer_middleware
-        if isinstance(entry, AdminAllowlistMiddleware)
+        entry for entry in dispatcher.update.outer_middleware if isinstance(entry, AdminAllowlistMiddleware)
     ]
     assert middleware.admin_ids == frozenset({ADMIN_ID})
 
@@ -63,7 +55,11 @@ async def test_the_menu_buttons_are_set_before_polling_starts_and_never_block_it
     the order is pinned, because polling must not start on an unconfigured bot."""
     order: list[str] = []
 
-    async def record_menu(bot: object, admin_ids: object, webapp_public_url: object) -> None:
+    async def record_menu(
+        bot: object,
+        admin_ids: object,
+        webapp_public_url: object,
+    ) -> None:
         order.append("menu")
 
     async def record_polling(*arguments: object, **keyword_arguments: object) -> None:

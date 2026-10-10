@@ -104,9 +104,7 @@ def test_bounds_that_are_missing_invalid_or_beyond_the_audio_fall_back_to_the_de
 
 
 def test_the_default_of_a_short_track_is_the_whole_track() -> None:
-    bounds = displayed_bounds(
-        make_source(audio_duration_ms=20_000, stored_start_ms=None, stored_end_ms=None)
-    )
+    bounds = displayed_bounds(make_source(audio_duration_ms=20_000, stored_start_ms=None, stored_end_ms=None))
 
     assert (bounds.start_ms, bounds.end_ms) == (0, 20_000)
 
@@ -119,9 +117,7 @@ def view_logger(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
     return fake_logger
 
 
-def test_a_missing_peaks_file_is_none_with_a_warning(
-    tmp_path: Path, view_logger: MagicMock
-) -> None:
+def test_a_missing_peaks_file_is_none_with_a_warning(tmp_path: Path, view_logger: MagicMock) -> None:
     result = peaks_of(make_context(tmp_path), make_source())
 
     assert result is None
@@ -137,9 +133,7 @@ def test_a_corrupt_peaks_file_is_none(tmp_path: Path) -> None:
     assert peaks_of(make_context(tmp_path), source) is None
 
 
-def test_a_file_written_by_the_worker_is_read_by_the_webapp(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_file_written_by_the_worker_is_read_by_the_webapp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     pcm = array("h", [1000] * 400 + [500] * 400 + [250] * 400).tobytes()
     monkeypatch.setattr(
         worker_peaks,
@@ -237,7 +231,9 @@ def bearer() -> dict[str, str]:
 
 
 def test_the_route_answers_a_view_with_the_pinned_shape(
-    settings: Settings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    settings: Settings,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     source = make_source()
     write_audio(tmp_path, source)
@@ -265,7 +261,9 @@ def test_the_route_answers_a_view_with_the_pinned_shape(
 
 
 def test_the_url_of_the_view_plays_the_file_through_the_audio_route(
-    settings: Settings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    settings: Settings,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     source = make_source()
     write_audio(tmp_path, source)
@@ -281,7 +279,9 @@ def test_the_url_of_the_view_plays_the_file_through_the_audio_route(
 
 
 def test_a_missing_post_is_404(
-    settings: Settings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    settings: Settings,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fetch = AsyncMock(return_value=None)
     monkeypatch.setattr(posts_module, "fetch_fragment_source", fetch)
@@ -294,7 +294,9 @@ def test_a_missing_post_is_404(
 
 
 def test_a_refusal_from_the_reader_is_passed_through(
-    settings: Settings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    settings: Settings,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fetch = AsyncMock(side_effect=ApiProblem(409, "not_choosable", "Пост опубліковано."))
     monkeypatch.setattr(posts_module, "fetch_fragment_source", fetch)
@@ -306,9 +308,7 @@ def test_a_refusal_from_the_reader_is_passed_through(
     assert response.json() == {"code": "not_choosable", "message": "Пост опубліковано."}
 
 
-def test_the_route_refuses_an_anonymous_caller_before_the_database(
-    settings: Settings, tmp_path: Path
-) -> None:
+def test_the_route_refuses_an_anonymous_caller_before_the_database(settings: Settings, tmp_path: Path) -> None:
     client, session_factory = route_client(settings, tmp_path)
 
     assert client.get("/api/posts/7/fragment").status_code == 401

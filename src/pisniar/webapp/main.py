@@ -39,9 +39,7 @@ async def run() -> None:
         bot=bot,
         celery_client=celery_client,
     )
-    server = uvicorn.Server(
-        uvicorn.Config(app, host=settings.http_host, port=settings.webapp_port, log_config=None)
-    )
+    server = uvicorn.Server(uvicorn.Config(app, host=settings.http_host, port=settings.webapp_port, log_config=None))
     try:
         await server.serve()
     finally:

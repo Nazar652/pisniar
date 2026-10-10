@@ -19,9 +19,7 @@ SEARCH_ISRC_BODY = {
                 "name": "Creep",
                 "duration_ms": 238640,
                 "external_ids": {"isrc": "GBAYE9200070"},
-                "external_urls": {
-                    "spotify": "https://open.spotify.com/track/70LcF31zb1H0PyJoS1Sx1r"
-                },
+                "external_urls": {"spotify": "https://open.spotify.com/track/70LcF31zb1H0PyJoS1Sx1r"},
                 "artists": [{"id": "a1", "name": "Radiohead"}],
                 "album": {
                     "id": "alb1",
@@ -49,9 +47,7 @@ async def test_search_by_isrc_returns_found_result(fake_cache: SourceCache) -> N
         return httpx.Response(200, json=SEARCH_ISRC_BODY)
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-        result = await spotify.search_by_isrc(
-            client, fake_cache, "GBAYE9200070", "client-id", "client-secret"
-        )
+        result = await spotify.search_by_isrc(client, fake_cache, "GBAYE9200070", "client-id", "client-secret")
 
     assert result.found is True
     assert result.isrc == "GBAYE9200070"
@@ -67,9 +63,7 @@ async def test_search_by_isrc_returns_not_found_on_empty_items(fake_cache: Sourc
         return httpx.Response(200, json=SEARCH_EMPTY_BODY)
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-        result = await spotify.search_by_isrc(
-            client, fake_cache, "NOPE00000000", "client-id", "client-secret"
-        )
+        result = await spotify.search_by_isrc(client, fake_cache, "NOPE00000000", "client-id", "client-secret")
 
     assert result.found is False
 
@@ -94,9 +88,7 @@ async def test_search_by_name_caps_results_at_five(fake_cache: SourceCache) -> N
         return httpx.Response(200, json={"tracks": {"items": many_items}})
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-        candidates = await spotify.search_by_name(
-            client, fake_cache, "Artist", "Song", "client-id", "client-secret"
-        )
+        candidates = await spotify.search_by_name(client, fake_cache, "Artist", "Song", "client-id", "client-secret")
 
     assert spotify.SEARCH_LIMIT == 5
     assert len(candidates) == 5
@@ -113,12 +105,8 @@ async def test_access_token_is_reused_across_calls(fake_cache: SourceCache) -> N
         return httpx.Response(200, json=SEARCH_ISRC_BODY)
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-        await spotify.search_by_isrc(
-            client, fake_cache, "GBAYE9200070", "client-id", "client-secret"
-        )
-        await spotify.search_by_isrc(
-            client, fake_cache, "GBAYE9200071", "client-id", "client-secret"
-        )
+        await spotify.search_by_isrc(client, fake_cache, "GBAYE9200070", "client-id", "client-secret")
+        await spotify.search_by_isrc(client, fake_cache, "GBAYE9200071", "client-id", "client-secret")
 
     assert token_requests == 1
 
@@ -136,9 +124,7 @@ async def test_request_retries_after_429_then_succeeds(fake_cache: SourceCache) 
         return httpx.Response(200, json=SEARCH_ISRC_BODY)
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-        result = await spotify.search_by_isrc(
-            client, fake_cache, "GBAYE9200070", "client-id", "client-secret"
-        )
+        result = await spotify.search_by_isrc(client, fake_cache, "GBAYE9200070", "client-id", "client-secret")
 
     assert search_attempts == 2
     assert result.found is True

@@ -90,9 +90,7 @@ def test_a_resolved_post_edits_its_draft_with_the_draft_keyboard() -> None:
 
     targets = message_targets(post, URL)
 
-    assert [(t.role, t.chat_id, t.message_id, t.message_kind) for t in targets] == [
-        ("draft", 5, 100, "text")
-    ]
+    assert [(t.role, t.chat_id, t.message_id, t.message_kind) for t in targets] == [("draft", 5, 100, "text")]
     assert keyboard_buttons(targets[0].reply_markup)
 
 
@@ -241,7 +239,11 @@ async def test_a_deleted_message_is_a_409_and_the_caption_stays(
     ],
 )
 async def test_a_telegram_failure_rolls_back_with_its_own_sentence(
-    monkeypatch: pytest.MonkeyPatch, session: MagicMock, error: Exception, status: int, code: str
+    monkeypatch: pytest.MonkeyPatch,
+    session: MagicMock,
+    error: Exception,
+    status: int,
+    code: str,
 ) -> None:
     post, track = make_post(PostStatus.RESOLVED)
     sha, _ = caption_of(post, track)
@@ -257,9 +259,7 @@ async def test_a_telegram_failure_rolls_back_with_its_own_sentence(
 
 def test_a_rate_limit_names_the_seconds_and_a_forbidden_answer_the_lost_right() -> None:
     with pytest.raises(ApiProblem) as limited:
-        refuse_telegram_error(
-            TelegramRetryAfter(method=METHOD, message="x", retry_after=11), "event", 1, 7
-        )
+        refuse_telegram_error(TelegramRetryAfter(method=METHOD, message="x", retry_after=11), "event", 1, 7)
     with pytest.raises(ApiProblem) as forbidden:
         refuse_telegram_error(TelegramForbiddenError(method=METHOD, message="x"), "event", 1, 7)
     with pytest.raises(ApiProblem) as other:
@@ -271,9 +271,7 @@ def test_a_rate_limit_names_the_seconds_and_a_forbidden_answer_the_lost_right() 
     assert "secret detail" not in other.value.message
 
 
-async def test_a_stale_hash_is_a_409_and_nothing_is_sent(
-    monkeypatch: pytest.MonkeyPatch, session: MagicMock
-) -> None:
+async def test_a_stale_hash_is_a_409_and_nothing_is_sent(monkeypatch: pytest.MonkeyPatch, session: MagicMock) -> None:
     post, track = make_post(PostStatus.RESOLVED)
     edit = arrange(monkeypatch, session, post, track)
 
@@ -321,9 +319,7 @@ async def test_a_missing_post_is_none(monkeypatch: pytest.MonkeyPatch, session: 
     assert await apply_caption(session, MagicMock(), 7, "0" * 64, 111, URL) is None
 
 
-async def test_a_missing_track_or_title_is_a_409(
-    monkeypatch: pytest.MonkeyPatch, session: MagicMock
-) -> None:
+async def test_a_missing_track_or_title_is_a_409(monkeypatch: pytest.MonkeyPatch, session: MagicMock) -> None:
     post, track = make_post(PostStatus.RESOLVED)
     arrange(monkeypatch, session, post, None)
     with pytest.raises(ApiProblem) as without_track:
@@ -416,20 +412,18 @@ async def test_no_remaining_messages_means_no_calls(monkeypatch: pytest.MonkeyPa
     edit.assert_not_awaited()
 
 
-def arrange_archive(monkeypatch: pytest.MonkeyPatch, post: Post | None, probe: Any) -> AsyncMock:
+def arrange_archive(
+    monkeypatch: pytest.MonkeyPatch,
+    post: Post | None,
+    probe: Any,
+) -> AsyncMock:
     monkeypatch.setattr(applying, "lock_post_without_waiting", AsyncMock(return_value=post))
-    mock = (
-        AsyncMock(side_effect=probe)
-        if isinstance(probe, Exception)
-        else AsyncMock(return_value=probe)
-    )
+    mock = AsyncMock(side_effect=probe) if isinstance(probe, Exception) else AsyncMock(return_value=probe)
     monkeypatch.setattr(applying, "probe_message", mock)
     return mock
 
 
-async def test_a_deleted_channel_message_archives_the_post(
-    monkeypatch: pytest.MonkeyPatch, session: MagicMock
-) -> None:
+async def test_a_deleted_channel_message_archives_the_post(monkeypatch: pytest.MonkeyPatch, session: MagicMock) -> None:
     post, _ = make_post(PostStatus.PUBLISHED, channel=CHANNEL, kind="video")
     probe = arrange_archive(monkeypatch, post, MessageProbe.MISSING)
     bot = MagicMock()
@@ -466,7 +460,9 @@ async def test_a_live_channel_message_is_a_409_and_the_post_stays(
     ],
 )
 async def test_any_other_answer_refuses_without_changing_the_post(
-    monkeypatch: pytest.MonkeyPatch, session: MagicMock, error: Exception
+    monkeypatch: pytest.MonkeyPatch,
+    session: MagicMock,
+    error: Exception,
 ) -> None:
     post, _ = make_post(PostStatus.PUBLISHED, channel=CHANNEL, kind="video")
     arrange_archive(monkeypatch, post, error)
@@ -480,7 +476,9 @@ async def test_any_other_answer_refuses_without_changing_the_post(
 
 @pytest.mark.parametrize("status", [PostStatus.RESOLVED, PostStatus.RENDERED, PostStatus.FAILED])
 async def test_only_a_published_post_can_be_archived_this_way(
-    monkeypatch: pytest.MonkeyPatch, session: MagicMock, status: PostStatus
+    monkeypatch: pytest.MonkeyPatch,
+    session: MagicMock,
+    status: PostStatus,
 ) -> None:
     post, _ = make_post(status, channel=CHANNEL, kind="video")
     probe = arrange_archive(monkeypatch, post, MessageProbe.MISSING)
@@ -505,9 +503,7 @@ async def test_a_published_post_without_a_channel_reference_is_not_probed(
     probe.assert_not_awaited()
 
 
-async def test_archiving_a_missing_post_is_none(
-    monkeypatch: pytest.MonkeyPatch, session: MagicMock
-) -> None:
+async def test_archiving_a_missing_post_is_none(monkeypatch: pytest.MonkeyPatch, session: MagicMock) -> None:
     arrange_archive(monkeypatch, None, MessageProbe.MISSING)
 
     assert await archive_post(session, MagicMock(), 7, 111) is None

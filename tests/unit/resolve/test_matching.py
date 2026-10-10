@@ -1,6 +1,6 @@
 """`matching.is_match()`: normalization and the calibrated duration tolerance.
-Every artist/title/duration below is a real value recorded live from Spotify,
-Deezer, iTunes, ytmusicapi and song.link on nine reference tracks.
+Every artist/title/duration below is a real value recorded live from Spotify, Deezer, iTunes, ytmusicapi and song.link
+on nine reference tracks.
 """
 
 from __future__ import annotations
@@ -149,9 +149,7 @@ def test_widest_measured_duration_gap_stays_inside_the_tolerance() -> None:
         ("Тол", "ТОЛ"),
     ],
 )
-def test_normalize_artist_set_absorbs_real_crediting_differences(
-    reference_artist: str, candidate_artist: str
-) -> None:
+def test_normalize_artist_set_absorbs_real_crediting_differences(reference_artist: str, candidate_artist: str) -> None:
     assert normalize_artist_set(reference_artist) == normalize_artist_set(candidate_artist)
 
 
@@ -163,9 +161,7 @@ def test_normalize_artist_set_absorbs_real_crediting_differences(
         ("Hackedface - Topic", "hackedface"),
     ],
 )
-def test_normalize_artist_set_strips_the_real_topic_channel_suffix(
-    topic_channel: str, plain_name: str
-) -> None:
+def test_normalize_artist_set_strips_the_real_topic_channel_suffix(topic_channel: str, plain_name: str) -> None:
     """song.link returns the YouTube channel name as `artistName`, and for
     an auto-generated recording that name carries a `- Topic` tail."""
     assert normalize_artist_set(topic_channel) == normalize_artist_set(plain_name)
@@ -195,7 +191,9 @@ def test_is_match_rejects_same_word_different_song() -> None:
     ],
 )
 def test_is_match_rejects_the_five_real_berserker_impostors(
-    candidate_artist: str, candidate_title: str, candidate_duration_ms: int
+    candidate_artist: str,
+    candidate_title: str,
+    candidate_duration_ms: int,
 ) -> None:
     """all five came back in one live ytmusicapi search for "Krovna —
     Berserker" with a title that is exactly equal after normalization."""
@@ -260,7 +258,9 @@ def test_known_duration_passes_a_real_length_through(value: int) -> None:
     ],
 )
 def test_is_match_treats_songlinks_zero_duration_as_unknown(
-    reference_artist: str, reference_title: str, candidate_duration_ms: int
+    reference_artist: str,
+    reference_title: str,
+    candidate_duration_ms: int,
 ) -> None:
     """song.link's YouTube entity reports `duration: 0` for these five; read
     literally, 0 would reject every correct Spotify candidate."""
@@ -364,8 +364,7 @@ def test_is_valid_spotify_id_accepts_a_real_base62_id() -> None:
 def test_is_valid_spotify_id_rejects_anything_that_could_reshape_a_url(
     spotify_id: str | None,
 ) -> None:
-    """the id goes into `/v1/tracks/<id>` and into an `href`; a space alone is a
-    Telegram 400 on the whole post."""
+    """the id goes into `/v1/tracks/<id>` and into an `href`; a space alone is a Telegram 400 on the whole post."""
     assert is_valid_spotify_id(spotify_id) is False
 
 
@@ -394,7 +393,9 @@ def test_is_valid_youtube_video_id_rejects_anything_that_could_reshape_a_url(
 
 
 def make_candidate(
-    title: str, artist: str = "Radiohead", url: str = "https://x/1"
+    title: str,
+    artist: str = "Radiohead",
+    url: str = "https://x/1",
 ) -> TrackCandidate:
     return TrackCandidate(
         platform="deezer",
@@ -411,9 +412,7 @@ def test_the_first_candidate_that_matches_is_returned() -> None:
     first = make_candidate("Creep", url="https://x/1")
     second = make_candidate("Creep", url="https://x/2")
 
-    found = find_matching_candidate(
-        [wrong, first, second], artist="Radiohead", title="Creep", duration_ms=238_000
-    )
+    found = find_matching_candidate([wrong, first, second], artist="Radiohead", title="Creep", duration_ms=238_000)
 
     assert found is first
 
@@ -421,10 +420,7 @@ def test_the_first_candidate_that_matches_is_returned() -> None:
 def test_no_matching_candidate_gives_none() -> None:
     candidates = [make_candidate("Other Song"), make_candidate("Creep", artist="Someone Else")]
 
-    assert (
-        find_matching_candidate(candidates, artist="Radiohead", title="Creep", duration_ms=238_000)
-        is None
-    )
+    assert find_matching_candidate(candidates, artist="Radiohead", title="Creep", duration_ms=238_000) is None
     assert find_matching_candidate([], artist="Radiohead", title="Creep", duration_ms=None) is None
 
 

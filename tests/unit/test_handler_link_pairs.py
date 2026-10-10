@@ -1,6 +1,5 @@
-"""One message may carry a «platform link + clip» pair. Only the input parse
-changes: the clip rides the same `user_input`/`manual` seat a lone clip uses,
-and the resolve learns nothing new.
+"""One message may carry a «platform link + clip» pair. Only the input parse changes: the clip rides the same
+`user_input`/`manual` seat a lone clip uses, and the resolve learns nothing new.
 """
 
 from __future__ import annotations
@@ -38,11 +37,7 @@ async def capture_rejection(text: str, monkeypatch: pytest.MonkeyPatch) -> dict[
 
     session_factory.assert_not_called()
     celery_client.send_task.assert_not_called()
-    rejections = [
-        log_call
-        for log_call in fake_logger.info.call_args_list
-        if log_call.args[:1] == ("link_rejected",)
-    ]
+    rejections = [log_call for log_call in fake_logger.info.call_args_list if log_call.args[:1] == ("link_rejected",)]
     assert len(rejections) == 1
     return {"answer": message.answer.await_args.args[0], **rejections[0].kwargs}
 

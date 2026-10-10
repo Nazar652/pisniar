@@ -107,7 +107,10 @@ async def edit_message_caption_by_kind(
 
 
 async def probe_message(
-    bot: Bot, chat_id: int, message_id: int, request_timeout: int | None = None
+    bot: Bot,
+    chat_id: int,
+    message_id: int,
+    request_timeout: int | None = None,
 ) -> MessageProbe:
     """clearing the keyboard of a keyboardless message changes nothing: live answers «not modified»,
     deleted «not found». Anything else raises, so a doubtful answer never proves a deletion."""

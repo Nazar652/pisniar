@@ -1,7 +1,6 @@
-"""The media pipeline's `/data` volume: paths built only from numeric ids, a
-validated video id and a hex hash (never a track title, which is both path
-traversal and Cyrillic filenames), the pre-download free-space check, and the
-atomic publish.
+"""The media pipeline's `/data` volume: paths built only from numeric ids, a validated video id and a hex hash
+(never a track title, which is both path traversal and Cyrillic filenames), the pre-download free-space check, and
+the atomic publish.
 """
 
 from __future__ import annotations
@@ -35,7 +34,12 @@ class MediaPathError(ValueError):
 
 
 class InsufficientDiskSpaceError(RuntimeError):
-    def __init__(self, media_root: Path, free_bytes: int, required_bytes: int) -> None:
+    def __init__(
+        self,
+        media_root: Path,
+        free_bytes: int,
+        required_bytes: int,
+    ) -> None:
         self.free_bytes = free_bytes
         self.required_bytes = required_bytes
         super().__init__(
@@ -49,23 +53,29 @@ def audio_directory(media_root: Path, track_id: int) -> Path:
     return media_root / AUDIO_DIRECTORY_NAME / numeric_id(track_id, "track_id")
 
 
-def audio_file_path(media_root: Path, track_id: int, video_id: str, extension: str) -> Path:
-    return (
-        audio_directory(media_root, track_id)
-        / f"{validated_video_id(video_id)}.{validated_extension(extension)}"
-    )
+def audio_file_path(
+    media_root: Path,
+    track_id: int,
+    video_id: str,
+    extension: str,
+) -> Path:
+    return audio_directory(media_root, track_id) / f"{validated_video_id(video_id)}.{validated_extension(extension)}"
 
 
-def peaks_file_path(media_root: Path, track_id: int, video_id: str) -> Path:
+def peaks_file_path(
+    media_root: Path,
+    track_id: int,
+    video_id: str,
+) -> Path:
     """a subdirectory, so the `<video_id>.*` mask of `find_existing_audio` never sees it."""
-    return (
-        audio_directory(media_root, track_id)
-        / PEAKS_DIRECTORY_NAME
-        / f"{validated_video_id(video_id)}.json"
-    )
+    return audio_directory(media_root, track_id) / PEAKS_DIRECTORY_NAME / f"{validated_video_id(video_id)}.json"
 
 
-def find_existing_audio(media_root: Path, track_id: int, video_id: str) -> Path | None:
+def find_existing_audio(
+    media_root: Path,
+    track_id: int,
+    video_id: str,
+) -> Path | None:
     """yt-dlp picks the container, so the extension is only known after a
     download — the stored artifact is found by its stem instead."""
     directory = audio_directory(media_root, track_id)
@@ -93,11 +103,7 @@ def stored_audio_files(media_root: Path) -> list[tuple[int, str, Path]]:
 
         track_id = int(directory.name)
         for video_id in sorted({entry.stem for entry in directory.iterdir() if entry.is_file()}):
-            audio = (
-                find_existing_audio(media_root, track_id, video_id)
-                if is_valid_youtube_video_id(video_id)
-                else None
-            )
+            audio = find_existing_audio(media_root, track_id, video_id) if is_valid_youtube_video_id(video_id) else None
             if audio is not None:
                 found.append((track_id, video_id, audio))
     return found
@@ -107,12 +113,20 @@ def render_directory(media_root: Path, post_id: int) -> Path:
     return media_root / RENDER_DIRECTORY_NAME / numeric_id(post_id, "post_id")
 
 
-def render_file_path(media_root: Path, post_id: int, params_hash: str) -> Path:
+def render_file_path(
+    media_root: Path,
+    post_id: int,
+    params_hash: str,
+) -> Path:
     """per post: the caption and fragment bounds belong to the publication."""
     return render_directory(media_root, post_id) / f"{validated_params_hash(params_hash)}.mp4"
 
 
-def thumbnail_file_path(media_root: Path, post_id: int, params_hash: str) -> Path:
+def thumbnail_file_path(
+    media_root: Path,
+    post_id: int,
+    params_hash: str,
+) -> Path:
     """beside its video and derived from the same hash, so it needs no column
     of its own and is removed by the same directory cleanup."""
     return render_directory(media_root, post_id) / f"{validated_params_hash(params_hash)}.jpg"
@@ -183,8 +197,7 @@ def remove_post_artifacts(media_root: Path, post_id: int) -> None:
 
 
 def remove_track_artifacts(media_root: Path, track_id: int) -> None:
-    """the audio half of the same rule. Audio is otherwise kept: this is the
-    deletion path, not a sweeper."""
+    """the audio half of the same rule. Audio is otherwise kept: this is the deletion path, not a sweeper."""
     directory = audio_directory(media_root, track_id)
     if not directory.exists():
         return

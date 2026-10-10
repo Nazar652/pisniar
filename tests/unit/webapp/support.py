@@ -1,6 +1,5 @@
-"""Helpers shared by the Mini App tests: a signer that mirrors Telegram's `initData`
-algorithm independently of aiogram.
-"""
+"""Helpers shared by the Mini App tests: a signer that mirrors Telegram's `initData` algorithm
+independently of aiogram."""
 
 from __future__ import annotations
 

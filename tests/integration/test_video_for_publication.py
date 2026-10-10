@@ -63,7 +63,9 @@ def add_render(
 
 
 async def test_publication_takes_the_pointed_render_even_when_a_newer_one_exists(
-    db_session: AsyncSession, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    db_session: AsyncSession,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(worker_tasks.settings, "media_root", tmp_path)
     post = await make_previewed_post(db_session, PREVIEWED_HASH)
@@ -78,7 +80,9 @@ async def test_publication_takes_the_pointed_render_even_when_a_newer_one_exists
 
 
 async def test_a_pointer_without_a_matching_render_row_fails_loudly(
-    db_session: AsyncSession, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    db_session: AsyncSession,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """a newer row must never stand in for the one the admin saw."""
     monkeypatch.setattr(worker_tasks.settings, "media_root", tmp_path)

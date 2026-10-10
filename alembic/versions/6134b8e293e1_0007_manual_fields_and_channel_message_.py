@@ -1,8 +1,7 @@
 """0007 manual fields and channel message kind
 
-`track.manual_fields` lists the columns a human set (a re-resolve keeps them),
-`track.removed_platforms` the links a human removed, and `post.channel_message_kind`
-what the published message is, which decides how it can be edited.
+`track.manual_fields` lists the columns a human set (a re-resolve keeps them), `track.removed_platforms` the links a
+human removed, and `post.channel_message_kind` what the published message is, which decides how it can be edited.
 
 Revision ID: 6134b8e293e1
 Revises: be8d6bff2a6c
@@ -22,9 +21,7 @@ down_revision: str | Sequence[str] | None = "be8d6bff2a6c"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
-MANUAL_FIELD_NAMES_JSON = (
-    '\'["title","artists","year","release_type","release_title","album_id_spotify"]\'::jsonb'
-)
+MANUAL_FIELD_NAMES_JSON = '\'["title","artists","year","release_type","release_title","album_id_spotify"]\'::jsonb'
 
 
 def upgrade() -> None:
@@ -63,15 +60,14 @@ def upgrade() -> None:
     )
 
     op.add_column("post", sa.Column("channel_message_kind", sa.Text(), nullable=True))
-    # the same choice `publish_to_channel` makes: a preview means the video went out, else a
-    # cover means a photo, else text. `updated_at` is set by hand: a raw UPDATE skips the ORM.
+    # the same choice `publish_to_channel` makes: a preview means the video went out, else a cover means a photo, else
+    # text. `updated_at` is set by hand: a raw UPDATE skips the ORM.
     op.execute(
         sa.text(
             "UPDATE post SET updated_at = now(), channel_message_kind = CASE "
             "WHEN post.preview_message_id IS NOT NULL THEN 'video' "
             "WHEN track.cover_url IS NOT NULL AND track.cover_url <> '' THEN 'photo' "
-            "ELSE 'text' END "
-            "FROM track WHERE track.id = post.track_id AND post.channel_message_id IS NOT NULL"
+            "ELSE 'text' END FROM track WHERE track.id = post.track_id AND post.channel_message_id IS NOT NULL"
         )
     )
     op.create_check_constraint(

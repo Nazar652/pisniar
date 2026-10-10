@@ -72,7 +72,9 @@ def test_a_missing_file_is_none_without_a_warning(tmp_path: Path, format_logger:
     ],
 )
 def test_a_malformed_file_is_none_with_a_warning(
-    tmp_path: Path, format_logger: MagicMock, document: object
+    tmp_path: Path,
+    format_logger: MagicMock,
+    document: object,
 ) -> None:
     path = tmp_path / "p.json"
     write_document(path, document)
@@ -93,7 +95,9 @@ def test_the_longest_accepted_file_is_one_hour(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("content", [b"not json", b"\xff\xfe\x00", b"{"])
 def test_a_file_that_is_not_json_is_none_with_a_warning(
-    tmp_path: Path, format_logger: MagicMock, content: bytes
+    tmp_path: Path,
+    format_logger: MagicMock,
+    content: bytes,
 ) -> None:
     path = tmp_path / "p.json"
     path.write_bytes(content)
@@ -102,9 +106,7 @@ def test_a_file_that_is_not_json_is_none_with_a_warning(
     format_logger.warning.assert_called_once()
 
 
-def test_an_oversized_file_is_refused_before_it_is_parsed(
-    tmp_path: Path, format_logger: MagicMock
-) -> None:
+def test_an_oversized_file_is_refused_before_it_is_parsed(tmp_path: Path, format_logger: MagicMock) -> None:
     path = tmp_path / "p.json"
     path.write_bytes(b" " * (MAX_PEAKS_FILE_BYTES + 1))
 
@@ -120,7 +122,9 @@ def test_validated_values_returns_the_list_of_a_good_document() -> None:
 
 @pytest.mark.parametrize("version", [0, 1, 3])
 def test_a_well_formed_file_of_another_version_is_none_with_no_warning(
-    tmp_path: Path, format_logger: MagicMock, version: int
+    tmp_path: Path,
+    format_logger: MagicMock,
+    version: int,
 ) -> None:
     path = tmp_path / "p.json"
     write_document(path, {"format_version": version, "peaks_per_second": 20, "values": [1]})
@@ -141,18 +145,12 @@ def test_a_well_formed_file_of_another_version_is_none_with_no_warning(
         ([1], False),
     ],
 )
-def test_only_an_integer_version_other_than_the_current_one_is_stale(
-    document: object, expected: bool
-) -> None:
+def test_only_an_integer_version_other_than_the_current_one_is_stale(document: object, expected: bool) -> None:
     assert has_other_version(document) is expected
 
 
 def test_the_module_imports_nothing_but_logging_and_the_stdlib() -> None:
     source = Path(peaks_format.__file__).read_text(encoding="utf-8")
-    imported = {
-        node.module
-        for node in ast.walk(ast.parse(source))
-        if isinstance(node, ast.ImportFrom) and node.module
-    }
+    imported = {node.module for node in ast.walk(ast.parse(source)) if isinstance(node, ast.ImportFrom) and node.module}
 
     assert {name for name in imported if name.startswith("pisniar")} == {"pisniar.logging"}

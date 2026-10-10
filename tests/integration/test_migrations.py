@@ -55,9 +55,7 @@ async def test_channel_message_kind_backfill_follows_the_publication_rule(
     assert upgraded.returncode == 0, upgraded.stdout + upgraded.stderr
 
     plain_dsn = (
-        make_url(migrations_test_database_url)
-        .set(drivername="postgresql")
-        .render_as_string(hide_password=False)
+        make_url(migrations_test_database_url).set(drivername="postgresql").render_as_string(hide_password=False)
     )
     connection = await asyncpg.connect(plain_dsn)
     try:
@@ -91,16 +89,13 @@ async def test_channel_message_kind_backfill_follows_the_publication_rule(
                 old_stamp,
             )
 
-        head = run_alembic(
-            "upgrade", MANUAL_FIELDS_REVISION, database_url=migrations_test_database_url
-        )
+        head = run_alembic("upgrade", MANUAL_FIELDS_REVISION, database_url=migrations_test_database_url)
         assert head.returncode == 0, head.stdout + head.stderr
 
         stored = {
             record["id"]: record
             for record in await connection.fetch(
-                "SELECT id, channel_message_kind, updated_at > $1::timestamptz AS touched "
-                "FROM post",
+                "SELECT id, channel_message_kind, updated_at > $1::timestamptz AS touched FROM post",
                 old_stamp,
             )
         }
@@ -123,15 +118,11 @@ async def test_preview_params_hash_backfill_takes_the_newest_render_and_fails_wi
     """a previewed post gets its newest render's hash and a fresh `updated_at`; a post without a
     preview is untouched; a previewed post with no render row fails the CHECK."""
     old_stamp = datetime(2020, 1, 1, tzinfo=UTC)
-    upgraded = run_alembic(
-        "upgrade", MANUAL_FIELDS_REVISION, database_url=migrations_test_database_url
-    )
+    upgraded = run_alembic("upgrade", MANUAL_FIELDS_REVISION, database_url=migrations_test_database_url)
     assert upgraded.returncode == 0, upgraded.stdout + upgraded.stderr
 
     plain_dsn = (
-        make_url(migrations_test_database_url)
-        .set(drivername="postgresql")
-        .render_as_string(hide_password=False)
+        make_url(migrations_test_database_url).set(drivername="postgresql").render_as_string(hide_password=False)
     )
     connection = await asyncpg.connect(plain_dsn)
     try:
@@ -164,9 +155,7 @@ async def test_preview_params_hash_backfill_takes_the_newest_render_and_fails_wi
                 datetime(stamp_year, 1, 1, tzinfo=UTC),
             )
 
-        head = run_alembic(
-            "upgrade", PREVIEW_HASH_REVISION, database_url=migrations_test_database_url
-        )
+        head = run_alembic("upgrade", PREVIEW_HASH_REVISION, database_url=migrations_test_database_url)
         assert head.returncode == 0, head.stdout + head.stderr
 
         stored = {
@@ -183,17 +172,14 @@ async def test_preview_params_hash_backfill_takes_the_newest_render_and_fails_wi
             "WHERE table_name = 'post' AND column_name = 'preview_params_hash'"
         )
         check_left = await connection.fetchval(
-            "SELECT count(*) FROM pg_constraint "
-            "WHERE conname = 'ck_post_preview_params_hash_matches_ref'"
+            "SELECT count(*) FROM pg_constraint WHERE conname = 'ck_post_preview_params_hash_matches_ref'"
         )
 
         await connection.execute(
             "INSERT INTO post (id, track_id, created_by_user_id, preview_chat_id, "
             "preview_message_id) OVERRIDING SYSTEM VALUE VALUES (3, 1, 1, -200, 11)"
         )
-        failed = run_alembic(
-            "upgrade", PREVIEW_HASH_REVISION, database_url=migrations_test_database_url
-        )
+        failed = run_alembic("upgrade", PREVIEW_HASH_REVISION, database_url=migrations_test_database_url)
     finally:
         await connection.close()
 
@@ -213,15 +199,11 @@ async def test_untimed_lines_migration_keeps_the_check_and_downgrade_drops_the_u
 ) -> None:
     """an existing track has no marker; a line without a time may be stored but a negative one
     may not; going back deletes the untimed lines (a NOT NULL column cannot hold them)."""
-    upgraded = run_alembic(
-        "upgrade", PREVIEW_HASH_REVISION, database_url=migrations_test_database_url
-    )
+    upgraded = run_alembic("upgrade", PREVIEW_HASH_REVISION, database_url=migrations_test_database_url)
     assert upgraded.returncode == 0, upgraded.stdout + upgraded.stderr
 
     plain_dsn = (
-        make_url(migrations_test_database_url)
-        .set(drivername="postgresql")
-        .render_as_string(hide_password=False)
+        make_url(migrations_test_database_url).set(drivername="postgresql").render_as_string(hide_password=False)
     )
     connection = await asyncpg.connect(plain_dsn)
     try:
@@ -230,8 +212,7 @@ async def test_untimed_lines_migration_keeps_the_check_and_downgrade_drops_the_u
             "OVERRIDING SYSTEM VALUE VALUES (1, 'test://1', 'test://1')"
         )
         await connection.execute(
-            "INSERT INTO lyric (track_id, line_index, start_ms, text, source) "
-            "VALUES (1, 0, 1000, 'timed', 'lrclib')"
+            "INSERT INTO lyric (track_id, line_index, start_ms, text, source) VALUES (1, 0, 1000, 'timed', 'lrclib')"
         )
         with pytest.raises(asyncpg.NotNullViolationError):
             await connection.execute(
@@ -244,8 +225,7 @@ async def test_untimed_lines_migration_keeps_the_check_and_downgrade_drops_the_u
 
         marker = await connection.fetchval("SELECT lyrics_edited_at FROM track WHERE id = 1")
         await connection.execute(
-            "INSERT INTO lyric (track_id, line_index, start_ms, text, source) "
-            "VALUES (1, 1, NULL, 'untimed', 'manual')"
+            "INSERT INTO lyric (track_id, line_index, start_ms, text, source) VALUES (1, 1, NULL, 'untimed', 'manual')"
         )
         with pytest.raises(asyncpg.CheckViolationError, match="ck_lyric_start_ms_non_negative"):
             await connection.execute(
@@ -261,8 +241,7 @@ async def test_untimed_lines_migration_keeps_the_check_and_downgrade_drops_the_u
             "WHERE table_name = 'track' AND column_name = 'lyrics_edited_at'"
         )
         start_ms_nullable = await connection.fetchval(
-            "SELECT is_nullable FROM information_schema.columns "
-            "WHERE table_name = 'lyric' AND column_name = 'start_ms'"
+            "SELECT is_nullable FROM information_schema.columns WHERE table_name = 'lyric' AND column_name = 'start_ms'"
         )
 
         reupgraded = run_alembic("upgrade", "head", database_url=migrations_test_database_url)

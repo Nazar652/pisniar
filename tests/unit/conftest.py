@@ -1,6 +1,5 @@
-"""No unit test may reach the network: `socket.socket.connect` is patched to
-raise for any non-loopback address. Loopback stays open because Windows'
-`ProactorEventLoop` uses a real local socket pair for its self-pipe.
+"""No unit test may reach the network: `socket.socket.connect` is patched to raise for any non-loopback address.
+Loopback stays open because Windows' `ProactorEventLoop` uses a real local socket pair for its self-pipe.
 """
 
 from __future__ import annotations

@@ -1,6 +1,5 @@
-"""Link submission and `/retry` against a real Postgres: classification
-branches, race-safe get-or-create, the duplicate-track receipt note, and
-`/retry`'s legal-transition guard."""
+"""Link submission and `/retry` against a real Postgres: classification branches, race-safe get-or-create, the
+duplicate-track receipt note, and `/retry`'s legal-transition guard."""
 
 from __future__ import annotations
 
@@ -90,17 +89,13 @@ async def test_handle_link_creates_track_and_post_and_dispatches(
 
     async with session_factory() as session:
         classified = classify_url(marker_url)
-        track = await session.scalar(
-            select(Track).where(Track.source_url_normalized == classified.normalized_url)
-        )
+        track = await session.scalar(select(Track).where(Track.source_url_normalized == classified.normalized_url))
         assert track is not None
         post = await session.scalar(select(Post).where(Post.track_id == track.id))
         assert post is not None
         assert post.status is PostStatus.RESOLVING
 
-    celery_client.send_task.assert_called_once_with(
-        RESOLVE_POST_TASK_NAME, kwargs={"post_id": post.id}
-    )
+    celery_client.send_task.assert_called_once_with(RESOLVE_POST_TASK_NAME, kwargs={"post_id": post.id})
     assert f"post_id={post.id}" in message.answer.await_args.args[0]
 
 
@@ -115,9 +110,7 @@ async def test_handle_link_seeds_user_input_for_youtube_clip(
 
     async with session_factory() as session:
         classified = classify_url(video_url)
-        track = await session.scalar(
-            select(Track).where(Track.source_url_normalized == classified.normalized_url)
-        )
+        track = await session.scalar(select(Track).where(Track.source_url_normalized == classified.normalized_url))
         assert track is not None
         youtube_link = track.platform_links["youtube"]
         assert isinstance(youtube_link, dict)
@@ -128,8 +121,8 @@ async def test_handle_link_seeds_user_input_for_youtube_clip(
 async def test_a_pair_resolves_from_the_platform_link_and_seeds_the_clip(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """a clip alone resolves to a raw YouTube title and half the platforms; the
-    platform link is also the track's canonical identity."""
+    """a clip alone resolves to a raw YouTube title and half the platforms; the platform link is also the track's
+    canonical identity."""
     platform_url = f"https://open.spotify.com/track/{uuid.uuid4().hex}"
     clip_url = f"https://www.youtube.com/watch?v={uuid.uuid4().hex}"
     message = make_message(f"{platform_url} {clip_url}")
@@ -139,9 +132,7 @@ async def test_a_pair_resolves_from_the_platform_link_and_seeds_the_clip(
 
     async with session_factory() as session:
         track = await session.scalar(
-            select(Track).where(
-                Track.source_url_normalized == classify_url(platform_url).normalized_url
-            )
+            select(Track).where(Track.source_url_normalized == classify_url(platform_url).normalized_url)
         )
         assert track is not None
         assert track.source_url == platform_url
@@ -153,9 +144,7 @@ async def test_a_pair_resolves_from_the_platform_link_and_seeds_the_clip(
         assert youtube_link["match"] == "manual"
 
         clip_track = await session.scalar(
-            select(Track).where(
-                Track.source_url_normalized == classify_url(clip_url).normalized_url
-            )
+            select(Track).where(Track.source_url_normalized == classify_url(clip_url).normalized_url)
         )
         assert clip_track is None
 
@@ -165,8 +154,7 @@ async def test_a_pair_resolves_from_the_platform_link_and_seeds_the_clip(
 async def test_a_reversed_pair_lands_on_the_same_row(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """the order of the two links carries no meaning — only which of them is
-    a clip does."""
+    """the order of the two links carries no meaning — only which of them is a clip does."""
     platform_url = f"https://www.deezer.com/track/{uuid.uuid4().hex}"
     clip_url = f"https://www.youtube.com/watch?v={uuid.uuid4().hex}"
     message = make_message(f"{clip_url}\n{platform_url}")
@@ -176,9 +164,7 @@ async def test_a_reversed_pair_lands_on_the_same_row(
 
     async with session_factory() as session:
         track = await session.scalar(
-            select(Track).where(
-                Track.source_url_normalized == classify_url(platform_url).normalized_url
-            )
+            select(Track).where(Track.source_url_normalized == classify_url(platform_url).normalized_url)
         )
         assert track is not None
         youtube_link = track.platform_links["youtube"]
@@ -189,8 +175,8 @@ async def test_a_reversed_pair_lands_on_the_same_row(
 async def test_a_pair_attaches_the_clip_to_an_already_known_track(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """the motivating case is a song already posted from its platform link:
-    without this the pair would be a silent no-op on the second submission."""
+    """the motivating case is a song already posted from its platform link: without this the pair would be a silent
+    no-op on the second submission."""
     platform_url = f"https://open.spotify.com/track/{uuid.uuid4().hex}"
     clip_url = f"https://www.youtube.com/watch?v={uuid.uuid4().hex}"
     celery_client = MagicMock()
@@ -200,9 +186,7 @@ async def test_a_pair_attaches_the_clip_to_an_already_known_track(
 
     async with session_factory() as session:
         track = await session.scalar(
-            select(Track).where(
-                Track.source_url_normalized == classify_url(platform_url).normalized_url
-            )
+            select(Track).where(Track.source_url_normalized == classify_url(platform_url).normalized_url)
         )
         assert track is not None
         youtube_link = track.platform_links["youtube"]
@@ -338,9 +322,7 @@ async def test_handle_retry_dispatches_for_a_failed_post(
         assert reloaded_post is not None
         assert reloaded_post.status is PostStatus.RESOLVING
 
-    celery_client.send_task.assert_called_once_with(
-        RESOLVE_POST_TASK_NAME, kwargs={"post_id": post_id}
-    )
+    celery_client.send_task.assert_called_once_with(RESOLVE_POST_TASK_NAME, kwargs={"post_id": post_id})
 
 
 async def test_handle_retry_rejects_illegal_transition_from_resolved(
@@ -371,8 +353,8 @@ async def test_handle_retry_rejects_illegal_transition_from_resolved(
 async def test_handle_retry_refuses_a_post_that_is_still_resolving(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """the self-edge exists for Celery redelivery only; as a button it would let two
-    tasks both see `draft_message_id IS NULL` and send two drafts."""
+    """the self-edge exists for Celery redelivery only; as a button it would let two tasks both see `draft_message_id
+    IS NULL` and send two drafts."""
     marker_url = f"https://open.spotify.com/track/{uuid.uuid4().hex}"
     async with session_factory() as session:
         track = Track(source_url=marker_url, source_url_normalized=marker_url)
@@ -397,8 +379,8 @@ async def test_handle_retry_refuses_a_post_that_is_still_resolving(
 async def test_handle_link_refuses_an_over_long_url(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """a btree entry past ~2704 bytes raises ProgramLimitExceededError, not an
-    IntegrityError, so the race fallback would never catch it."""
+    """a btree entry past ~2704 bytes raises ProgramLimitExceededError, not an IntegrityError, so the race fallback
+    would never catch it."""
     over_long_url = "https://open.spotify.com/track/" + "a" * MAX_NORMALIZED_URL_BYTES
     message = make_message(over_long_url)
     celery_client = MagicMock()
@@ -410,9 +392,7 @@ async def test_handle_link_refuses_an_over_long_url(
 
     async with session_factory() as session:
         created = await session.scalar(
-            select(Track).where(
-                Track.source_url_normalized == classify_url(over_long_url).normalized_url
-            )
+            select(Track).where(Track.source_url_normalized == classify_url(over_long_url).normalized_url)
         )
         assert created is None
 
@@ -420,8 +400,7 @@ async def test_handle_link_refuses_an_over_long_url(
 async def test_handle_retry_reopens_a_resolving_post_whose_worker_died(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """a post whose worker died would otherwise stay RESOLVING, with no exit but a
-    manual `UPDATE` in psql."""
+    """a post whose worker died would otherwise stay RESOLVING, with no exit but a manual `UPDATE` in psql."""
     marker_url = f"https://open.spotify.com/track/{uuid.uuid4().hex}"
     async with session_factory() as session:
         track = Track(source_url=marker_url, source_url_normalized=marker_url)
@@ -434,8 +413,8 @@ async def test_handle_retry_reopens_a_resolving_post_whose_worker_died(
         post_id = post.id
         await session.commit()
 
-        # straight SQL: `updated_at` is an ORM `onupdate`, so an attribute
-        # write here would just stamp it with `now()` again.
+        # straight SQL: `updated_at` is an ORM `onupdate`, so an attribute write here would just stamp it with `now()`
+        # again.
         await session.execute(
             text("UPDATE post SET updated_at = now() - make_interval(secs => :age) WHERE id = :id"),
             {"age": TASK_TIME_LIMIT_SECONDS + 60, "id": post_id},
@@ -448,16 +427,14 @@ async def test_handle_retry_reopens_a_resolving_post_whose_worker_died(
     await handle_retry(message, session_factory, celery_client)
 
     assert "Повторюю" in message.answer.await_args.args[0]
-    celery_client.send_task.assert_called_once_with(
-        RESOLVE_POST_TASK_NAME, kwargs={"post_id": post_id}
-    )
+    celery_client.send_task.assert_called_once_with(RESOLVE_POST_TASK_NAME, kwargs={"post_id": post_id})
 
 
 async def test_handle_retry_answers_instead_of_blocking_when_the_row_is_locked(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """an unlocked status read would let two near-simultaneous `/retry` both
-    dispatch; `nowait` also keeps the handler off a live resolve's `FOR UPDATE`."""
+    """an unlocked status read would let two near-simultaneous `/retry` both dispatch; `nowait` also keeps the handler
+    off a live resolve's `FOR UPDATE`."""
     marker_url = f"https://open.spotify.com/track/{uuid.uuid4().hex}"
     async with session_factory() as session:
         track = Track(source_url=marker_url, source_url_normalized=marker_url)
@@ -489,8 +466,8 @@ async def test_handle_retry_answers_instead_of_blocking_when_the_row_is_locked(
 async def test_a_stale_retry_twice_in_a_row_dispatches_only_once(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """the RESOLVING self-edge changes no column, so `onupdate` never fires; without
-    the manual restamp every later /retry would pass the guard and queue another task."""
+    """the RESOLVING self-edge changes no column, so `onupdate` never fires; without the manual restamp every later
+    /retry would pass the guard and queue another task."""
     marker_url = f"https://open.spotify.com/track/{uuid.uuid4().hex}"
     async with session_factory() as session:
         track = Track(source_url=marker_url, source_url_normalized=marker_url)
@@ -518,16 +495,14 @@ async def test_a_stale_retry_twice_in_a_row_dispatches_only_once(
 
     assert "Повторюю" in first_message.answer.await_args.args[0]
     assert "уже обробляється" in second_message.answer.await_args.args[0]
-    celery_client.send_task.assert_called_once_with(
-        RESOLVE_POST_TASK_NAME, kwargs={"post_id": post_id}
-    )
+    celery_client.send_task.assert_called_once_with(RESOLVE_POST_TASK_NAME, kwargs={"post_id": post_id})
 
 
 async def test_a_dispatch_failure_leaves_the_post_retryable(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """the post is committed as RESOLVING before the dispatch; left there, /retry
-    would refuse the very advice («спробуйте /retry») the bot just gave."""
+    """the post is committed as RESOLVING before the dispatch; left there, /retry would refuse the very advice
+    («спробуйте /retry») the bot just gave."""
     marker_url = f"https://open.spotify.com/track/{uuid.uuid4().hex}"
     message = make_message(marker_url)
     celery_client = MagicMock()
@@ -539,9 +514,7 @@ async def test_a_dispatch_failure_leaves_the_post_retryable(
 
     async with session_factory() as session:
         classified = classify_url(marker_url)
-        track = await session.scalar(
-            select(Track).where(Track.source_url_normalized == classified.normalized_url)
-        )
+        track = await session.scalar(select(Track).where(Track.source_url_normalized == classified.normalized_url))
         assert track is not None
         post = await session.scalar(select(Post).where(Post.track_id == track.id))
         assert post is not None
@@ -560,8 +533,8 @@ async def test_a_dispatch_failure_leaves_the_post_retryable(
 async def test_a_failed_retry_dispatch_does_not_strand_the_post_in_resolving(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """the /retry side of the same commit-then-dispatch order: the advice to try
-    again must be one that /retry then accepts."""
+    """the /retry side of the same commit-then-dispatch order: the advice to try again must be one that /retry then
+    accepts."""
     marker_url = f"https://open.spotify.com/track/{uuid.uuid4().hex}"
     async with session_factory() as session:
         track = Track(source_url=marker_url, source_url_normalized=marker_url)
@@ -593,8 +566,8 @@ async def test_a_failed_retry_dispatch_does_not_strand_the_post_in_resolving(
 async def test_handle_link_answers_when_the_row_it_needs_is_locked(
     migrated_test_database_url: str,
 ) -> None:
-    """`INSERT INTO post` takes `FOR KEY SHARE` on the track, and a lock timeout is a
-    `DBAPIError` that `except IntegrityError` does not cover."""
+    """`INSERT INTO post` takes `FOR KEY SHARE` on the track, and a lock timeout is a `DBAPIError` that `except
+    IntegrityError` does not cover."""
     engine = build_engine(migrated_test_database_url, lock_timeout_ms=300)
     factory = build_session_factory(engine)
     marker_url = f"https://open.spotify.com/track/{uuid.uuid4().hex}"
@@ -607,9 +580,7 @@ async def test_handle_link_answers_when_the_row_it_needs_is_locked(
             await seed.commit()
 
         async with factory() as holder:
-            await holder.execute(
-                select(Track.id).where(Track.source_url_normalized == marker_url).with_for_update()
-            )
+            await holder.execute(select(Track.id).where(Track.source_url_normalized == marker_url).with_for_update())
 
             await asyncio.wait_for(handle_link(message, factory, celery_client), timeout=30)
 

@@ -1,6 +1,4 @@
-"""`classify_url()`/`normalize_url()`: syntactic track/not-track detection
-and the UNIQUE-key normalization contract.
-"""
+"""`classify_url()`/`normalize_url()`: syntactic track/not-track detection and the UNIQUE-key normalization contract."""
 
 from __future__ import annotations
 
@@ -88,7 +86,10 @@ from pisniar.resolve.urls import (
     ],
 )
 def test_classify_url_recognizes_track_links(
-    raw_url: str, expected_platform: str, expected_track_id: str, expected_normalized: str
+    raw_url: str,
+    expected_platform: str,
+    expected_track_id: str,
+    expected_normalized: str,
 ) -> None:
     classified = classify_url(raw_url)
 

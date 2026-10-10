@@ -61,7 +61,9 @@ def dispatcher(reached: list[str]) -> Iterator[Dispatcher]:
 
 
 def make_callback_update(
-    user_id: int, update_id: int = 1, callback_data: str = "publish:7"
+    user_id: int,
+    update_id: int = 1,
+    callback_data: str = "publish:7",
 ) -> Update:
     user = User(id=user_id, is_bot=False, first_name="X")
     return Update(
@@ -90,9 +92,7 @@ async def test_a_non_admin_button_tap_never_reaches_a_handler(
 ) -> None:
     """both buttons: «Зробити відео» spends minutes of CPU and hundreds of
     megabytes, so it is verified rather than assumed to inherit the check."""
-    await dispatcher.feed_update(
-        bot, make_callback_update(STRANGER_ID, callback_data=callback_data)
-    )
+    await dispatcher.feed_update(bot, make_callback_update(STRANGER_ID, callback_data=callback_data))
 
     assert reached == []
     assert rejection_logger.warning.call_args.args[0] == "update_rejected_non_admin"
@@ -100,7 +100,10 @@ async def test_a_non_admin_button_tap_never_reaches_a_handler(
 
 @pytest.mark.parametrize("callback_data", ["publish:7", "render:7"])
 async def test_an_admin_button_tap_does_reach_its_handler(
-    dispatcher: Dispatcher, bot: Bot, reached: list[str], callback_data: str
+    dispatcher: Dispatcher,
+    bot: Bot,
+    reached: list[str],
+    callback_data: str,
 ) -> None:
     """the other half of the claim: the allowlist must not be blocking every
     callback, which would make the test above pass for the wrong reason."""

@@ -48,9 +48,7 @@ def test_the_release_types_are_the_ones_the_caption_knows() -> None:
 def test_genre_hints_are_the_deezer_dictionary_names_with_their_hashtags() -> None:
     hints = build_meta().genres
 
-    assert {hint.name for hint in hints} == {
-        ukrainian for _, ukrainian in DEEZER_GENRE_NAMES.values()
-    }
+    assert {hint.name for hint in hints} == {ukrainian for _, ukrainian in DEEZER_GENRE_NAMES.values()}
     by_name = {hint.name: hint.default_hashtag for hint in hints}
     assert by_name["рок"] == "рок"
     assert by_name["хіп-хоп"] == "хіпхоп"

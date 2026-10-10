@@ -155,16 +155,16 @@ def test_a_previewed_video_can_have_its_fragment_chosen() -> None:
 
 
 def test_ready_audio_can_have_its_fragment_chosen_and_be_given_up() -> None:
-    assert choosability_of(PostStatus.EDITING, None) == status.Choosability(
-        True, False, False, None, cancellable=True
-    )
+    assert choosability_of(PostStatus.EDITING, None) == status.Choosability(True, False, False, None, cancellable=True)
 
 
 @pytest.mark.parametrize("current", list(PostStatus))
 @pytest.mark.parametrize("stage", [None, *PostStatus])
 @pytest.mark.parametrize("has_preview", [False, True])
 def test_cancellable_follows_the_cancel_refusal_rule(
-    current: PostStatus, stage: PostStatus | None, has_preview: bool
+    current: PostStatus,
+    stage: PostStatus | None,
+    has_preview: bool,
 ) -> None:
     refusal = status.cancellation_refusal_of(current, has_preview)
 
@@ -200,7 +200,9 @@ def test_ready_audio_without_a_preview_can_be_given_up() -> None:
     ],
 )
 def test_the_cancel_refusal_is_a_sentence_without_a_state_name(
-    current: PostStatus, has_preview: bool, sentence: str
+    current: PostStatus,
+    has_preview: bool,
+    sentence: str,
 ) -> None:
     assert status.cancellation_refusal_of(current, has_preview) == sentence
     assert not any(state.value in sentence.lower() for state in PostStatus)
@@ -214,17 +216,13 @@ def test_the_cancel_refusal_is_a_sentence_without_a_state_name(
         (PostStatus.FAILED, PostStatus.PUBLISHING),
     ],
 )
-def test_a_draft_without_a_preview_can_be_published_as_a_cover(
-    current: PostStatus, stage: PostStatus | None
-) -> None:
+def test_a_draft_without_a_preview_can_be_published_as_a_cover(current: PostStatus, stage: PostStatus | None) -> None:
     assert status.cover_publication_of(current, stage, False) == status.CoverPublication(True, None)
 
 
 @pytest.mark.parametrize("current", list(PostStatus))
 @pytest.mark.parametrize("stage", [None, *PostStatus])
-def test_a_post_with_a_preview_is_never_published_as_a_cover(
-    current: PostStatus, stage: PostStatus | None
-) -> None:
+def test_a_post_with_a_preview_is_never_published_as_a_cover(current: PostStatus, stage: PostStatus | None) -> None:
     assert status.cover_publication_of(current, stage, True).allowed is False
 
 
@@ -232,7 +230,9 @@ def test_a_post_with_a_preview_is_never_published_as_a_cover(
 @pytest.mark.parametrize("stage", [None, *PostStatus])
 @pytest.mark.parametrize("has_preview", [False, True])
 def test_every_cover_refusal_is_a_sentence_and_allowed_means_no_reason(
-    current: PostStatus, stage: PostStatus | None, has_preview: bool
+    current: PostStatus,
+    stage: PostStatus | None,
+    has_preview: bool,
 ) -> None:
     verdict = status.cover_publication_of(current, stage, has_preview)
 
@@ -291,9 +291,7 @@ def test_a_failure_at_another_stage_cannot_have_its_fragment_chosen(
     assert "/retry" in status.FRAGMENT_FAILED_REASON
 
 
-@pytest.mark.parametrize(
-    "current", [state for state in PostStatus if state not in AUDIO_PREPARATION_STATUSES]
-)
+@pytest.mark.parametrize("current", [state for state in PostStatus if state not in AUDIO_PREPARATION_STATUSES])
 def test_every_other_state_refuses_the_choice_with_a_sentence_that_names_no_state(
     current: PostStatus,
 ) -> None:

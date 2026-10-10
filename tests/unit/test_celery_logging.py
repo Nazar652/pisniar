@@ -1,6 +1,5 @@
-"""`worker_hijack_root_logger=False`: without it, Celery's own bootstrap
-(`celery.app.log.Logging`) wipes the root handler `configure_logging()`
-installed at import time — taking JSON output and redaction down with it.
+"""`worker_hijack_root_logger=False`: without it, Celery's own bootstrap (`celery.app.log.Logging`) wipes the root
+handler `configure_logging()` installed at import time — taking JSON output and redaction down with it.
 """
 
 from __future__ import annotations

@@ -14,7 +14,9 @@ from pisniar.webapp.auth import verify_session_token
 
 
 def test_dev_token_prints_a_verifiable_token_for_an_admin(
-    monkeypatch: pytest.MonkeyPatch, settings: Settings, capsys: pytest.CaptureFixture[str]
+    monkeypatch: pytest.MonkeyPatch,
+    settings: Settings,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setattr(dev_token, "get_settings", lambda: settings)
     monkeypatch.setattr(dev_token.time, "time", lambda: 1_800_000_000.0)
@@ -29,7 +31,9 @@ def test_dev_token_prints_a_verifiable_token_for_an_admin(
 
 
 def test_dev_token_refuses_an_id_outside_admin_ids(
-    monkeypatch: pytest.MonkeyPatch, settings: Settings, capsys: pytest.CaptureFixture[str]
+    monkeypatch: pytest.MonkeyPatch,
+    settings: Settings,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setattr(dev_token, "get_settings", lambda: settings)
 
@@ -63,9 +67,7 @@ def test_the_exported_schema_lists_the_api_and_hides_the_static_routes() -> None
         "/api/posts/{post_id}/archive",
         "/api/meta",
     }
-    assert {"ApiError", "SessionRequest", "SessionResponse", "MeResponse"} <= set(
-        schema["components"]["schemas"]
-    )
+    assert {"ApiError", "SessionRequest", "SessionResponse", "MeResponse"} <= set(schema["components"]["schemas"])
 
 
 def test_the_signed_audio_route_is_not_in_the_exported_schema() -> None:

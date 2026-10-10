@@ -40,14 +40,14 @@ def unique_artist_names() -> list[str]:
 async def stored_row(session: AsyncSession, artist_names: list[str]) -> SourceFetch | None:
     request_key = build_request_key("lrclib:lyrics:", lrclib.join_artist_names(artist_names), TITLE)
     return await session.scalar(
-        select(SourceFetch).where(
-            SourceFetch.source == lrclib.SOURCE_NAME, SourceFetch.request_key == request_key
-        )
+        select(SourceFetch).where(SourceFetch.source == lrclib.SOURCE_NAME, SourceFetch.request_key == request_key)
     )
 
 
 async def test_a_documented_404_is_cached_as_a_miss(
-    source_cache: SourceCache, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    source_cache: SourceCache,
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(lrclib.THROTTLE, "min_interval_seconds", 0.0)
     artist_names = unique_artist_names()
@@ -74,7 +74,9 @@ async def test_a_documented_404_is_cached_as_a_miss(
 
 
 async def test_a_503_leaves_no_negative_row_behind(
-    source_cache: SourceCache, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    source_cache: SourceCache,
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """mocked, since a live 503 cannot be reproduced on demand: the admin must hear
     «джерело не відповіло», and the next render must be free to ask again."""
@@ -82,9 +84,7 @@ async def test_a_503_leaves_no_negative_row_behind(
     monkeypatch.setattr(lrclib, "RETRY_BASE_DELAY_SECONDS", 0.0)
     artist_names = unique_artist_names()
 
-    transport = httpx.MockTransport(
-        lambda request: httpx.Response(503, json=SERVER_OVERLOADED_BODY)
-    )
+    transport = httpx.MockTransport(lambda request: httpx.Response(503, json=SERVER_OVERLOADED_BODY))
     async with httpx.AsyncClient(transport=transport) as client:
         with pytest.raises(lrclib.LrclibApiError):
             await lrclib.fetch_lyrics(

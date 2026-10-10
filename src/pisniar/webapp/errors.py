@@ -11,7 +11,12 @@ from pisniar.webapp.schemas import ApiError, FieldError, FieldsInvalid
 
 
 class ApiProblem(Exception):
-    def __init__(self, status_code: int, code: str, message: str) -> None:
+    def __init__(
+        self,
+        status_code: int,
+        code: str,
+        message: str,
+    ) -> None:
         super().__init__(code)
         self.status_code = status_code
         self.code = code
@@ -29,7 +34,11 @@ class FieldsInvalidError(Exception):
 FIELDS_INVALID_MESSAGE = "Деякі поля заповнено неправильно."
 
 
-def error_response(status_code: int, code: str, message: str) -> JSONResponse:
+def error_response(
+    status_code: int,
+    code: str,
+    message: str,
+) -> JSONResponse:
     body = ApiError(code=code, message=message).model_dump()
     return JSONResponse(body, status_code=status_code)
 
@@ -41,9 +50,7 @@ def register_error_handlers(app: FastAPI) -> None:
 
     async def on_invalid_fields(request: Request, error: Exception) -> JSONResponse:
         assert isinstance(error, FieldsInvalidError)
-        body = FieldsInvalid(
-            code="invalid_fields", message=FIELDS_INVALID_MESSAGE, errors=error.errors
-        ).model_dump()
+        body = FieldsInvalid(code="invalid_fields", message=FIELDS_INVALID_MESSAGE, errors=error.errors).model_dump()
         return JSONResponse(body, status_code=422)
 
     async def on_invalid_request(request: Request, error: Exception) -> JSONResponse:

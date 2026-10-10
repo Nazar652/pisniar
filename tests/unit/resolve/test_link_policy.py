@@ -1,6 +1,4 @@
-"""`link_policy`: the host list against the live data, the manual-link rules and the
-album link parser.
-"""
+"""`link_policy`: the host list against the live data, the manual-link rules and the album link parser."""
 
 from __future__ import annotations
 
@@ -65,21 +63,12 @@ def test_an_overlong_url_is_refused() -> None:
 
 
 def test_a_bandcamp_artist_subdomain_is_allowed_but_a_lookalike_is_not() -> None:
-    assert (
-        link_policy.automatic_link_problem("bandcamp", "https://artist.bandcamp.com/track/a")
-        is None
-    )
-    assert (
-        link_policy.automatic_link_problem("bandcamp", "https://artist.bandcamp.com.evil.example/")
-        is not None
-    )
+    assert link_policy.automatic_link_problem("bandcamp", "https://artist.bandcamp.com/track/a") is None
+    assert link_policy.automatic_link_problem("bandcamp", "https://artist.bandcamp.com.evil.example/") is not None
 
 
 def test_a_regional_amazon_host_is_allowed() -> None:
-    assert (
-        link_policy.automatic_link_problem("amazonMusic", "https://music.amazon.de/albums/B0")
-        is None
-    )
+    assert link_policy.automatic_link_problem("amazonMusic", "https://music.amazon.de/albums/B0") is None
 
 
 def test_a_manual_track_link_is_stored_normalised() -> None:
@@ -97,9 +86,7 @@ def test_a_manual_link_to_an_album_is_refused_for_a_track_platform() -> None:
 
 
 def test_a_manual_link_must_belong_to_the_platform_it_is_filed_under() -> None:
-    check = link_policy.check_manual_link(
-        "youtube", f"https://music.youtube.com/watch?v={VIDEO_ID}"
-    )
+    check = link_policy.check_manual_link("youtube", f"https://music.youtube.com/watch?v={VIDEO_ID}")
 
     assert not check.is_accepted
 

@@ -23,9 +23,7 @@ from pisniar.post.sanitize import (
         ("normal text", "normal text"),
     ],
 )
-def test_escape_text_escapes_angle_brackets_and_ampersand_not_quotes(
-    raw: str, expected: str
-) -> None:
+def test_escape_text_escapes_angle_brackets_and_ampersand_not_quotes(raw: str, expected: str) -> None:
     assert escape_text(raw) == expected
 
 

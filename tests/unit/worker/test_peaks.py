@@ -39,17 +39,22 @@ def constant_pcm(level: int, buckets: int) -> bytes:
 
 
 def completed(
-    returncode: int = 0, stdout: bytes = b"", stderr: bytes = b""
+    returncode: int = 0,
+    stdout: bytes = b"",
+    stderr: bytes = b"",
 ) -> subprocess.CompletedProcess[bytes]:
-    return subprocess.CompletedProcess(
-        args=["ffmpeg"], returncode=returncode, stdout=stdout, stderr=stderr
-    )
+    return subprocess.CompletedProcess(args=["ffmpeg"], returncode=returncode, stdout=stdout, stderr=stderr)
 
 
 def stub_ffmpeg(monkeypatch: pytest.MonkeyPatch, pcm: bytes) -> list[list[str]]:
     calls: list[list[str]] = []
 
-    def fake_run(binary: str, arguments: list[str], *, timeout_seconds: float) -> Any:
+    def fake_run(
+        binary: str,
+        arguments: list[str],
+        *,
+        timeout_seconds: float,
+    ) -> Any:
         calls.append([binary, *arguments])
         return completed(stdout=pcm)
 
@@ -141,9 +146,7 @@ def test_ten_minutes_of_audio_are_twelve_thousand_values() -> None:
     assert len(peaks.loudness_values(ten_minutes)) == 12_000
 
 
-def test_ffmpeg_is_asked_for_mono_8_khz_s16le_on_stdout(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_ffmpeg_is_asked_for_mono_8_khz_s16le_on_stdout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     calls = stub_ffmpeg(monkeypatch, pcm_of(1))
     audio = tmp_path / f"{VIDEO_ID}.opus"
 
@@ -171,12 +174,15 @@ def test_ffmpeg_is_asked_for_mono_8_khz_s16le_on_stdout(
     ]
 
 
-def test_the_ffmpeg_timeout_is_thirty_seconds(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_the_ffmpeg_timeout_is_thirty_seconds(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     recorded: dict[str, float] = {}
 
-    def fake_run(binary: str, arguments: list[str], *, timeout_seconds: float) -> Any:
+    def fake_run(
+        binary: str,
+        arguments: list[str],
+        *,
+        timeout_seconds: float,
+    ) -> Any:
         recorded["timeout"] = timeout_seconds
         return completed(stdout=pcm_of(1))
 
@@ -188,24 +194,18 @@ def test_the_ffmpeg_timeout_is_thirty_seconds(
     assert recorded["timeout"] == 30
 
 
-def test_a_non_zero_ffmpeg_exit_carries_its_stderr(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_non_zero_ffmpeg_exit_carries_its_stderr(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         peaks,
         "run_media_tool_bytes",
-        lambda binary, arguments, *, timeout_seconds: completed(
-            returncode=1, stderr=b"Invalid data found"
-        ),
+        lambda binary, arguments, *, timeout_seconds: completed(returncode=1, stderr=b"Invalid data found"),
     )
 
     with pytest.raises(MediaToolFailedError, match="Invalid data found"):
         peaks.decode_pcm(tmp_path / "a.opus")
 
 
-def test_peaks_are_computed_and_published_atomically(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_peaks_are_computed_and_published_atomically(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     stub_ffmpeg(monkeypatch, constant_pcm(100, 2))
     temporary = media_storage.task_temporary_directory(tmp_path, 7)
 
@@ -217,9 +217,7 @@ def test_peaks_are_computed_and_published_atomically(
     assert list(temporary.iterdir()) == []
 
 
-def test_a_valid_existing_file_skips_ffmpeg(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_valid_existing_file_skips_ffmpeg(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     final = media_storage.peaks_file_path(tmp_path, 3, VIDEO_ID)
     final.parent.mkdir(parents=True)
     final.write_text(peaks_document([5]), encoding="utf-8")
@@ -233,9 +231,7 @@ def test_a_valid_existing_file_skips_ffmpeg(
     assert read_peaks(final) == [5]
 
 
-def test_a_file_of_another_format_version_is_recomputed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_file_of_another_format_version_is_recomputed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     final = media_storage.peaks_file_path(tmp_path, 3, VIDEO_ID)
     write_document(final, {"format_version": 1, "peaks_per_second": 20, "values": [9]})
     stub_ffmpeg(monkeypatch, pcm_of(10, 20))
@@ -246,7 +242,9 @@ def test_a_file_of_another_format_version_is_recomputed(
 
 
 def test_a_failure_is_a_warning_and_none_with_nothing_left_behind(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, peaks_logger: MagicMock
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    peaks_logger: MagicMock,
 ) -> None:
     monkeypatch.setattr(
         peaks,
@@ -263,7 +261,9 @@ def test_a_failure_is_a_warning_and_none_with_nothing_left_behind(
 
 
 def test_more_values_than_the_reader_accepts_are_never_written(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, peaks_logger: MagicMock
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    peaks_logger: MagicMock,
 ) -> None:
     monkeypatch.setattr(peaks, "MAX_PEAK_VALUES", 1)
     stub_ffmpeg(monkeypatch, constant_pcm(100, 2))
@@ -275,9 +275,7 @@ def test_more_values_than_the_reader_accepts_are_never_written(
     assert not media_storage.peaks_file_path(tmp_path, 3, VIDEO_ID).exists()
 
 
-def test_the_soft_time_limit_is_never_swallowed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_the_soft_time_limit_is_never_swallowed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     def raise_soft_limit(*args: object, **kwargs: object) -> object:
         raise SoftTimeLimitExceeded()
 

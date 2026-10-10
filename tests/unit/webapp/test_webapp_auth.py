@@ -167,9 +167,7 @@ def test_a_malformed_token_is_refused(token: str) -> None:
 
 def signed_claims(claims: object) -> str:
     payload = json.dumps(claims).encode()
-    signature = hmac.new(
-        derived_key(BOT_TOKEN, SESSION_KEY_CONTEXT), payload, hashlib.sha256
-    ).digest()
+    signature = hmac.new(derived_key(BOT_TOKEN, SESSION_KEY_CONTEXT), payload, hashlib.sha256).digest()
     encode = base64.urlsafe_b64encode
     return f"{encode(payload).rstrip(b'=').decode()}.{encode(signature).rstrip(b'=').decode()}"
 

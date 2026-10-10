@@ -13,7 +13,10 @@ from pisniar.telegram.keyboards import draft_keyboard
 
 
 async def deliver_draft(
-    bot: Bot, post: Post, chat_id: int, webapp_public_url: str | None = None
+    bot: Bot,
+    post: Post,
+    chat_id: int,
+    webapp_public_url: str | None = None,
 ) -> None:
     """idempotent: a `post` with `draft_message_id` already set is a no-op —
     this is what makes Celery's at-least-once redelivery safe."""

@@ -1,6 +1,5 @@
-"""The post status state machine — single source of truth for legal
-`post.status` transitions. The DB CHECK only guards valid values, not
-transition legality (it can't see the previous value); that lives here, via
+"""The post status state machine — single source of truth for legal `post.status` transitions.
+The DB CHECK only guards valid values, not transition legality (it can't see the previous value); that lives here, via
 `set_post_status()`, the only sanctioned way to change a post's status.
 """
 
@@ -28,8 +27,7 @@ class PostStatus(StrEnum):
     ARCHIVED = "archived"
 
 
-# self-edges (Celery at-least-once redelivery) + ARCHIVED edges (manual
-# escape hatch) on the four in-progress states.
+# self-edges (Celery at-least-once redelivery) + ARCHIVED edges (manual escape hatch) on the four in-progress states.
 ALLOWED_TRANSITIONS: dict[PostStatus, frozenset[PostStatus]] = {
     PostStatus.DRAFT: frozenset({PostStatus.RESOLVING, PostStatus.ARCHIVED}),
     PostStatus.RESOLVING: frozenset(
@@ -78,7 +76,12 @@ class IllegalStatusTransitionError(ValueError):
         super().__init__(f"illegal post status transition: {current} -> {requested}")
 
 
-def set_post_status(post: Post, new_status: PostStatus, *, error: str | None = None) -> None:
+def set_post_status(
+    post: Post,
+    new_status: PostStatus,
+    *,
+    error: str | None = None,
+) -> None:
     """FAILED -> ARCHIVED keeps `last_error`/`failed_from_status`.
     `post.status is None` (an unflushed `Post()`) counts as DRAFT."""
     current_status = PostStatus(post.status) if post.status is not None else PostStatus.DRAFT

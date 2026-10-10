@@ -27,9 +27,7 @@ CONNECT_RETRY_BACKOFF_SECONDS = (1.0, 3.0)
 
 def is_unsent_connect_error(error: BaseException) -> bool:
     """Whether the connector failed, which proves no request was sent."""
-    return isinstance(error, TelegramNetworkError) and isinstance(
-        error.__cause__, ClientConnectorError
-    )
+    return isinstance(error, TelegramNetworkError) and isinstance(error.__cause__, ClientConnectorError)
 
 
 class RetryUnsentRequestMiddleware(BaseRequestMiddleware):

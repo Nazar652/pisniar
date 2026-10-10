@@ -1,6 +1,5 @@
-"""`cache.build_request_key`: one normalization for every adapter, an escaped
-separator, case-sensitive identifiers, and a bounded length, so an over-long key
-never reaches the btree limit as a non-IntegrityError.
+"""`cache.build_request_key`: one normalization for every adapter, an escaped separator, case-sensitive identifiers,
+and a bounded length, so an over-long key never reaches the btree limit as a non-IntegrityError.
 """
 
 from __future__ import annotations
@@ -20,8 +19,7 @@ def test_internal_whitespace_is_collapsed_not_only_trimmed() -> None:
 
 
 def test_separator_inside_a_value_cannot_forge_another_field() -> None:
-    """without escaping, artist `"A|B"` + title `"C"` and artist `"A"` +
-    title `"B|C"` collapse onto the same row."""
+    """without escaping, artist `"A|B"` + title `"C"` and artist `"A"` + title `"B|C"` collapse onto the same row."""
     first = build_request_key("deezer:search:", "A|B", "C")
     second = build_request_key("deezer:search:", "A", "B|C")
 

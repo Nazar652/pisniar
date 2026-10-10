@@ -1,8 +1,7 @@
 """0006 lyric
 
-One line of lyrics per row, keyed to a **track** with `ON DELETE CASCADE`:
-stored text is not a reason to refuse deleting a track. `start_ms` is absolute
-from the start of the full track; there is no `end_ms`, the render derives it
+One line of lyrics per row, keyed to a **track** with `ON DELETE CASCADE`: stored text is not a reason to refuse
+deleting a track. `start_ms` is absolute from the start of the full track; there is no `end_ms`, the render derives it
 from the next line, a per-line ceiling and the fragment end.
 
 Revision ID: be8d6bff2a6c
@@ -48,9 +47,7 @@ def upgrade() -> None:
         sa.Column("source", sa.Text(), nullable=False),
         sa.CheckConstraint("length(text) <= 500", name=op.f("ck_lyric_text_length_bounded")),
         sa.CheckConstraint("start_ms >= 0", name=op.f("ck_lyric_start_ms_non_negative")),
-        sa.ForeignKeyConstraint(
-            ["track_id"], ["track.id"], name=op.f("fk_lyric_track_id_track"), ondelete="CASCADE"
-        ),
+        sa.ForeignKeyConstraint(["track_id"], ["track.id"], name=op.f("fk_lyric_track_id_track"), ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_lyric")),
         sa.UniqueConstraint("track_id", "line_index", name=op.f("uq_lyric_track_id_line_index")),
     )

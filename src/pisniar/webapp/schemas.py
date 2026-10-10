@@ -101,8 +101,8 @@ class CaptionView(BaseModel):
 
 
 class FragmentAvailability(BaseModel):
-    """whether the fragment can be chosen now, or the audio can be prepared for it, judged from
-    the status alone; at most one of the first three flags is true."""
+    """whether the fragment can be chosen now, or the audio can be prepared for it, judged from the status alone; at
+    most one of the first three flags is true."""
 
     start_ms: int | None
     end_ms: int | None
@@ -161,8 +161,8 @@ class FragmentView(BaseModel):
 
 
 class FragmentRequest(BaseModel):
-    """the bounds the admin chose, in whole ms from the start of the full track, and the
-    version of the post the editor was opened with."""
+    """the bounds the admin chose, in whole ms from the start of the full track, and the version of the post the editor
+    was opened with."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -292,8 +292,7 @@ class PreviewResponse(BaseModel):
 
 
 class ApplyRequest(BaseModel):
-    """the hash of the caption the editor showed: the caption is rebuilt and compared before
-    anything is sent."""
+    """the hash of the caption the editor showed: the caption is rebuilt and compared before anything is sent."""
 
     model_config = ConfigDict(extra="forbid")
 

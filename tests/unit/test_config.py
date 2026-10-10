@@ -1,6 +1,5 @@
-"""`Settings`: required fields, comma-separated admin ids, the
-`postgresql+asyncpg://` DSN guard and the media/task-limit settings. Every test
-builds `Settings` with `_env_file=None` and explicit values, so it never reads
+"""`Settings`: required fields, comma-separated admin ids, the `postgresql+asyncpg://` DSN guard and the
+media/task-limit settings. Every test builds `Settings` with `_env_file=None` and explicit values, so it never reads
 the real `.env` in the repo root.
 """
 
@@ -18,8 +17,8 @@ from pisniar.config import Settings, redaction_secrets
 from pisniar.logging import REDACTED_PLACEHOLDER, configure_logging
 from pisniar.worker.celery_app import TASK_SOFT_TIME_LIMIT_SECONDS, TASK_TIME_LIMIT_SECONDS
 
-# conftest.py sets fallbacks for these; "missing field" tests need them
-# genuinely absent, so this fixture removes them from real OS environ.
+# conftest.py sets fallbacks for these; "missing field" tests need them genuinely absent, so this fixture removes them
+# from real OS environ.
 REQUIRED_ENVIRONMENT_VARIABLES = (
     "BOT_TOKEN",
     "ADMIN_IDS",
@@ -146,8 +145,7 @@ def test_log_format_is_independent_of_environment() -> None:
 
 
 def test_log_format_defaults_to_json(monkeypatch: pytest.MonkeyPatch) -> None:
-    # isolated from an ambient `LOG_FORMAT` (compose.override.yml sets "console"):
-    # this asserts the pydantic default.
+    # isolated from an ambient `LOG_FORMAT` (compose.override.yml sets "console"): this asserts the pydantic default.
     monkeypatch.delenv("LOG_FORMAT", raising=False)
     settings = Settings(
         _env_file=None,

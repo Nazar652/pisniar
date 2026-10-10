@@ -30,7 +30,12 @@ def peaks_logger(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
     return fake_logger
 
 
-def store_audio(media_root: Path, track_id: int, video_id: str, extension: str = "webm") -> Path:
+def store_audio(
+    media_root: Path,
+    track_id: int,
+    video_id: str,
+    extension: str = "webm",
+) -> Path:
     path = media_storage.audio_file_path(media_root, track_id, video_id, extension)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(b"audio")
@@ -41,11 +46,14 @@ def stub_ffmpeg(monkeypatch: pytest.MonkeyPatch, returncode: int = 0) -> list[li
     calls: list[list[str]] = []
     pcm = array("h", [100] * peaks.BUCKET_SAMPLES).tobytes()
 
-    def fake_run(binary: str, arguments: list[str], *, timeout_seconds: float) -> Any:
+    def fake_run(
+        binary: str,
+        arguments: list[str],
+        *,
+        timeout_seconds: float,
+    ) -> Any:
         calls.append(arguments)
-        return subprocess.CompletedProcess(
-            args=["ffmpeg"], returncode=returncode, stdout=pcm, stderr=b"boom"
-        )
+        return subprocess.CompletedProcess(args=["ffmpeg"], returncode=returncode, stdout=pcm, stderr=b"boom")
 
     monkeypatch.setattr(peaks, "run_media_tool_bytes", fake_run)
     return calls
@@ -74,9 +82,7 @@ def test_peaks_files_strays_and_empty_audio_are_never_listed(tmp_path: Path) -> 
     (tmp_path / "audio" / "0").mkdir()
     (tmp_path / "audio" / "stray.webm").write_bytes(b"x")
 
-    assert [entry[:2] for entry in media_storage.stored_audio_files(tmp_path)] == [
-        (3, FIRST_VIDEO_ID)
-    ]
+    assert [entry[:2] for entry in media_storage.stored_audio_files(tmp_path)] == [(3, FIRST_VIDEO_ID)]
 
 
 def test_an_empty_volume_lists_nothing(tmp_path: Path) -> None:
@@ -104,9 +110,7 @@ def test_a_file_of_the_old_version_is_rewritten_and_a_current_one_is_left(
     store_audio(tmp_path, 3, SECOND_VIDEO_ID)
     old = media_storage.peaks_file_path(tmp_path, 2, FIRST_VIDEO_ID)
     old.parent.mkdir(parents=True)
-    old.write_text(
-        json.dumps({"format_version": 1, "peaks_per_second": 20, "values": [9]}), encoding="utf-8"
-    )
+    old.write_text(json.dumps({"format_version": 1, "peaks_per_second": 20, "values": [9]}), encoding="utf-8")
     current = media_storage.peaks_file_path(tmp_path, 3, SECOND_VIDEO_ID)
     current.parent.mkdir(parents=True)
     current.write_text(peaks_document([5]), encoding="utf-8")
@@ -119,9 +123,7 @@ def test_a_file_of_the_old_version_is_rewritten_and_a_current_one_is_left(
     assert read_peaks(current) == [5]
 
 
-def test_a_second_run_runs_ffmpeg_for_nothing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_second_run_runs_ffmpeg_for_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     calls = stub_ffmpeg(monkeypatch)
     store_audio(tmp_path, 2, FIRST_VIDEO_ID)
     peaks.backfill_peaks(tmp_path)
@@ -133,9 +135,7 @@ def test_a_second_run_runs_ffmpeg_for_nothing(
     assert calls == []
 
 
-def test_a_failing_file_is_counted_and_does_not_stop_the_walk(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_failing_file_is_counted_and_does_not_stop_the_walk(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     stub_ffmpeg(monkeypatch, returncode=1)
     store_audio(tmp_path, 2, FIRST_VIDEO_ID)
     store_audio(tmp_path, 3, SECOND_VIDEO_ID)
@@ -146,7 +146,9 @@ def test_a_failing_file_is_counted_and_does_not_stop_the_walk(
 
 
 def test_the_summary_is_logged_with_its_counts(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, peaks_logger: MagicMock
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    peaks_logger: MagicMock,
 ) -> None:
     stub_ffmpeg(monkeypatch)
     store_audio(tmp_path, 2, FIRST_VIDEO_ID)
@@ -160,7 +162,10 @@ def test_the_summary_is_logged_with_its_counts(
 
 @pytest.mark.parametrize(("failed", "exit_code"), [(0, 0), (2, 1)])
 def test_the_command_fails_only_when_a_file_failed(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, failed: int, exit_code: int
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    failed: int,
+    exit_code: int,
 ) -> None:
     settings = SimpleNamespace(log_format="json", log_level="INFO", media_root=tmp_path)
     monkeypatch.setattr(peaks, "get_settings", lambda: settings)

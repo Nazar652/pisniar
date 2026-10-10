@@ -1,6 +1,5 @@
-"""Inline keyboards and the `callback_data` grammar behind them. Deliberately
-a leaf over `aiogram` alone: `bot/` has to parse a callback without importing
-`post/`, `db/` or `worker/` (AGENTS.md boundaries), and `telegram.draft` has
+"""Inline keyboards and the `callback_data` grammar behind them. Deliberately a leaf over `aiogram` alone: `bot/` has
+to parse a callback without importing `post/`, `db/` or `worker/` (AGENTS.md boundaries), and `telegram.draft` has
 to build the same buttons from inside the worker.
 """
 
@@ -46,7 +45,9 @@ def webapp_url(webapp_public_url: str, post_id: int | None = None) -> str:
 
 
 def edit_button_rows(
-    chat_id: int | None, webapp_public_url: str | None, post_id: int
+    chat_id: int | None,
+    webapp_public_url: str | None,
+    post_id: int,
 ) -> list[list[InlineKeyboardButton]]:
     """empty unless the chat is private and the Mini App is configured: telegram answers 400 to a
     `web_app` button in a group, and that would cost the whole message."""
@@ -78,7 +79,9 @@ def post_list_keyboard(chat_id: int, webapp_public_url: str | None) -> InlineKey
 
 
 def draft_keyboard(
-    post_id: int, chat_id: int | None = None, webapp_public_url: str | None = None
+    post_id: int,
+    chat_id: int | None = None,
+    webapp_public_url: str | None = None,
 ) -> InlineKeyboardMarkup:
     """under a text draft: the video trigger and the editor where it may open; the cover alone
     is published from the editor, never from the chat."""
@@ -91,7 +94,9 @@ def draft_keyboard(
 
 
 def preview_keyboard(
-    post_id: int, chat_id: int | None = None, webapp_public_url: str | None = None
+    post_id: int,
+    chat_id: int | None = None,
+    webapp_public_url: str | None = None,
 ) -> InlineKeyboardMarkup:
     """the video preview carries publication alone — there is nothing left to
     render, and the text draft's keyboard is removed when this one arrives."""
@@ -104,7 +109,9 @@ def preview_keyboard(
 
 
 def published_keyboard(
-    post_id: int, chat_id: int, webapp_public_url: str | None
+    post_id: int,
+    chat_id: int,
+    webapp_public_url: str | None,
 ) -> InlineKeyboardMarkup | None:
     """under the publication confirmation: the editor alone, `None` where it cannot open."""
     rows = edit_button_rows(chat_id, webapp_public_url, post_id)
@@ -136,5 +143,9 @@ def parse_callback(callback_data: str | None) -> ParsedCallback | None:
     return ParsedCallback(action=action, post_id=int(raw_post_id))
 
 
-def callback_button(text: str, action: CallbackAction, post_id: int) -> InlineKeyboardButton:
+def callback_button(
+    text: str,
+    action: CallbackAction,
+    post_id: int,
+) -> InlineKeyboardButton:
     return InlineKeyboardButton(text=text, callback_data=f"{action.value}:{post_id}")

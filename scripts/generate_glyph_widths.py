@@ -1,7 +1,6 @@
-"""Bakes `pisniar.worker.noto_sans_widths` from the font file in the worker image.
-Copy it out first (`docker compose cp worker:<SOURCE_FONT_FILE> ./noto.ttf`), then
-`uv run python scripts/generate_glyph_widths.py ./noto.ttf`. `fontTools` stays a dev
-dependency; `tests/integration/test_ass_font.py` pins the table to the font.
+"""Bakes `pisniar.worker.noto_sans_widths` from the font file in the worker image. Copy it out first (`docker compose cp
+worker:<SOURCE_FONT_FILE> ./noto.ttf`), then `uv run python scripts/generate_glyph_widths.py ./noto.ttf`. `fontTools`
+stays a dev dependency; `tests/integration/test_ass_font.py` pins the table to the font.
 """
 
 from __future__ import annotations
@@ -18,18 +17,10 @@ OUTPUT_PATH = REPOSITORY_ROOT / "src" / "pisniar" / "worker" / "noto_sans_widths
 # song text is Ukrainian first, but artist names and inserts are not, so Latin
 # and the European diacritics travel with it.
 CODEPOINT_RANGES: tuple[tuple[int, int, str], ...] = (
-    (
-        0x0020,
-        0x007E,
-        "ASCII: Latin letters, digits, the straight apostrophe and quote, punctuation",
-    ),
+    (0x0020, 0x007E, "ASCII: Latin letters, digits, the straight apostrophe and quote, punctuation"),
     (0x00A0, 0x00FF, "Latin-1: accented Latin, the guillemets, the acute accent, degree"),
     (0x0100, 0x017F, "Latin Extended-A: the Central-European diacritics in artist names"),
-    (
-        0x02B9,
-        0x02BC,
-        "modifier letters: U+02BC, the apostrophe Ukrainian orthography calls for",
-    ),
+    (0x02B9, 0x02BC, "modifier letters: U+02BC, the apostrophe Ukrainian orthography calls for"),
     (0x0400, 0x04FF, "Cyrillic: Ukrainian (U+0456, U+0457, U+0454, U+0491) through Belarusian"),
     (0x2010, 0x2027, "dashes, both curly quote shapes, the bullet, the ellipsis"),
     (0x2030, 0x203A, "per mille, the primes, the single guillemets"),
@@ -82,7 +73,11 @@ def render_module(font: TTFont, font_path: Path) -> str:
     return f"{header}\n# fmt: off\nADVANCE_WIDTHS: dict[int, int] = {{\n{table}\n}}\n# fmt: on\n"
 
 
-def build_header(font: TTFont, font_path: Path, covered: int) -> str:
+def build_header(
+    font: TTFont,
+    font_path: Path,
+    covered: int,
+) -> str:
     head = font["head"]
     horizontal_header = font["hhea"]
     generated_on = datetime.datetime.now(tz=datetime.UTC).date().isoformat()
