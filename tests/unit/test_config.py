@@ -242,8 +242,8 @@ def test_media_task_limits_are_separate_from_the_resolve_ones(
 
     assert (TASK_SOFT_TIME_LIMIT_SECONDS, TASK_TIME_LIMIT_SECONDS) == (300, 360)
     assert settings.download_task_time_limit_seconds == 180
-    assert settings.render_task_soft_time_limit_seconds == 360
-    assert settings.render_task_time_limit_seconds == 420
+    assert settings.render_task_soft_time_limit_seconds == 600
+    assert settings.render_task_time_limit_seconds == 660
 
 
 def test_redaction_secrets_includes_spotify_client_secret() -> None:

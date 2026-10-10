@@ -167,5 +167,5 @@ def test_the_render_stale_window_follows_the_render_hard_limit(status: PostStatu
 
     limit_seconds = stage_time_limit_seconds(status)
 
-    assert limit_seconds == handlers.settings.render_task_time_limit_seconds == 420
+    assert limit_seconds == handlers.settings.render_task_time_limit_seconds == 660
     assert not stage_has_gone_stale(post, limit_seconds)

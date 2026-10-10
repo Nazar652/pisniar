@@ -716,8 +716,9 @@ suggest or introduce either.
   numbers. An unknown codepoint counts as a full em and kerning is ignored:
   both err wide, so a line wraps early rather than leaving the frame.
 - **The render limits cover LRCLIB's worst case.** Timeouts, retries and the
-  fallback search add up to ~187 s, so `render_task_*` is 360/420 s; the
-  hard limit is also the stale-render window `/retry` waits out.
+  fallback search add up to ~187 s and a 120 s fragment renders in ~150 s on a
+  laptop, so `render_task_*` is 600/660 s; the hard limit is also the stale-render
+  window `/retry` waits out.
 
 ## Data conventions
 
