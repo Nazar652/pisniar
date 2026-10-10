@@ -264,3 +264,19 @@ def test_unlisted_imports_reports_a_module_outside_the_allowed_set() -> None:
 def test_every_allowed_bot_module_is_still_imported_by_the_bot() -> None:
     used = set().union(*imported_modules(SOURCE_ROOT / "bot").values())
     assert used >= BOT_ALLOWED_MODULES
+
+
+def modules_importing(package_name: str) -> list[str]:
+    return [
+        module_path
+        for module_path, modules in imported_modules(SOURCE_ROOT).items()
+        if any(name == package_name or name.startswith(f"{package_name}.") for name in modules)
+    ]
+
+
+def test_only_the_turntable_module_imports_pil() -> None:
+    assert modules_importing("PIL") == ["worker/turntable.py"]
+
+
+def test_the_pil_scan_finds_an_import_where_there_is_one() -> None:
+    assert modules_importing("celery") != []
