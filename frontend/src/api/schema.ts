@@ -137,6 +137,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/posts/{post_id}/fragment/audio": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start Audio Preparation */
+        post: operations["start_audio_preparation_api_posts__post_id__fragment_audio_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/posts/{post_id}/preview": {
         parameters: {
             query?: never;
@@ -227,6 +244,13 @@ export interface components {
             hashtag?: string | null;
             /** Name */
             name: string;
+        };
+        /** AudioPreparationStarted */
+        AudioPreparationStarted: {
+            /** Post Id */
+            post_id: number;
+            /** Status Label */
+            status_label: string;
         };
         /** CaptionSegmentView */
         CaptionSegmentView: {
@@ -342,13 +366,18 @@ export interface components {
         };
         /**
          * FragmentAvailability
-         * @description whether the fragment can be chosen now, judged from the status alone.
+         * @description whether the fragment can be chosen now, or the audio can be prepared for it, judged from
+         *     the status alone; at most one flag is true.
          */
         FragmentAvailability: {
             /** Choosable */
             choosable: boolean;
             /** End Ms */
             end_ms: number | null;
+            /** Preparable */
+            preparable: boolean;
+            /** Preparing */
+            preparing: boolean;
             /** Reason */
             reason: string | null;
             /** Start Ms */
@@ -1194,6 +1223,82 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FragmentRenderStarted"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FieldsInvalid"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    start_audio_preparation_api_posts__post_id__fragment_audio_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                post_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AudioPreparationStarted"];
                 };
             };
             /** @description Unauthorized */

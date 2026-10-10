@@ -71,6 +71,7 @@ def status_ladder(status: PostStatus, *, with_draft: bool) -> list[PostStatus]:
 MEDIA_LADDER = {
     PostStatus.DOWNLOADING: [PostStatus.DOWNLOADING],
     PostStatus.DOWNLOADED: [PostStatus.DOWNLOADING, PostStatus.DOWNLOADED],
+    PostStatus.EDITING: [PostStatus.DOWNLOADING, PostStatus.DOWNLOADED, PostStatus.EDITING],
     PostStatus.RENDERING: [
         PostStatus.DOWNLOADING,
         PostStatus.DOWNLOADED,
@@ -711,6 +712,44 @@ async def test_a_live_render_refuses_retry_with_its_own_sentence(
 
     celery_client.send_task.assert_not_called()
     assert "рендериться" in message.answer.await_args.args[0]
+
+
+async def test_retry_on_a_post_awaiting_its_fragment_choice_is_refused_and_changes_nothing(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """a person is choosing the fragment: no task is stuck, and an old `editing` post is
+    not reclaimed like a dead worker's."""
+    post_id = await make_post_with_draft(session_factory, status=PostStatus.EDITING)
+    stale_age = handlers.settings.render_task_time_limit_seconds + 60
+    async with session_factory() as session:
+        post = await session.get(Post, post_id)
+        assert post is not None
+        post.updated_at = datetime.now(UTC) - timedelta(seconds=stale_age)
+        await session.commit()
+    message = make_message(f"/retry {post_id}")
+    celery_client = MagicMock()
+
+    await handle_retry(message, session_factory, celery_client)
+
+    celery_client.send_task.assert_not_called()
+    assert message.answer.await_args.args[0] == handlers.AUDIO_READY_ANSWER.format(post_id=post_id)
+    assert (await load_post(session_factory, post_id)).status is PostStatus.EDITING
+
+
+async def test_a_render_tap_on_a_post_awaiting_its_fragment_choice_changes_nothing(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    post_id = await make_post_with_draft(session_factory, status=PostStatus.EDITING)
+    callback = make_callback(f"render:{post_id}")
+    bot = AsyncMock()
+    celery_client = MagicMock()
+
+    await handle_callback(callback, bot, session_factory, celery_client)
+
+    celery_client.send_task.assert_not_called()
+    bot.edit_message_reply_markup.assert_not_awaited()
+    assert callback.answer.await_args.args[0] == handlers.AUDIO_READY_ANSWER.format(post_id=post_id)
+    assert (await load_post(session_factory, post_id)).status is PostStatus.EDITING
 
 
 async def test_retry_on_a_rendered_post_is_refused_even_though_it_may_render_again(

@@ -8,6 +8,7 @@ import pytest
 
 from pisniar.db.states import ALLOWED_TRANSITIONS, PostStatus
 from pisniar.webapp import status
+from pisniar.webapp.editing import MEDIA_IN_PROGRESS_MESSAGE
 from pisniar.webapp.status import STATUS_LABELS, choosability_of, editability_of
 
 EXPECTED_TRANSITIONS = {
@@ -77,7 +78,8 @@ def test_every_status_has_a_ukrainian_label() -> None:
 
 
 @pytest.mark.parametrize(
-    "current", [PostStatus.RESOLVED, PostStatus.RENDERED, PostStatus.PUBLISHED]
+    "current",
+    [PostStatus.RESOLVED, PostStatus.EDITING, PostStatus.RENDERED, PostStatus.PUBLISHED],
 )
 def test_a_ready_or_published_post_is_editable(current: PostStatus) -> None:
     verdict = editability_of(current, None)
@@ -118,7 +120,6 @@ def test_a_post_that_failed_while_resolving_or_at_an_unknown_stage_is_not(
         PostStatus.RESOLVING,
         PostStatus.DOWNLOADING,
         PostStatus.DOWNLOADED,
-        PostStatus.EDITING,
         PostStatus.RENDERING,
         PostStatus.PUBLISHING,
         PostStatus.ARCHIVED,
@@ -138,40 +139,93 @@ def test_an_archived_post_gets_its_own_sentence() -> None:
     assert editability_of(PostStatus.ARCHIVED, None).reason == status.ARCHIVED_REASON
 
 
-def test_a_previewed_video_can_have_its_fragment_chosen() -> None:
-    assert choosability_of(PostStatus.RENDERED, None) == status.Choosability(True, None)
+CHOOSABLE = status.Choosability(True, False, False, None)
+
+AUDIO_PREPARATION_STATUSES = {
+    PostStatus.EDITING,
+    PostStatus.RESOLVED,
+    PostStatus.DOWNLOADING,
+    PostStatus.RENDERED,
+    PostStatus.FAILED,
+}
+
+
+@pytest.mark.parametrize("current", [PostStatus.RENDERED, PostStatus.EDITING])
+def test_a_previewed_video_or_ready_audio_can_have_its_fragment_chosen(
+    current: PostStatus,
+) -> None:
+    assert choosability_of(current, None) == CHOOSABLE
 
 
 @pytest.mark.parametrize("stage", [PostStatus.DOWNLOADED, PostStatus.RENDERING])
 def test_a_render_that_failed_can_have_its_fragment_chosen(stage: PostStatus) -> None:
-    assert choosability_of(PostStatus.FAILED, stage) == status.Choosability(True, None)
+    assert choosability_of(PostStatus.FAILED, stage) == CHOOSABLE
 
 
-@pytest.mark.parametrize(
-    "stage",
-    [PostStatus.RESOLVING, PostStatus.DOWNLOADING, PostStatus.PUBLISHING, None],
-)
+def test_a_draft_can_have_its_audio_prepared_with_a_warning_about_the_cover() -> None:
+    verdict = choosability_of(PostStatus.RESOLVED, None)
+
+    assert verdict == status.Choosability(False, True, False, status.FRAGMENT_PREPARE_REASON)
+    assert "обкладинку" in status.FRAGMENT_PREPARE_REASON
+
+
+def test_a_failed_preparation_can_be_started_again() -> None:
+    verdict = choosability_of(PostStatus.FAILED, PostStatus.DOWNLOADING)
+
+    assert verdict == status.Choosability(False, True, False, status.FRAGMENT_PREPARE_AGAIN_REASON)
+
+
+def test_a_running_preparation_is_preparing_with_a_sentence() -> None:
+    verdict = choosability_of(PostStatus.DOWNLOADING, None)
+
+    assert verdict == status.Choosability(False, False, True, status.FRAGMENT_PREPARING_REASON)
+
+
+@pytest.mark.parametrize("stage", [PostStatus.RESOLVING, PostStatus.PUBLISHING, None])
 def test_a_failure_at_another_stage_cannot_have_its_fragment_chosen(
     stage: PostStatus | None,
 ) -> None:
     verdict = choosability_of(PostStatus.FAILED, stage)
 
-    assert verdict == status.Choosability(False, status.FRAGMENT_FAILED_REASON)
+    assert verdict == status.Choosability(False, False, False, status.FRAGMENT_FAILED_REASON)
     assert "/retry" in status.FRAGMENT_FAILED_REASON
 
 
 @pytest.mark.parametrize(
-    "current",
-    [state for state in PostStatus if state not in {PostStatus.RENDERED, PostStatus.FAILED}],
+    "current", [state for state in PostStatus if state not in AUDIO_PREPARATION_STATUSES]
 )
 def test_every_other_state_refuses_the_choice_with_a_sentence_that_names_no_state(
     current: PostStatus,
 ) -> None:
     verdict = choosability_of(current, None)
 
-    assert verdict.choosable is False
+    assert (verdict.choosable, verdict.preparable, verdict.preparing) == (False, False, False)
     assert verdict.reason
     assert not any(state.value in verdict.reason.lower() for state in PostStatus)
+
+
+@pytest.mark.parametrize("current", list(PostStatus))
+@pytest.mark.parametrize("stage", [None, *PostStatus])
+def test_at_most_one_flag_is_true_and_every_sentence_names_no_state(
+    current: PostStatus, stage: PostStatus | None
+) -> None:
+    verdict = choosability_of(current, stage)
+
+    flags = [verdict.choosable, verdict.preparable, verdict.preparing]
+    assert sum(flags) <= 1
+    assert (verdict.reason is None) == verdict.choosable
+    if verdict.reason is not None:
+        assert not any(state.value in verdict.reason.lower() for state in PostStatus)
+
+
+def test_the_in_progress_sentences_promise_no_preview_because_the_prepare_path_has_none() -> None:
+    for sentence in (status.MEDIA_IN_PROGRESS_REASON, MEDIA_IN_PROGRESS_MESSAGE):
+        assert "прев" not in sentence
+
+
+def test_the_ready_audio_status_has_a_label_that_says_what_to_do() -> None:
+    assert STATUS_LABELS[PostStatus.EDITING] == "Аудіо готове — оберіть фрагмент"
+    assert PostStatus.EDITING in status.EDITABLE_STATUSES
 
 
 def test_a_published_post_and_a_running_render_get_sentences_of_their_own() -> None:

@@ -209,6 +209,24 @@ async def test_a_refused_render_tap_keeps_its_button(tap: SimpleNamespace) -> No
     )
 
 
+@pytest.mark.parametrize("tap_button", [tap_publish, tap_render])
+async def test_a_tap_on_a_post_awaiting_its_fragment_choice_is_refused_and_changes_nothing(
+    tap_button: Any, tap: SimpleNamespace
+) -> None:
+    tap.post = make_post(PostStatus.EDITING)
+
+    await tap_button(tap)
+
+    assert tap.post.status is PostStatus.EDITING
+    assert tap.order == ["commit", "answer"]
+    tap.bot.edit_message_reply_markup.assert_not_awaited()
+    tap.celery_client.send_task.assert_not_called()
+    assert tap.callback.answer.await_args.args[0] == handlers.AUDIO_READY_ANSWER.format(
+        post_id=POST_ID
+    )
+    assert "editing" not in tap.callback.answer.await_args.args[0]
+
+
 async def test_a_render_tap_on_a_locked_post_is_refused_with_a_sentence(
     tap: SimpleNamespace,
 ) -> None:

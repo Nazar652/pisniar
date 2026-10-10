@@ -11,8 +11,10 @@ PING_TASK_NAME = "pisniar.worker.ping"
 RESOLVE_POST_TASK_NAME = "pisniar.worker.resolve_post"
 PUBLISH_POST_TASK_NAME = "pisniar.worker.publish_post"
 
-# the render button starts the download; the download task chains the render.
+# the render button starts the download, which chains the render; the Mini App
+# prepares the audio only, with no render behind it.
 DOWNLOAD_POST_AUDIO_TASK_NAME = "pisniar.worker.download_post_audio"
+PREPARE_POST_AUDIO_TASK_NAME = "pisniar.worker.prepare_post_audio"
 RENDER_POST_VIDEO_TASK_NAME = "pisniar.worker.render_post_video"
 
 # keeps one wedged socket from owning the worker slot. `bot.handlers` reads these

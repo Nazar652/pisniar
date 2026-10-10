@@ -22,6 +22,7 @@ from pisniar.worker import download as audio_download
 from pisniar.worker import ffmpeg as media_tools
 from pisniar.worker import tasks as worker_tasks
 from pisniar.worker.ass import AssGenerationError, LyricLine, build_ass_subtitles
+from pisniar.worker.celery_app import PREPARE_POST_AUDIO_TASK_NAME
 from pisniar.worker.lyrics import (
     LYRICS_ALREADY_STORED,
     LYRICS_OUTSIDE_FRAGMENT,
@@ -49,13 +50,15 @@ def test_the_download_entry_statuses_are_the_legal_ones_except_failed() -> None:
     )
 
 
-def test_the_render_entry_statuses_are_the_legal_ones_except_failed_and_rendered() -> None:
-    """a `rendered` post enters through the explicit choice that writes `rendering` first,
-    so a render task that finds `rendered` is always a redelivery."""
+def test_the_render_entry_statuses_are_the_legal_ones_except_failed_rendered_and_editing() -> None:
+    """a `rendered` or `editing` post enters through the explicit choice that writes
+    `rendering` first, so a render task that finds either belongs to someone else."""
     assert statuses_with_an_edge_into(PostStatus.RENDERING) - {
         PostStatus.FAILED,
         PostStatus.RENDERED,
+        PostStatus.EDITING,
     } == (worker_tasks.RENDER_ENTRY_STATUSES)
+    assert PostStatus.EDITING not in worker_tasks.RENDER_ENTRY_STATUSES
 
 
 def make_post(start_ms: int | None = None, end_ms: int | None = None) -> Post:
@@ -723,10 +726,110 @@ async def test_yt_dlp_runs_with_no_session_and_no_lock_open(
     monkeypatch.setattr(worker_tasks, "download_audio_off_transaction", spy_download)
     monkeypatch.setattr(worker_tasks, "finish_download", AsyncMock())
 
-    await worker_tasks.perform_download_post_audio(7)
+    await worker_tasks.perform_download_post_audio(7, then_render=True)
 
     assert sessions_during_download == [0]
     assert post.status is PostStatus.DOWNLOADING
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        PostStatus.DOWNLOADED,
+        PostStatus.EDITING,
+        PostStatus.RENDERING,
+        PostStatus.RENDERED,
+        PostStatus.PUBLISHED,
+        PostStatus.FAILED,
+    ],
+)
+async def test_a_redelivered_prepare_at_a_settled_post_does_nothing(
+    status: PostStatus, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(worker_tasks.settings, "media_root", tmp_path)
+    post, track = media_fixtures(status)
+    install_fake_database(monkeypatch, post, track, None)
+    download = MagicMock()
+    monkeypatch.setattr(worker_tasks, "download_audio_off_transaction", download)
+    finish = AsyncMock()
+    monkeypatch.setattr(worker_tasks, "finish_download", finish)
+
+    await worker_tasks.perform_download_post_audio(7, then_render=False)
+
+    download.assert_not_called()
+    finish.assert_not_awaited()
+    assert post.status is status
+
+
+async def test_a_redelivered_prepare_at_downloading_runs_again_without_a_render(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(worker_tasks.settings, "media_root", tmp_path)
+    post, track = media_fixtures(PostStatus.DOWNLOADING)
+    install_fake_database(monkeypatch, post, track, None)
+    monkeypatch.setattr(
+        worker_tasks, "download_audio_off_transaction", lambda *args: download_outcome("2025.12.8")
+    )
+    finish = AsyncMock()
+    monkeypatch.setattr(worker_tasks, "finish_download", finish)
+
+    await worker_tasks.perform_download_post_audio(7, then_render=False)
+
+    assert finish.await_args is not None
+    assert finish.await_args.kwargs == {"then_render": False}
+
+
+@pytest.mark.parametrize(
+    ("task", "then_render", "soft_event"),
+    [
+        (worker_tasks.download_post_audio, True, "download_post_audio_soft_time_limit"),
+        (worker_tasks.prepare_post_audio, False, "download_post_audio_soft_time_limit"),
+    ],
+)
+def test_the_download_tasks_differ_only_in_the_render_flag(
+    task: Any,
+    then_render: bool,
+    soft_event: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run = MagicMock()
+    monkeypatch.setattr(worker_tasks, "run_media_task", run)
+
+    task.run(7)
+
+    post_id, perform, event = run.call_args.args
+    assert (post_id, event) == (7, soft_event)
+    assert perform.func is worker_tasks.perform_download_post_audio
+    assert perform.keywords == {"then_render": then_render}
+
+
+def test_the_prepare_task_carries_the_download_limits() -> None:
+    task = worker_tasks.prepare_post_audio
+
+    assert task.name == PREPARE_POST_AUDIO_TASK_NAME
+    assert task.soft_time_limit == worker_tasks.settings.download_task_soft_time_limit_seconds
+    assert task.time_limit == worker_tasks.settings.download_task_time_limit_seconds
+
+
+def test_a_prepare_soft_limit_fails_the_post_with_the_timeout_sentence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fail = MagicMock(return_value="failing")
+    monkeypatch.setattr(worker_tasks, "fail_media_post_by_id", fail)
+    calls: list[object] = []
+
+    def run_async(coroutine: object) -> None:
+        calls.append(coroutine)
+        if len(calls) == 1:
+            raise SoftTimeLimitExceeded
+
+    monkeypatch.setattr(worker_tasks, "run_async", run_async)
+    perform = MagicMock(return_value="performing")
+
+    worker_tasks.run_media_task(7, perform, "download_post_audio_soft_time_limit")
+
+    fail.assert_called_once_with(7, worker_tasks.MEDIA_TASK_TIMEOUT_ERROR)
+    assert calls == ["performing", "failing"]
 
 
 async def test_ffmpeg_runs_with_no_session_and_no_lock_open(

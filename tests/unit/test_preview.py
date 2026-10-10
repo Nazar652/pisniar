@@ -167,29 +167,38 @@ async def test_the_old_draft_loses_its_keyboard() -> None:
     """its publish button would send the cover photo instead of the video."""
     bot = AsyncMock()
 
-    await remove_draft_keyboard(bot, make_post())
+    await remove_draft_keyboard(bot, 555, 41, 1)
 
     assert bot.edit_message_reply_markup.await_args.kwargs == {
         "chat_id": 555,
         "message_id": 41,
         "reply_markup": None,
+        "request_timeout": None,
     }
 
 
-async def test_a_post_without_a_draft_has_no_keyboard_to_remove() -> None:
+async def test_the_draft_keyboard_removal_passes_the_request_timeout() -> None:
     bot = AsyncMock()
 
-    await remove_draft_keyboard(bot, make_post(draft=None))
+    await remove_draft_keyboard(bot, 555, 41, 1, request_timeout=15)
 
-    bot.edit_message_reply_markup.assert_not_awaited()
+    assert bot.edit_message_reply_markup.await_args.kwargs["request_timeout"] == 15
 
 
-async def test_a_failed_keyboard_removal_never_raises() -> None:
+async def test_a_failed_keyboard_removal_never_raises_and_warns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """cosmetic on its own — the status transition is the real guard — so it
     must not undo a render that already succeeded."""
+    fake_logger = MagicMock()
+    monkeypatch.setattr(preview_module, "logger", fake_logger)
     bot = AsyncMock()
     bot.edit_message_reply_markup.side_effect = TelegramAPIError(
         method=SendVideo(chat_id=555, video="x"), message="message not found"
     )
 
-    await remove_draft_keyboard(bot, make_post())
+    await remove_draft_keyboard(bot, 555, 41, 7)
+
+    fake_logger.warning.assert_called_once()
+    assert fake_logger.warning.call_args.args == ("draft_keyboard_removal_failed",)
+    assert fake_logger.warning.call_args.kwargs["post_id"] == 7

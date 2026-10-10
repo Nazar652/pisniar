@@ -145,8 +145,58 @@ describe('FragmentEditor', () => {
 })
 
 describe('FragmentSection', () => {
-  const fragment = { start_ms: 0, end_ms: 45_000, choosable: true, reason: null }
+  const fragment = {
+    start_ms: 0,
+    end_ms: 45_000,
+    choosable: true,
+    preparable: false,
+    preparing: false,
+    reason: null,
+  }
+  const unavailable = { start_ms: null, end_ms: null, choosable: false }
   const base = { client: fakeServer({}).client, postId: 7, webApp: undefined }
+
+  it('offers to prepare the audio of a draft with the warning about the cover', async () => {
+    const html = await render(FragmentSection, {
+      ...base,
+      fragment: {
+        ...unavailable,
+        preparable: true,
+        preparing: false,
+        reason: 'Спершу підготуємо аудіо.',
+      },
+    })
+
+    expect(html).toContain('Спершу підготуємо аудіо.')
+    expect(html).toContain('Обрати фрагмент')
+    expect(html).not.toContain('Готуємо аудіо')
+  })
+
+  it('says the audio is being prepared and offers no button while it is', async () => {
+    const html = await render(FragmentSection, {
+      ...base,
+      fragment: { ...unavailable, preparable: false, preparing: true, reason: 'Аудіо готується.' },
+    })
+
+    expect(html).toContain('Готуємо аудіо…')
+    expect(html).toContain('role="status"')
+    expect(html).not.toContain('<button')
+  })
+
+  it('renders every server sentence as text, never as markup', async () => {
+    const html = await render(FragmentSection, {
+      ...base,
+      fragment: {
+        ...unavailable,
+        preparable: true,
+        preparing: false,
+        reason: '<img src=x onerror=alert(1)>',
+      },
+    })
+
+    expect(html).not.toContain('<img')
+    expect(html).toContain('&lt;img')
+  })
 
   it('offers to open the editor and shows the bounds in the video now', async () => {
     const html = await render(FragmentSection, { ...base, fragment })
@@ -160,7 +210,12 @@ describe('FragmentSection', () => {
   it('shows the reason instead of a button when the fragment cannot be chosen', async () => {
     const html = await render(FragmentSection, {
       ...base,
-      fragment: { start_ms: null, end_ms: null, choosable: false, reason: 'Відео ще не готове.' },
+      fragment: {
+        ...unavailable,
+        preparable: false,
+        preparing: false,
+        reason: 'Відео ще не готове.',
+      },
     })
 
     expect(html).toContain('Відео ще не готове.')
@@ -170,7 +225,7 @@ describe('FragmentSection', () => {
   it('has a sentence of its own when the server gave no reason', async () => {
     const html = await render(FragmentSection, {
       ...base,
-      fragment: { start_ms: null, end_ms: null, choosable: false, reason: null },
+      fragment: { ...unavailable, preparable: false, preparing: false, reason: null },
     })
 
     expect(html).toContain('Фрагмент зараз обрати не можна.')

@@ -101,11 +101,14 @@ class CaptionView(BaseModel):
 
 
 class FragmentAvailability(BaseModel):
-    """whether the fragment can be chosen now, judged from the status alone."""
+    """whether the fragment can be chosen now, or the audio can be prepared for it, judged from
+    the status alone; at most one flag is true."""
 
     start_ms: int | None
     end_ms: int | None
     choosable: bool
+    preparable: bool
+    preparing: bool
     reason: str | None
 
 
@@ -143,6 +146,11 @@ class FragmentRenderStarted(BaseModel):
     status_label: str
     start_ms: int
     end_ms: int
+
+
+class AudioPreparationStarted(BaseModel):
+    post_id: int
+    status_label: str
 
 
 class PostDetail(BaseModel):

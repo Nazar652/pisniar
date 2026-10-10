@@ -73,17 +73,27 @@ async def remove_preview_keyboard(
         )
 
 
-async def remove_draft_keyboard(bot: Bot, post: Post) -> None:
+async def remove_draft_keyboard(
+    bot: Bot,
+    chat_id: int,
+    message_id: int,
+    post_id: int,
+    request_timeout: int | None = None,
+) -> None:
     """otherwise the cover photo could still go out instead of the video.
     Cosmetic (the status transition is the real guard), so it never raises."""
-    if post.draft_chat_id is None or post.draft_message_id is None:
-        return
-
     try:
         await bot.edit_message_reply_markup(
-            chat_id=post.draft_chat_id, message_id=post.draft_message_id, reply_markup=None
+            chat_id=chat_id,
+            message_id=message_id,
+            reply_markup=None,
+            request_timeout=request_timeout,
         )
     except TelegramAPIError:
-        # already removed on the button tap; this pass covers the routes
-        # (a `/retry`, a redelivery) that never went through one.
-        logger.warning("preview_draft_keyboard_removal_failed", post_id=post.id, exc_info=True)
+        logger.warning(
+            "draft_keyboard_removal_failed",
+            post_id=post_id,
+            chat_id=chat_id,
+            message_id=message_id,
+            exc_info=True,
+        )

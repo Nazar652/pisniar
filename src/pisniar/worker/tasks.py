@@ -10,6 +10,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -79,6 +80,7 @@ from pisniar.worker import storage as media_storage
 from pisniar.worker.celery_app import (
     DOWNLOAD_POST_AUDIO_TASK_NAME,
     PING_TASK_NAME,
+    PREPARE_POST_AUDIO_TASK_NAME,
     PUBLISH_POST_TASK_NAME,
     RENDER_POST_VIDEO_TASK_NAME,
     RESOLVE_POST_TASK_NAME,
@@ -912,7 +914,8 @@ async def fail_publish(
 # legal entries per `db.states` minus FAILED: the bot writes the target status
 # before dispatching, so a task that finds FAILED is always a redelivery.
 DOWNLOAD_ENTRY_STATUSES = frozenset({PostStatus.RESOLVED, PostStatus.DOWNLOADING})
-RENDER_ENTRY_STATUSES = frozenset({PostStatus.DOWNLOADED, PostStatus.EDITING, PostStatus.RENDERING})
+# `EDITING` is the pause for a human's fragment choice: a render that finds it is not ours.
+RENDER_ENTRY_STATUSES = frozenset({PostStatus.DOWNLOADED, PostStatus.RENDERING})
 
 MEDIA_TASK_TIMEOUT_ERROR = (
     "перевищено м'який ліміт часу задачі — це ТАЙМАУТ, а не помилка обробки; "
@@ -1035,7 +1038,28 @@ def download_post_audio(self: Any, post_id: int) -> None:
     """own time limits: the resolve limits gate `/retry`, so they stay put."""
     bind_celery_task_id(self.request.id)
     bind_post_id(post_id)
-    run_media_task(post_id, perform_download_post_audio, "download_post_audio_soft_time_limit")
+    run_media_task(
+        post_id,
+        partial(perform_download_post_audio, then_render=True),
+        "download_post_audio_soft_time_limit",
+    )
+
+
+@celery_app.task(
+    name=PREPARE_POST_AUDIO_TASK_NAME,
+    bind=True,
+    soft_time_limit=settings.download_task_soft_time_limit_seconds,
+    time_limit=settings.download_task_time_limit_seconds,
+)
+def prepare_post_audio(self: Any, post_id: int) -> None:
+    """the same download, but it never chains a render: the post stops as `EDITING`."""
+    bind_celery_task_id(self.request.id)
+    bind_post_id(post_id)
+    run_media_task(
+        post_id,
+        partial(perform_download_post_audio, then_render=False),
+        "download_post_audio_soft_time_limit",
+    )
 
 
 def run_media_task(
@@ -1073,7 +1097,7 @@ async def guard_media_stage[StageResult](
     return None
 
 
-async def perform_download_post_audio(post_id: int) -> None:
+async def perform_download_post_audio(post_id: int, *, then_render: bool) -> None:
     async with task_session_factory(lock_timeout_ms=LOCK_TIMEOUT_MS) as session_factory:
         temporary_directory = media_storage.task_temporary_directory(settings.media_root, post_id)
 
@@ -1097,7 +1121,7 @@ async def perform_download_post_audio(post_id: int) -> None:
         if outcome is None:
             return
 
-        await finish_download(session_factory, claim, outcome)
+        await finish_download(session_factory, claim, outcome, then_render=then_render)
 
 
 async def claim_post_for_downloading(
@@ -1189,7 +1213,11 @@ async def finish_download(
     session_factory: async_sessionmaker[AsyncSession],
     claim: DownloadClaim,
     outcome: DownloadOutcome,
+    *,
+    then_render: bool,
 ) -> None:
+    """with `then_render` the post waits as `DOWNLOADED` for the chained render; without
+    it the audio is ready and the post waits for the fragment choice as `EDITING`."""
     async with session_factory() as session:
         try:
             post = await session.get(Post, claim.post_id, with_for_update=True)
@@ -1217,6 +1245,8 @@ async def finish_download(
         post.fragment_end_ms = bounds.end_ms
 
         set_post_status(post, PostStatus.DOWNLOADED)
+        if not then_render:
+            set_post_status(post, PostStatus.EDITING)
         await session.commit()
 
     logger.info(
@@ -1232,7 +1262,10 @@ async def finish_download(
         fragment_end_ms=bounds.end_ms,
     )
 
-    await chain_render_after_download(session_factory, claim.post_id)
+    if then_render:
+        await chain_render_after_download(session_factory, claim.post_id)
+    else:
+        logger.info("audio_ready_for_fragment_choice", post_id=claim.post_id)
 
 
 async def chain_render_after_download(
@@ -1748,8 +1781,8 @@ async def deliver_preview_for(post: Post, outcome: RenderOutcome) -> None:
         await deliver_preview(
             bot, post, preview_chat_id, rendered_video(outcome), settings.webapp_public_url
         )
-        if first_preview:
-            await remove_draft_keyboard(bot, post)
+        if first_preview and post.draft_chat_id is not None and post.draft_message_id is not None:
+            await remove_draft_keyboard(bot, post.draft_chat_id, post.draft_message_id, post.id)
 
 
 def upsert_render_statement(claim: RenderClaim, outcome: RenderOutcome) -> PostgresInsert:

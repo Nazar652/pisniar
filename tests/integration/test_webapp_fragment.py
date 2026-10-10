@@ -13,7 +13,11 @@ from pisniar.db.models import AudioAsset, Post, Track
 from pisniar.db.states import PostStatus
 from pisniar.webapp.errors import ApiProblem
 from pisniar.webapp.fragment_view import FragmentSource, fetch_fragment_source
-from pisniar.webapp.status import FRAGMENT_PUBLISHED_REASON, MEDIA_IN_PROGRESS_REASON
+from pisniar.webapp.status import (
+    FRAGMENT_PREPARING_REASON,
+    FRAGMENT_PUBLISHED_REASON,
+    MEDIA_IN_PROGRESS_REASON,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -111,7 +115,7 @@ async def test_a_missing_post_is_none(db_session: AsyncSession) -> None:
     [
         (PostStatus.PUBLISHED, None, FRAGMENT_PUBLISHED_REASON),
         (PostStatus.RENDERING, None, MEDIA_IN_PROGRESS_REASON),
-        (PostStatus.DOWNLOADING, None, MEDIA_IN_PROGRESS_REASON),
+        (PostStatus.DOWNLOADING, None, FRAGMENT_PREPARING_REASON),
         (PostStatus.RESOLVED, None, None),
         (PostStatus.FAILED, PostStatus.PUBLISHING, None),
     ],

@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from sqlalchemy.exc import DBAPIError
@@ -95,12 +95,18 @@ def chain(monkeypatch: pytest.MonkeyPatch, database: SimpleNamespace) -> AsyncMo
     return mock
 
 
+async def finish_download(database: SimpleNamespace, *, then_render: bool = True) -> None:
+    await worker_tasks.finish_download(
+        database.session_factory, DOWNLOAD_CLAIM, DOWNLOAD_OUTCOME, then_render=then_render
+    )
+
+
 async def test_a_finished_download_records_the_asset_the_bounds_and_the_status(
     database: SimpleNamespace, chain: AsyncMock
 ) -> None:
     database.post = make_post(PostStatus.DOWNLOADING)
 
-    await worker_tasks.finish_download(database.session_factory, DOWNLOAD_CLAIM, DOWNLOAD_OUTCOME)
+    await finish_download(database)
 
     assert database.post.status is PostStatus.DOWNLOADED
     assert (database.post.fragment_start_ms, database.post.fragment_end_ms) == (0, 45_000)
@@ -112,10 +118,35 @@ async def test_the_render_is_chained_only_after_the_download_commits(
 ) -> None:
     database.post = make_post(PostStatus.DOWNLOADING)
 
-    await worker_tasks.finish_download(database.session_factory, DOWNLOAD_CLAIM, DOWNLOAD_OUTCOME)
+    await finish_download(database)
 
     assert database.order == ["execute", "commit", "chain"]
     chain.assert_awaited_once_with(database.session_factory, POST_ID)
+
+
+async def test_a_prepared_download_ends_as_editing_in_one_commit_and_chains_nothing(
+    database: SimpleNamespace, chain: AsyncMock
+) -> None:
+    database.post = make_post(PostStatus.DOWNLOADING)
+
+    await finish_download(database, then_render=False)
+
+    assert database.post.status is PostStatus.EDITING
+    assert (database.post.fragment_start_ms, database.post.fragment_end_ms) == (0, 45_000)
+    assert database.order == ["execute", "commit"]
+    chain.assert_not_awaited()
+
+
+async def test_a_prepared_download_never_sends_a_task(
+    database: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    send_task = MagicMock()
+    monkeypatch.setattr(worker_tasks.celery_app, "send_task", send_task)
+    database.post = make_post(PostStatus.DOWNLOADING)
+
+    await finish_download(database, then_render=False)
+
+    send_task.assert_not_called()
 
 
 async def test_bounds_already_on_the_post_survive_the_download(
@@ -125,7 +156,7 @@ async def test_bounds_already_on_the_post_survive_the_download(
         PostStatus.DOWNLOADING, fragment_start_ms=60_000, fragment_end_ms=105_000
     )
 
-    await worker_tasks.finish_download(database.session_factory, DOWNLOAD_CLAIM, DOWNLOAD_OUTCOME)
+    await finish_download(database)
 
     assert (database.post.fragment_start_ms, database.post.fragment_end_ms) == (60_000, 105_000)
 
@@ -135,7 +166,7 @@ async def test_a_locked_post_ends_the_download_without_chaining(
 ) -> None:
     database.lock_error = True
 
-    await worker_tasks.finish_download(database.session_factory, DOWNLOAD_CLAIM, DOWNLOAD_OUTCOME)
+    await finish_download(database)
 
     assert database.order == ["rollback"]
     chain.assert_not_awaited()
@@ -148,7 +179,7 @@ async def test_a_post_that_is_no_longer_downloading_is_left_alone(
     post = None if status is None else make_post(status)
     database.post = post
 
-    await worker_tasks.finish_download(database.session_factory, DOWNLOAD_CLAIM, DOWNLOAD_OUTCOME)
+    await finish_download(database)
 
     assert database.order == []
     chain.assert_not_awaited()
@@ -352,9 +383,15 @@ async def test_a_failure_removing_the_superseded_keyboard_never_raises(
     )
 
 
-@pytest.mark.parametrize(("previewed", "draft_keyboard_removed"), [(False, True), (True, False)])
+@pytest.mark.parametrize(
+    ("previewed", "has_draft", "draft_keyboard_removed"),
+    [(False, True, True), (True, True, False), (False, False, False)],
+)
 async def test_only_the_first_preview_removes_the_draft_keyboard(
-    previewed: bool, draft_keyboard_removed: bool, monkeypatch: pytest.MonkeyPatch
+    previewed: bool,
+    has_draft: bool,
+    draft_keyboard_removed: bool,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     patch_bot_client(monkeypatch, AsyncMock())
     deliver = AsyncMock()
@@ -364,8 +401,13 @@ async def test_only_the_first_preview_removes_the_draft_keyboard(
     post = (
         make_previewed_post(PostStatus.RENDERING) if previewed else make_post(PostStatus.RENDERING)
     )
+    if has_draft:
+        post.draft_chat_id, post.draft_message_id = 555, 41
 
     await worker_tasks.deliver_preview_for(post, RENDER_OUTCOME)
 
     deliver.assert_awaited_once()
     assert remove_draft.await_count == (1 if draft_keyboard_removed else 0)
+    if draft_keyboard_removed:
+        assert remove_draft.await_args is not None
+        assert remove_draft.await_args.args[1:] == (555, 41, POST_ID)

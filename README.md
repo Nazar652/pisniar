@@ -43,7 +43,10 @@ confirmation. A published post whose channel message was deleted by hand can be
 archived from the same screen. The buttons exist only when `WEBAPP_PUBLIC_URL`
 is set; without it the bot works exactly as before.
 
-Once a post has a video preview, the **Фрагмент** section of the same editor
+On a draft, **Фрагмент** → **Обрати фрагмент** first prepares the audio (up to
+a minute; the draft's buttons go, so the cover alone can no longer be published),
+then opens the editor below, and the first preview is rendered with the chosen
+part. Once a post has a video preview, the **Фрагмент** section of the same editor
 shows the track's waveform with the current fragment as a region. Drag it or
 its edges (or step them by ±1 s / ±0.1 s), listen with **Програти фрагмент**,
 and **Зробити відео з цим фрагментом** renders the post again with those bounds
@@ -301,3 +304,7 @@ With a real `.env` in place and the stack up (`make up`):
     sentence that names the numbers.
 27. Two tabs on the same fragment: the second submit reloads with a sentence
     instead of starting a second render.
+28. On a draft that was never rendered, **Фрагмент** → **Обрати фрагмент** →
+    «Готуємо аудіо…» → the editor opens; choose 1:10–1:50 → the first preview is
+    exactly that part. In the chat, the publish and render taps of such a post
+    answer that the audio is ready, and `/retry` changes nothing.

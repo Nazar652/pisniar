@@ -101,6 +101,20 @@ def test_every_stale_stage_has_an_answer_a_limit_and_a_self_edge() -> None:
         set_post_status(post, handlers.RETRY_TARGET_STATUS[branch])
 
 
+def test_the_bot_in_progress_sentences_promise_no_preview() -> None:
+    """a prepare-path download or a post waiting for its choice is followed by no preview."""
+    sentences = [
+        handlers.MEDIA_IN_PROGRESS_ANSWER,
+        handlers.STALE_STAGE_ANSWER[PostStatus.DOWNLOADING],
+    ]
+    assert all("прев" not in sentence for sentence in sentences)
+
+
+def test_a_post_awaiting_a_human_is_not_a_stale_stage() -> None:
+    """`editing` waits for the admin's fragment choice, not for a worker."""
+    assert PostStatus.EDITING not in handlers.STALE_STAGE_BRANCH
+
+
 def test_the_media_stages_are_measured_against_their_own_limits() -> None:
     """the resolve window is `worker.celery_app`'s constant and the media ones come
     from `Settings`, so raising one never widens another."""

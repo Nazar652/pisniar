@@ -21,6 +21,7 @@ from pisniar.db.models import Post, Track
 from pisniar.db.session import session_scope
 from pisniar.db.states import IllegalStatusTransitionError, PostStatus, set_post_status
 from pisniar.dispatch import (
+    DOWNLOAD_DISPATCH_FAILED_ERROR,
     RENDER_DISPATCH_FAILED_ERROR,
     dispatch_task,
     mark_dispatch_failure,
@@ -59,7 +60,6 @@ settings = get_settings()
 
 DISPATCH_FAILED_ERROR = "не вдалося поставити задачу в чергу"
 PUBLISH_DISPATCH_FAILED_ERROR = "не вдалося поставити задачу публікації в чергу"
-DOWNLOAD_DISPATCH_FAILED_ERROR = "не вдалося поставити задачу завантаження аудіо в чергу"
 UNKNOWN_CALLBACK_ANSWER = "Невідома дія."
 ARCHIVED_POST_ANSWER = "Пост {post_id} архівовано — дій із ним немає."
 EDIT_FORMAT_ANSWER = "Формат команди: /edit [post_id]"
@@ -77,8 +77,12 @@ MEDIA_IN_PROGRESS_STATUSES = frozenset(
     {PostStatus.DOWNLOADING, PostStatus.DOWNLOADED, PostStatus.RENDERING}
 )
 MEDIA_IN_PROGRESS_ANSWER = (
-    "Для поста {post_id} саме зараз готується відео. Дочекайтесь прев'ю — "
-    "кнопка публікації буде під ним."
+    "Для поста {post_id} саме зараз готується відео. Дочекайтесь завершення — "
+    "тоді дії з постом знову будуть доступні."
+)
+AUDIO_READY_ANSWER = (
+    "Для поста {post_id} аудіо вже підготовлено — оберіть фрагмент у редакторі "
+    "(/edit {post_id}, розділ «Фрагмент»)."
 )
 MEDIA_FAILED_STAGES = MEDIA_IN_PROGRESS_STATUSES | {PostStatus.EDITING}
 OUTDATED_PREVIEW_ANSWER = (
@@ -162,7 +166,7 @@ STALE_STAGE_BRANCH = {
 
 STALE_STAGE_ANSWER = {
     PostStatus.RESOLVING: "Пост {post_id} уже обробляється. Зачекайте на чернетку або на помилку.",
-    PostStatus.DOWNLOADING: "Для поста {post_id} уже качається аудіо. Зачекайте на прев'ю.",
+    PostStatus.DOWNLOADING: "Для поста {post_id} уже качається аудіо. Зачекайте на завершення.",
     PostStatus.DOWNLOADED: "Для поста {post_id} рендер уже в черзі. Зачекайте на прев'ю.",
     PostStatus.RENDERING: "Для поста {post_id} уже рендериться відео. Зачекайте на прев'ю.",
 }
@@ -229,6 +233,14 @@ async def handle_retry(
         if post.status is PostStatus.ARCHIVED:
             await message.answer(ARCHIVED_POST_ANSWER.format(post_id=post_id))
             logger.warning("retry_refused", reason="archived", user_id=user_id, post_id=post_id)
+            return
+
+        if post.status is PostStatus.EDITING:
+            # a person is choosing the fragment: nothing is stuck and no task would help.
+            await message.answer(AUDIO_READY_ANSWER.format(post_id=post_id))
+            logger.warning(
+                "retry_refused", reason="awaiting_fragment_choice", user_id=user_id, post_id=post_id
+            )
             return
 
         if post.status is PostStatus.FAILED:
@@ -598,6 +610,12 @@ def claim_post_for_publishing(
         )
         return MEDIA_IN_PROGRESS_ANSWER.format(post_id=post_id), None
 
+    if post.status is PostStatus.EDITING:
+        logger.warning(
+            "publish_refused", reason="awaiting_fragment_choice", user_id=user_id, post_id=post_id
+        )
+        return AUDIO_READY_ANSWER.format(post_id=post_id), None
+
     if post.preview_chat_id is not None and tapped != (
         post.preview_chat_id,
         post.preview_message_id,
@@ -655,6 +673,12 @@ def claim_post_for_media(
             post_id=post_id,
         )
         return MEDIA_IN_PROGRESS_ANSWER.format(post_id=post_id), None
+
+    if post.status is PostStatus.EDITING:
+        logger.warning(
+            "render_refused", reason="awaiting_fragment_choice", user_id=user_id, post_id=post_id
+        )
+        return AUDIO_READY_ANSWER.format(post_id=post_id), None
 
     if post.status is PostStatus.RENDERED:
         logger.warning(

@@ -157,6 +157,19 @@ async def test_a_failed_render_is_started_again_even_with_the_same_bounds(locks:
     assert (locks.post.failed_from_status, locks.post.last_error) == (None, None)
 
 
+async def test_a_post_with_ready_audio_renders_its_first_preview_from_the_chosen_bounds(
+    locks: Locks,
+) -> None:
+    locks.post = make_post(PostStatus.EDITING, preview=None)
+
+    choice = await choose_fragment(
+        MagicMock(), POST_ID, make_request(start_ms=0, end_ms=45_000), ADMIN_ID
+    )
+
+    assert choice == FragmentChoice(POST_ID, FragmentBounds(0, 45_000), None)
+    assert locks.post.status is PostStatus.RENDERING
+
+
 async def test_the_choice_remembers_the_preview_it_replaces(locks: Locks) -> None:
     locks.post = make_post(PostStatus.FAILED, failed_from=PostStatus.RENDERING, preview=PREVIEW)
 

@@ -15,6 +15,11 @@ from fastapi import Depends, FastAPI, Path, Query, Request
 from pisniar.db.states import PostStatus
 from pisniar.logging import get_logger
 from pisniar.webapp.applying import apply_caption, archive_post, edit_remaining
+from pisniar.webapp.audio_preparation import (
+    enqueue_audio_preparation,
+    prepare_audio,
+    release_draft_keyboard,
+)
 from pisniar.webapp.auth import AdminUser, WebappContext, require_admin
 from pisniar.webapp.database import read_from_database, write_to_database
 from pisniar.webapp.editing import POST_NOT_FOUND_MESSAGE, preview_fields, save_fields
@@ -32,6 +37,7 @@ from pisniar.webapp.schemas import (
     ApplyRequest,
     ApplyResponse,
     ArchiveResponse,
+    AudioPreparationStarted,
     FieldsInput,
     FieldsInvalid,
     FieldsUpdate,
@@ -251,6 +257,30 @@ async def start_fragment_render(
     )
 
 
+async def start_audio_preparation(
+    request: Request,
+    admin: Annotated[AdminUser, Depends(require_admin)],
+    post_id: Annotated[int, Path(ge=1, le=POST_ID_MAX)],
+) -> AudioPreparationStarted:
+    logger.info("audio_preparation_requested", user_id=admin.user_id, post_id=post_id)
+    async with refusals_logged("audio_preparation_refused", admin.user_id, post_id):
+        bot = telegram_bot_of(request)
+        celery_client = celery_client_of(request)
+        preparation = await write_to_database(
+            request, lambda session: prepare_audio(session, post_id, admin.user_id)
+        )
+        if preparation is None:
+            raise ApiProblem(404, "post_not_found", POST_NOT_FOUND_MESSAGE)
+
+    await enqueue_audio_preparation(
+        celery_client, request.app.state.session_factory, preparation, admin.user_id
+    )
+    await release_draft_keyboard(bot, preparation, admin.user_id)
+    return AudioPreparationStarted(
+        post_id=post_id, status_label=STATUS_LABELS[PostStatus.DOWNLOADING]
+    )
+
+
 async def read_meta() -> MetaResponse:
     return build_meta()
 
@@ -286,6 +316,14 @@ def register_post_routes(app: FastAPI) -> None:
         start_fragment_render,
         methods=["POST"],
         response_model=FragmentRenderStarted,
+        responses=EDIT_ERROR_RESPONSES,
+        dependencies=protected,
+    )
+    app.add_api_route(
+        "/api/posts/{post_id}/fragment/audio",
+        start_audio_preparation,
+        methods=["POST"],
+        response_model=AudioPreparationStarted,
         responses=EDIT_ERROR_RESPONSES,
         dependencies=protected,
     )

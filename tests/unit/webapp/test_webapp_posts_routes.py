@@ -65,7 +65,12 @@ def make_detail() -> PostDetail:
         editable=True,
         not_editable_reason=None,
         fragment=FragmentAvailability(
-            start_ms=None, end_ms=None, choosable=False, reason="Фрагмент ще не обрано."
+            start_ms=None,
+            end_ms=None,
+            choosable=False,
+            preparable=False,
+            preparing=False,
+            reason="Фрагмент ще не обрано.",
         ),
         created_at=STAMP,
         published_at=None,

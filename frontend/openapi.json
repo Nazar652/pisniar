@@ -161,6 +161,24 @@
         "title": "ArtistInput",
         "type": "object"
       },
+      "AudioPreparationStarted": {
+        "properties": {
+          "post_id": {
+            "title": "Post Id",
+            "type": "integer"
+          },
+          "status_label": {
+            "title": "Status Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "post_id",
+          "status_label"
+        ],
+        "title": "AudioPreparationStarted",
+        "type": "object"
+      },
       "CaptionSegmentView": {
         "properties": {
           "href": {
@@ -538,7 +556,7 @@
         "type": "object"
       },
       "FragmentAvailability": {
-        "description": "whether the fragment can be chosen now, judged from the status alone.",
+        "description": "whether the fragment can be chosen now, or the audio can be prepared for it, judged from\nthe status alone; at most one flag is true.",
         "properties": {
           "choosable": {
             "title": "Choosable",
@@ -554,6 +572,14 @@
               }
             ],
             "title": "End Ms"
+          },
+          "preparable": {
+            "title": "Preparable",
+            "type": "boolean"
+          },
+          "preparing": {
+            "title": "Preparing",
+            "type": "boolean"
           },
           "reason": {
             "anyOf": [
@@ -582,6 +608,8 @@
           "start_ms",
           "end_ms",
           "choosable",
+          "preparable",
+          "preparing",
           "reason"
         ],
         "title": "FragmentAvailability",
@@ -2153,6 +2181,97 @@
           }
         },
         "summary": "Start Fragment Render"
+      }
+    },
+    "/api/posts/{post_id}/fragment/audio": {
+      "post": {
+        "operationId": "start_audio_preparation_api_posts__post_id__fragment_audio_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "post_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Post Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AudioPreparationStarted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FieldsInvalid"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Start Audio Preparation"
       }
     },
     "/api/posts/{post_id}/preview": {

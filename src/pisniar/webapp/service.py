@@ -138,6 +138,8 @@ def build_post_detail(post: Post, track: Track, other_post_ids: list[int]) -> Po
             start_ms=post.fragment_start_ms,
             end_ms=post.fragment_end_ms,
             choosable=choosability.choosable,
+            preparable=choosability.preparable,
+            preparing=choosability.preparing,
             reason=choosability.reason,
         ),
         created_at=post.created_at,

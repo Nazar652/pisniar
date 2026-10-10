@@ -241,6 +241,7 @@ def test_a_rendered_preview_carries_the_preview_keyboard() -> None:
         (PostStatus.PUBLISHED, MessageRole.DRAFT),
         (PostStatus.PUBLISHING, MessageRole.PREVIEW),
         (PostStatus.DOWNLOADING, MessageRole.DRAFT),
+        (PostStatus.EDITING, MessageRole.DRAFT),
     ],
 )
 def test_a_message_in_any_other_state_carries_no_keyboard(

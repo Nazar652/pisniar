@@ -118,6 +118,15 @@ def test_a_failed_post_edits_the_draft_and_any_preview_without_a_keyboard(
     assert all(t.reply_markup is None for t in targets)
 
 
+def test_a_post_with_ready_audio_edits_its_draft_without_a_keyboard() -> None:
+    post, _ = make_post(PostStatus.EDITING)
+
+    targets = message_targets(post, URL)
+
+    assert [(t.role, t.chat_id, t.message_id) for t in targets] == [("draft", 5, 100)]
+    assert targets[0].reply_markup is None
+
+
 @pytest.mark.parametrize("kind", ["photo", "video", "text"])
 def test_a_published_post_edits_the_channel_message_by_its_kind_without_a_keyboard(
     kind: str,

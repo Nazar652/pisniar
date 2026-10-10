@@ -206,9 +206,10 @@ suggest or introduce either.
   modules**: `worker.fragment`, `worker.storage`, `worker.peaks_format` (the peaks file format and
   its validating `read_peaks`, which `worker.peaks` imports too) and `worker.celery_app` (imports
   only celery). They import no other worker module, so the webapp never loads ffmpeg, the tasks, the
-  download or the render; the boundary test pins both lists. The webapp is a producer of **one task
-  only**: `RENDER_POST_VIDEO_TASK_NAME`, through `pisniar.dispatch.dispatch_task`; the same test
-  fails on any other `*_TASK_NAME`, a direct `send_task` or a spelled-out `pisniar.worker.` name in
+  download or the render; the boundary test pins both lists. The webapp is a producer of **two tasks
+  only**: `RENDER_POST_VIDEO_TASK_NAME` and `PREPARE_POST_AUDIO_TASK_NAME`, through
+  `pisniar.dispatch.dispatch_task`; the same test fails on any other `*_TASK_NAME`
+  (`DOWNLOAD_POST_AUDIO_TASK_NAME`, which chains a render, included), a direct `send_task` or a spelled-out `pisniar.worker.` name in
   `webapp/`. The limit is enforced by the code and that test, not by the broker credential: `webapp` gets the
   bot's authenticated `REDIS_URL` in `compose.yaml` but no `depends_on: redis`. Its Celery client
   (`webapp.main`, closed on shutdown) connects lazily, so the app serves while Redis is down and only
@@ -224,9 +225,26 @@ suggest or introduce either.
   `post_updated_at`, the bounds a render would use (stored ones while they fit the file, else the
   default), the ffprobe-measured `audio_duration_ms` of the **current** `youtubeMusic` videoId,
   `max_length_ms` and `peaks` (`null` with a warning for a missing or corrupt file). It is offered for
-  `RENDERED` and for `FAILED` from `downloaded`/`rendering`; any other status is 409 `not_choosable`
-  with a sentence of its own (`status.choosability_of`, never a state name), and no audio for that
-  videoId is 409 `audio_missing`. `PostDetail.fragment` carries the same verdict from the status alone.
+  `EDITING`, `RENDERED` and for `FAILED` from `downloaded`/`rendering`; any other status is 409
+  `not_choosable` with a sentence of its own (`status.choosability_of`, never a state name), and no
+  audio for that videoId is 409 `audio_missing`. `PostDetail.fragment` carries the same verdict from
+  the status alone: `{choosable, preparable, preparing, reason}`, at most one flag true (`RESOLVED` and
+  `FAILED(downloading)` are preparable, `DOWNLOADING` is preparing).
+- **`POST /api/posts/{id}/fragment/audio` prepares the audio before the first render**
+  (`webapp.audio_preparation`), in the order database, queue, draft keyboard: post `FOR UPDATE
+  NOWAIT`, the preparable verdict (409 `not_preparable`; «Аудіо вже підготовлено.» when choosable),
+  the track `FOR NO KEY UPDATE`, a valid `youtubeMusic` videoId (409 `youtube_music_missing`),
+  `set_post_status(DOWNLOADING)`, commit; no Telegram or broker call inside. A refused NOWAIT or
+  `lock_timeout` is 409 `post_busy`, other database failures 503, a missing queue 503
+  `queue_unavailable`. After the commit `PREPARE_POST_AUDIO_TASK_NAME` is enqueued; a refusal runs
+  `dispatch.mark_dispatch_failure(expected_status=DOWNLOADING, DOWNLOAD_DISPATCH_FAILED_ERROR)` and
+  answers 503 `dispatch_failed`. Only after a successful enqueue the draft loses its keyboard
+  (`telegram.preview.remove_draft_keyboard`, 15 s `request_timeout`, best effort). Logs:
+  `audio_preparation_requested`, `audio_preparation_refused` (`reason`), `audio_preparation_dispatched`,
+  `audio_preparation_dispatch_failed`, `draft_keyboard_removal_failed`. Publishing the cover alone is
+  no longer possible afterwards, which the preparable sentence says beforehand. The route has no
+  rate limit: a stolen admin session could loop link edit -> prepare on the posts it can reach,
+  bounded by the number of posts, `ensure_free_space` and one download per post at a time.
   The `youtubeMusic` -> videoId parsing is `resolve.urls.stored_link_url` + `track_video_id_of`.
 - **The audio route (`GET /api/posts/{id}/audio?token=`) is the one signed route**, hidden from the
   schema, because `<audio>` sends no `Authorization` header. The token is
@@ -323,7 +341,10 @@ suggest or introduce either.
   thing that shows the archive button, and every server sentence is shown as it came. The caption
   preview renders segments by interpolation, links only for `http(s)`, and never `v-html`.
   The «Фрагмент» section (`FragmentSection`, in `PostEditor`) offers the fragment editor when
-  `PostDetail.fragment.choosable`, otherwise the reason sentence. `FragmentEditor` loads as its own
+  `PostDetail.fragment.choosable`; on `preparable` or `preparing` the button starts
+  `useAudioPreparation` (`idle -> requesting -> preparing -> ready | failed | timed_out`, a read of
+  `GET /api/posts/{id}` every 3 s for at most 210 s, stopped on unmount), `ready` opens the editor and
+  emits `prepared`, which `PostEditor` answers with `reloadIfClean()`; otherwise the reason sentence. `FragmentEditor` loads as its own
   async chunk (wavesurfer 7.12.12, MediaElement backend, the server's peaks and duration so nothing is
   decoded, one `RegionsPlugin` region); the instance lives in a `shallowRef` + `markRaw`, is created
   after the view arrives and destroyed on unmount, and vertical swipes are off while it is open
@@ -593,6 +614,16 @@ suggest or introduce either.
   commits `DOWNLOADED` before it chains the render. So `FAILED` is absent from
   `DOWNLOAD_ENTRY_STATUSES`/`RENDER_ENTRY_STATUSES`, though the transition
   table allows it.
+- **`EDITING` means «the audio is ready, a person is choosing the fragment»**, reached only by
+  `prepare_post_audio` (the Mini App's task: the download body without the render chain,
+  `perform_download_post_audio(post_id, *, then_render=False)`). `finish_download` writes
+  `DOWNLOADED` and then `EDITING` in one commit and logs `audio_ready_for_fragment_choice`; it
+  sends no task. `RENDER_ENTRY_STATUSES` is `{DOWNLOADED, RENDERING}`: a render that finds
+  `EDITING` is not ours and exits. `EDITING` is not in `STALE_STAGE_BRANCH` (nobody is stuck),
+  so the publish tap, «Зробити відео» and `/retry` answer `AUDIO_READY_ANSWER`
+  (reason `awaiting_fragment_choice`) and leave the post alone. `POST …/fragment` takes it to
+  `RENDERING` for the first preview; `DOWNLOADED` still means «render queued». `/retry` on
+  `FAILED(downloading)` or a stuck `DOWNLOADING` runs the chat download, with the default render.
 - **Cleanup has three levels.** `/data/tmp/<post_id>/` goes in a
   `finally`, always. Artifacts of deleted rows go **after** the commit — the
   reverse order would leave a surviving row pointing at a deleted file, and
@@ -609,8 +640,11 @@ suggest or introduce either.
 ## Lyrics and subtitles (`worker/lyrics.py`, `worker/ass.py`, `resolve/sources/lrclib.py`)
 
 - **The text path runs in the render's long phase, with no session open.**
-  Stored renderable lines win and LRCLIB is never asked; only when there are
-  none does `worker.lyrics.prepare_lyrics` fetch, persist in a short
+  One read returns `StoredLyrics(renderable_lines, total_count, edited_by_admin)`.
+  Timed lines win (`lyrics_already_stored`); lines with none timed are
+  `lyrics_untimed`; a saved text with zero lines is `lyrics_removed_by_admin`.
+  Each has its own notice sentence and none asks LRCLIB. Only when nothing is stored
+  and no human saved the text does `worker.lyrics.prepare_lyrics` fetch, persist in a short
   transaction of its own and read the lines back as plain values. Then
   `ass.build_ass_subtitles` shifts them into fragment time, and
   `render.text_version_of` hashes the resulting `.ass` text. `text_version`
@@ -729,21 +763,26 @@ suggest or introduce either.
   CHECK level — that is the shape a silent ffmpeg or yt-dlp failure takes.
 - `lyric` is one line per row, keyed to a **track**
   (`ON DELETE CASCADE`, like `audio_asset`), so posts of one recording share
-  the text. It holds **only synced lines** (`start_ms` is `NOT NULL`); plain
-  text without timecodes is never stored and is visible only as the reason
-  class `lyrics_unsynced` in the log and the admin's notice. `line_index` is
+  the text. `start_ms` is nullable: NULL is a line not yet timed (the `>= 0`
+  CHECK stays). The LRCLIB writer stores only synced lines, so plain text it
+  finds stays visible only as the reason class `lyrics_unsynced` in the log and
+  the admin's notice. `line_index` is
   the only order, `start_ms` orders nothing, and there is no `end_ms` — the
   render derives it. The render path reads the table only through
-  `models.renderable_lyrics_statement`, which spells `start_ms IS NOT NULL`
-  out, so the render code does not rely on the column's `NOT NULL`. `text` is raw
+  `models.renderable_lyrics_statement`, whose `start_ms IS NOT NULL` keeps an
+  untimed line out of the `.ass`. `MAX_LYRIC_LINES` and
+  `MAX_LYRICS_TOTAL_CHARACTERS` bound a stored text. `text` is raw
   as the source gave it (the ASS substitution happens at render time) and
   bounded at 500 characters by a CHECK; a longer line is cut, never dropped,
   because a `line_index` gap would read like a line deleted by hand. `source`
   is `'lrclib'` or `'manual'`.
-- **Lines are written only onto a track that has none, of any `source`.** The
-  writer locks the track `FOR NO KEY UPDATE` (the lock the resolve takes, which
-  `INSERT INTO post` still passes), counts its lines and inserts only when the
-  count is zero, in one short transaction. The lock is what makes that guard
+- **Lines are written automatically only onto a track that has none, of any
+  `source`, and whose `lyrics_edited_at` is NULL.** That column marks a text a
+  human saved, an empty one included, so a removed text is not refilled.
+  The writer locks the track `FOR NO KEY UPDATE` (the lock the resolve takes, which
+  `INSERT INTO post` still passes), counts its lines, reads the marker and inserts
+  only when the count is zero and the marker is NULL, in one short transaction.
+  `persist_under_track_lock` takes the `source` it writes. The lock is what makes that guard
   atomic: under READ COMMITTED a second writer counts only after the first
   commits, while `UNIQUE (track_id, line_index)` stops a duplicate index, not a
   mix of two writers' lines. **Every writer of `lyric` must take the same

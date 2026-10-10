@@ -212,6 +212,7 @@ watchEffect(() => {
         :post-id="postId"
         :web-app="webApp"
         @submitted="editor.reloadIfClean()"
+        @prepared="editor.reloadIfClean()"
       />
 
       <div v-if="editor.canApplyToChannel.value" class="card">

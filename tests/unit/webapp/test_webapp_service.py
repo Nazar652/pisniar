@@ -163,13 +163,25 @@ def test_the_detail_judges_the_fragment_from_the_status_alone() -> None:
         [],
     )
     published = build_post_detail(make_post(PostStatus.PUBLISHED), make_track(), [])
+    resolved = build_post_detail(make_post(PostStatus.RESOLVED), make_track(), [])
+    downloading = build_post_detail(make_post(PostStatus.DOWNLOADING), make_track(), [])
+    ready = build_post_detail(make_post(PostStatus.EDITING), make_track(), [])
 
     assert rendered.fragment == FragmentAvailability(
-        start_ms=10_000, end_ms=55_000, choosable=True, reason=None
+        start_ms=10_000,
+        end_ms=55_000,
+        choosable=True,
+        preparable=False,
+        preparing=False,
+        reason=None,
     )
     assert published.fragment.choosable is False
     assert published.fragment.reason
     assert published.fragment.start_ms is None
+    assert (resolved.fragment.preparable, resolved.fragment.choosable) == (True, False)
+    assert (downloading.fragment.preparing, downloading.fragment.choosable) == (True, False)
+    assert ready.fragment.choosable is True
+    assert ready.status_label == "Аудіо готове — оберіть фрагмент"
 
 
 def test_a_valid_album_id_gives_the_album_link_and_a_bad_one_none() -> None:
