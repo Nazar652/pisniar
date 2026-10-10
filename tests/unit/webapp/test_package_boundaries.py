@@ -1,6 +1,6 @@
 """Package boundaries: `webapp` never imports `bot`, reaches `worker` only through four leaf
-modules and enqueues the render and the prepare task alone; nothing imports `webapp`; `dispatch`
-is a leaf; `bot` reaches `resolve`, `post`, `telegram` and `worker` through a short list.
+modules and enqueues the render, prepare and publish tasks alone; nothing imports `webapp`;
+`dispatch` is a leaf; `bot` reaches `resolve`, `post`, `telegram` and `worker` by a short list.
 """
 
 from __future__ import annotations
@@ -162,13 +162,18 @@ def task_name_literals(package_directory: Path) -> list[str]:
     ]
 
 
-def test_the_webapp_enqueues_the_render_and_the_prepare_task_and_nothing_else() -> None:
+def test_the_webapp_enqueues_the_render_prepare_and_publish_tasks_and_nothing_else() -> None:
     webapp_directory = SOURCE_ROOT / "webapp"
 
     references = task_name_references(webapp_directory)
-    assert references == {"RENDER_POST_VIDEO_TASK_NAME", "PREPARE_POST_AUDIO_TASK_NAME"}
+    assert references == {
+        "RENDER_POST_VIDEO_TASK_NAME",
+        "PREPARE_POST_AUDIO_TASK_NAME",
+        "PUBLISH_POST_TASK_NAME",
+    }
     assert sorted(queue_calls(webapp_directory)) == [
         "audio_preparation.py: dispatch_task(PREPARE_POST_AUDIO_TASK_NAME)",
+        "cover_publication.py: dispatch_task(PUBLISH_POST_TASK_NAME)",
         "fragment_choice.py: dispatch_task(RENDER_POST_VIDEO_TASK_NAME)",
     ]
     assert task_name_literals(webapp_directory) == []

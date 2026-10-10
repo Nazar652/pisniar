@@ -158,20 +158,24 @@ suggest or introduce either.
   Celery redelivery only. A second button tap is refused in `bot.handlers`
   before `set_post_status()` ever sees it — the transition table alone
   accepts it and would dispatch a second task.
-- **There are two inline buttons and one callback grammar.** «Опублікувати в
-  канал» (`publish:<id>`) and «Зробити відео» (`render:<id>`)
-  both live under the draft; `telegram.keyboards.parse_callback` is the only
+- **There are two inline buttons and one callback grammar, and the draft carries one of them.**
+  «Зробити відео» (`render:<id>`) lives under the draft (`draft_keyboard`, with «Редагувати»);
+  «Опублікувати в канал» (`publish:<id>`) lives under the video preview alone.
+  `telegram.keyboards.parse_callback` is the only
   thing that reads a payload, and an unknown prefix is refused rather than
   falling through to publication. Both taps follow the same order —
   **database first (lock, guard, status, commit), keyboard second, dispatch
   last** — so a tap the database declined never loses its own button, and a
-  double tap has nothing left to press. A publish tap on a post that has a preview
-  must come from exactly that preview message (chat id and message id, an
-  inaccessible message counts), else it is refused as outdated with the post untouched;
+  double tap has nothing left to press. A publish tap on a post with no preview (an old
+  draft's button) is refused with `COVER_IN_EDITOR_ANSWER` (reason `cover_publication_in_editor`)
+  and the post is untouched; with a preview it must come from exactly that preview message
+  (chat id and message id, an inaccessible message counts), else it is refused as outdated;
   a tap on a `failed` post whose failed stage is a media one is refused with a
-  pointer to `/retry`.
-- **`RESOLVED -> PUBLISHING` stays legal while a render is running**, which
-  means the text draft's publish button is live during it. Refusing that tap
+  pointer to `/retry`. «Зробити відео» on a `PUBLISHING` post answers that it is publishing.
+  The cover alone is published only from the Mini App (`POST /api/posts/{id}/publish-cover`),
+  so without `WEBAPP_PUBLIC_URL` or in a group chat no path publishes it.
+- **`RESOLVED -> PUBLISHING` stays legal** (the Mini App's cover publication writes it), and an
+  old draft's publish button may still be tapped while a render is running. Refusing that tap
   with the generic "wrong state" sentence would name `downloading` and read
   to the admin like a breakage, so `MEDIA_IN_PROGRESS_STATUSES` gets a
   sentence that says what is actually happening.
@@ -214,8 +218,9 @@ suggest or introduce either.
   modules**: `worker.fragment`, `worker.storage`, `worker.peaks_format` (the peaks file format and
   its validating `read_peaks`, which `worker.peaks` imports too) and `worker.celery_app` (imports
   only celery). They import no other worker module, so the webapp never loads ffmpeg, the tasks, the
-  download or the render; the boundary test pins both lists. The webapp is a producer of **two tasks
-  only**: `RENDER_POST_VIDEO_TASK_NAME` and `PREPARE_POST_AUDIO_TASK_NAME`, through
+  download or the render; the boundary test pins both lists. The webapp is a producer of **three tasks
+  only**: `RENDER_POST_VIDEO_TASK_NAME`, `PREPARE_POST_AUDIO_TASK_NAME` and
+  `PUBLISH_POST_TASK_NAME`, through
   `pisniar.dispatch.dispatch_task`; the same test fails on any other `*_TASK_NAME`
   (`DOWNLOAD_POST_AUDIO_TASK_NAME`, which chains a render, included), a direct `send_task` or a spelled-out `pisniar.worker.` name in
   `webapp/`. The limit is enforced by the code and that test, not by the broker credential: `webapp` gets the
@@ -236,8 +241,11 @@ suggest or introduce either.
   `EDITING`, `RENDERED` and for `FAILED` from `downloaded`/`rendering`; any other status is 409
   `not_choosable` with a sentence of its own (`status.choosability_of`, never a state name), and no
   audio for that videoId is 409 `audio_missing`. `PostDetail.fragment` carries the same verdict from
-  the status alone: `{choosable, preparable, preparing, reason}`, at most one flag true (`RESOLVED` and
-  `FAILED(downloading)` are preparable, `DOWNLOADING` is preparing).
+  the status alone: `{choosable, preparable, preparing, cancellable, reason}`, at most one of the
+  first three true (`RESOLVED` and `FAILED(downloading)` are preparable, `DOWNLOADING` is preparing;
+  `cancellable` is `EDITING` alone). `PostDetail.cover_publication {allowed, reason}` is
+  `status.cover_publication_of(status, failed_from_status, has_preview)`: allowed for `RESOLVED` and
+  `FAILED` from `downloading`/`publishing`, only without a preview.
 - **`POST /api/posts/{id}/fragment/audio` prepares the audio before the first render**
   (`webapp.audio_preparation`), in the order database, queue, draft keyboard: post `FOR UPDATE
   NOWAIT`, the preparable verdict (409 `not_preparable`; «Аудіо вже підготовлено.» when choosable),
@@ -249,11 +257,34 @@ suggest or introduce either.
   answers 503 `dispatch_failed`. Only after a successful enqueue the draft loses its keyboard
   (`telegram.preview.remove_draft_keyboard`, 15 s `request_timeout`, best effort). Logs:
   `audio_preparation_requested`, `audio_preparation_refused` (`reason`), `audio_preparation_dispatched`,
-  `audio_preparation_dispatch_failed`, `draft_keyboard_removal_failed`. Publishing the cover alone is
-  no longer possible afterwards, which the preparable sentence says beforehand. The route has no
+  `audio_preparation_dispatch_failed`, `draft_keyboard_removal_failed`. The cover alone cannot be published while the audio is
+  prepared (see the cancel route below), which the preparable sentence says beforehand. The route has no
   rate limit: a stolen admin session could loop link edit -> prepare on the posts it can reach,
   bounded by the number of posts, `ensure_free_space` and one download per post at a time.
   The `youtubeMusic` -> videoId parsing is `resolve.urls.stored_link_url` + `track_video_id_of`.
+- **`POST /api/posts/{id}/fragment/cancel` gives the prepared audio up** (`webapp.audio_preparation`,
+  body `{expected_post_updated_at}` with extra fields refused, no task): post `FOR UPDATE NOWAIT`, the
+  verdict `status.cancellation_refusal_of` (only `EDITING` without a preview; else 409
+  `not_cancellable` with a sentence, «Рендер уже почався…» once a render began; `choosability_of`
+  derives `cancellable` from the same function), 409 `stale_data` on a stamp mismatch, the track `FOR NO KEY UPDATE`, `set_post_status(RESOLVED)` through the existing
+  `EDITING -> RESOLVED` edge, commit. After it `telegram.preview.restore_draft_keyboard` puts the
+  draft's keyboard back (`keyboard_for_state(RESOLVED, DRAFT)`: «Зробити відео» + «Редагувати»; 15 s,
+  «not modified» is a success, a refusal is logged as `draft_keyboard_restore_failed`). The audio stays
+  on the volume, so preparing again reuses it. `DOWNLOAD_ENTRY_STATUSES` is `{DOWNLOADING}`, so a late
+  prepare or download on the cancelled post exits without work. Logs `audio_preparation_cancel_requested`,
+  `audio_preparation_cancel_refused` (`reason`), and `audio_preparation_cancelled` from the route after the commit.
+- **`POST /api/posts/{id}/publish-cover` publishes the cover without a video**
+  (`webapp.cover_publication`), in the order database, queue, draft keyboard. Body
+  `{expected_post_updated_at}` (extra fields refused). One transaction: post `FOR UPDATE NOWAIT`, the
+  verdict `status.cover_publication_of` (409 `not_publishable`: no preview, and `RESOLVED` or `FAILED`
+  from `downloading`/`publishing`), the stamp (409 `stale_data`), the track read without a lock, the
+  rebuilt caption equal to the stored `post.caption` (409 `caption_unavailable` / `caption_not_applied`),
+  `set_post_status(PUBLISHING)`. After the commit `PUBLISH_POST_TASK_NAME` goes out with
+  `published_by_user_id` of the session admin; a refusal runs `mark_dispatch_failure(expected_status=PUBLISHING,
+  PUBLISH_DISPATCH_FAILED_ERROR)` and answers 503 `dispatch_failed` (`/retry N`). `publish_post` is unchanged
+  (no preview: `send_photo`, `kind=photo`; its barrier 1 refuses a second request). Logs
+  `cover_publication_requested`, `cover_publication_refused` (`reason`), `cover_publication_dispatched`,
+  `cover_publication_dispatch_failed`, `draft_keyboard_removal_failed`.
 - **The audio route (`GET /api/posts/{id}/audio?token=`) is the one signed route**, hidden from the
   schema, because `<audio>` sends no `Authorization` header. The token is
   `base64url(json{uid,pid,tid,vid,iat,exp}).base64url(hmac)` under `HMAC(bot_token,
@@ -352,7 +383,13 @@ suggest or introduce either.
   `PostDetail.fragment.choosable`; on `preparable` or `preparing` the button starts
   `useAudioPreparation` (`idle -> requesting -> preparing -> ready | failed | timed_out`, a read of
   `GET /api/posts/{id}` every 3 s for at most 210 s, stopped on unmount), `ready` opens the editor and
-  emits `prepared`, which `PostEditor` answers with `reloadIfClean()`; otherwise the reason sentence. `FragmentEditor` loads as its own
+  emits `prepared`, which `PostEditor` answers with `reloadIfClean()`; otherwise the reason sentence.
+  With `fragment.cancellable` a quiet «Скасувати підготовку» (`useCancelPreparation`, no `showConfirm`:
+  the step is reversible) posts the server's stamp (`postStamp` prop) and emits `cancelled`, again
+  answered with `reloadIfClean()`; `stale_data` and `not_cancellable` reload too. A quiet card at
+  the bottom of `PostEditor` offers «Опублікувати без відео» (`usePostEditor.publishWithoutVideo`)
+  when `cover_publication.allowed`; it needs a saved caption (`stored_caption_matches`, nothing
+  dirty), asks `showConfirm` and posts the server's `expected_post_updated_at` string. `FragmentEditor` loads as its own
   async chunk (wavesurfer 7.12.12, MediaElement backend, the server's peaks and duration so nothing is
   decoded, one `RegionsPlugin` region); the instance lives in a `shallowRef` + `markRaw`, is created
   after the view arrives and destroyed on unmount, and vertical swipes are off while it is open
@@ -585,8 +622,9 @@ suggest or introduce either.
   therefore happens while the post is still `RENDERING`, which is the state
   that can legally fail — `RENDERED` deliberately has no edge to `FAILED`.
   The text draft is a separate message (`editMessageMedia` cannot turn text
-  into media), so it loses its keyboard when the preview arrives: its publish
-  button would send the cover photo instead of the video.
+  into media), so it loses its keyboard when the preview arrives: a new draft
+  has no publish button, but an older draft or its render button would still start
+  a second path beside the preview.
 - **That transaction holds the post lock across one Telegram upload**, and
   that is deliberate — it is the same delivery guard `publish_post`'s barrier
   1 is, and the `RENDERING` status read under that lock is what makes it
@@ -813,8 +851,9 @@ suggest or introduce either.
 
 An admin sends a link; the bot classifies it, the worker resolves it across
 six sources ISRC-first, builds the caption at the 1024 media limit and
-delivers a draft with `/retry` on failure. «Опублікувати в канал» under the
-draft sends the cover with that caption as `send_photo` and records
+delivers a draft with `/retry` on failure. The draft offers «Зробити відео» and
+«Редагувати»; the Mini App's «Опублікувати без відео» sends the cover with that
+caption as `send_photo` and records
 `published_by_user_id`.
 
 «Зробити відео» starts the media chain instead: the worker downloads the

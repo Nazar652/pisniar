@@ -66,13 +66,12 @@ def test_no_address_means_no_edit_button() -> None:
     assert edit_button_rows(PRIVATE_CHAT, None, 7) == []
 
 
-def test_the_draft_keyboard_adds_the_edit_row_after_the_two_triggers() -> None:
+def test_the_draft_keyboard_adds_the_edit_row_after_the_render_trigger() -> None:
     keyboard = draft_keyboard(7, PRIVATE_CHAT, URL)
 
-    assert len(keyboard.inline_keyboard) == 3
-    assert [button.callback_data for row in keyboard.inline_keyboard[:2] for button in row] == [
-        "publish:7",
-        "render:7",
+    assert len(keyboard.inline_keyboard) == 2
+    assert [button.callback_data for row in keyboard.inline_keyboard[:1] for button in row] == [
+        "render:7"
     ]
     assert web_app_urls(keyboard) == [f"{URL}/?post_id=7"]
 

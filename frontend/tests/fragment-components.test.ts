@@ -154,7 +154,12 @@ describe('FragmentSection', () => {
     reason: null,
   }
   const unavailable = { start_ms: null, end_ms: null, choosable: false }
-  const base = { client: fakeServer({}).client, postId: 7, webApp: undefined }
+  const base = {
+    client: fakeServer({}).client,
+    postId: 7,
+    postStamp: '2026-05-01T12:00:00Z',
+    webApp: undefined,
+  }
 
   it('offers to prepare the audio of a draft with the warning about the cover', async () => {
     const html = await render(FragmentSection, {
@@ -181,6 +186,26 @@ describe('FragmentSection', () => {
     expect(html).toContain('Готуємо аудіо…')
     expect(html).toContain('role="status"')
     expect(html).not.toContain('<button')
+  })
+
+  it('offers to give up ready audio with a quiet button and no confirmation', async () => {
+    const html = await render(FragmentSection, {
+      ...base,
+      fragment: { ...fragment, cancellable: true },
+    })
+
+    expect(html).toContain('Скасувати підготовку')
+    expect(html).toMatch(/btn btn--quiet"[^>]*>\s*Скасувати підготовку/)
+    expect(html).not.toMatch(/btn btn--quiet"[^>]*disabled/)
+  })
+
+  it('offers no cancellation for anything but ready audio', async () => {
+    const html = await render(FragmentSection, {
+      ...base,
+      fragment: { ...fragment, cancellable: false },
+    })
+
+    expect(html).not.toContain('Скасувати підготовку')
   })
 
   it('renders every server sentence as text, never as markup', async () => {

@@ -150,11 +150,111 @@ AUDIO_PREPARATION_STATUSES = {
 }
 
 
-@pytest.mark.parametrize("current", [PostStatus.RENDERED, PostStatus.EDITING])
-def test_a_previewed_video_or_ready_audio_can_have_its_fragment_chosen(
-    current: PostStatus,
+def test_a_previewed_video_can_have_its_fragment_chosen() -> None:
+    assert choosability_of(PostStatus.RENDERED, None) == CHOOSABLE
+
+
+def test_ready_audio_can_have_its_fragment_chosen_and_be_given_up() -> None:
+    assert choosability_of(PostStatus.EDITING, None) == status.Choosability(
+        True, False, False, None, cancellable=True
+    )
+
+
+@pytest.mark.parametrize("current", list(PostStatus))
+@pytest.mark.parametrize("stage", [None, *PostStatus])
+@pytest.mark.parametrize("has_preview", [False, True])
+def test_cancellable_follows_the_cancel_refusal_rule(
+    current: PostStatus, stage: PostStatus | None, has_preview: bool
 ) -> None:
-    assert choosability_of(current, None) == CHOOSABLE
+    refusal = status.cancellation_refusal_of(current, has_preview)
+
+    assert choosability_of(current, stage, has_preview).cancellable == (refusal is None)
+
+
+def test_ready_audio_that_already_has_a_preview_is_not_cancellable() -> None:
+    verdict = choosability_of(PostStatus.EDITING, None, True)
+
+    assert (verdict.choosable, verdict.cancellable) == (True, False)
+
+
+def test_the_preparable_sentence_says_how_to_get_the_cover_alone() -> None:
+    assert "скасувати" in status.FRAGMENT_PREPARE_REASON
+    assert "вже не вийде" not in status.FRAGMENT_PREPARE_REASON
+
+
+def test_ready_audio_without_a_preview_can_be_given_up() -> None:
+    assert status.cancellation_refusal_of(PostStatus.EDITING, False) is None
+
+
+@pytest.mark.parametrize(
+    ("current", "has_preview", "sentence"),
+    [
+        (PostStatus.EDITING, True, status.NOT_CANCELLABLE_REASON),
+        (PostStatus.RESOLVED, False, status.NOT_CANCELLABLE_REASON),
+        (PostStatus.DOWNLOADING, False, status.NOT_CANCELLABLE_REASON),
+        (PostStatus.FAILED, False, status.NOT_CANCELLABLE_REASON),
+        (PostStatus.PUBLISHED, False, status.NOT_CANCELLABLE_REASON),
+        (PostStatus.DOWNLOADED, False, status.RENDER_STARTED_REASON),
+        (PostStatus.RENDERING, False, status.RENDER_STARTED_REASON),
+        (PostStatus.RENDERED, True, status.RENDER_STARTED_REASON),
+    ],
+)
+def test_the_cancel_refusal_is_a_sentence_without_a_state_name(
+    current: PostStatus, has_preview: bool, sentence: str
+) -> None:
+    assert status.cancellation_refusal_of(current, has_preview) == sentence
+    assert not any(state.value in sentence.lower() for state in PostStatus)
+
+
+@pytest.mark.parametrize(
+    ("current", "stage"),
+    [
+        (PostStatus.RESOLVED, None),
+        (PostStatus.FAILED, PostStatus.DOWNLOADING),
+        (PostStatus.FAILED, PostStatus.PUBLISHING),
+    ],
+)
+def test_a_draft_without_a_preview_can_be_published_as_a_cover(
+    current: PostStatus, stage: PostStatus | None
+) -> None:
+    assert status.cover_publication_of(current, stage, False) == status.CoverPublication(True, None)
+
+
+@pytest.mark.parametrize("current", list(PostStatus))
+@pytest.mark.parametrize("stage", [None, *PostStatus])
+def test_a_post_with_a_preview_is_never_published_as_a_cover(
+    current: PostStatus, stage: PostStatus | None
+) -> None:
+    assert status.cover_publication_of(current, stage, True).allowed is False
+
+
+@pytest.mark.parametrize("current", list(PostStatus))
+@pytest.mark.parametrize("stage", [None, *PostStatus])
+@pytest.mark.parametrize("has_preview", [False, True])
+def test_every_cover_refusal_is_a_sentence_and_allowed_means_no_reason(
+    current: PostStatus, stage: PostStatus | None, has_preview: bool
+) -> None:
+    verdict = status.cover_publication_of(current, stage, has_preview)
+
+    assert (verdict.reason is None) == verdict.allowed
+    if verdict.reason is not None:
+        assert not any(state.value in verdict.reason.lower() for state in PostStatus)
+
+
+@pytest.mark.parametrize("stage", [PostStatus.DOWNLOADED, PostStatus.RENDERING])
+def test_a_failed_render_without_a_preview_is_not_published_as_a_cover(
+    stage: PostStatus,
+) -> None:
+    verdict = status.cover_publication_of(PostStatus.FAILED, stage, False)
+
+    assert verdict == status.CoverPublication(False, status.COVER_RENDER_FAILED_REASON)
+
+
+def test_ready_audio_points_to_the_cancel_before_a_cover_can_go() -> None:
+    verdict = status.cover_publication_of(PostStatus.EDITING, None, False)
+
+    assert verdict == status.CoverPublication(False, status.COVER_AUDIO_READY_REASON)
+    assert "скасуйте" in status.COVER_AUDIO_READY_REASON
 
 
 @pytest.mark.parametrize("stage", [PostStatus.DOWNLOADED, PostStatus.RENDERING])

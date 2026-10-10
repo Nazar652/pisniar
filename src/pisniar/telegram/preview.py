@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramAPIError
+from aiogram.types import InlineKeyboardMarkup
 
 from pisniar.db.models import Post
 from pisniar.logging import get_logger
@@ -66,6 +67,35 @@ async def remove_preview_keyboard(
             return
         logger.warning(
             "preview_superseded_keyboard_removal_failed",
+            post_id=post_id,
+            chat_id=chat_id,
+            message_id=message_id,
+            exc_info=True,
+        )
+
+
+async def restore_draft_keyboard(
+    bot: Bot,
+    chat_id: int,
+    message_id: int,
+    post_id: int,
+    reply_markup: InlineKeyboardMarkup | None,
+    request_timeout: int | None = None,
+) -> None:
+    """a draft that went back from a cancelled preparation gets its buttons again. Cosmetic: an
+    unchanged keyboard is a success and a Telegram refusal is logged, never raised."""
+    try:
+        await bot.edit_message_reply_markup(
+            chat_id=chat_id,
+            message_id=message_id,
+            reply_markup=reply_markup,
+            request_timeout=request_timeout,
+        )
+    except TelegramAPIError as error:
+        if classify_edit_error(error) is EditOutcome.NOT_MODIFIED:
+            return
+        logger.warning(
+            "draft_keyboard_restore_failed",
             post_id=post_id,
             chat_id=chat_id,
             message_id=message_id,

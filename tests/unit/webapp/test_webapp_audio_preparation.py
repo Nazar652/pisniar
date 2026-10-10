@@ -244,7 +244,7 @@ async def test_the_draft_loses_its_keyboard_with_the_request_timeout(
     monkeypatch.setattr(audio_preparation, "remove_draft_keyboard", remove)
     bot = MagicMock()
 
-    await release_draft_keyboard(bot, PREPARATION, ADMIN_ID)
+    await release_draft_keyboard(bot, DRAFT, POST_ID, ADMIN_ID)
 
     remove.assert_awaited_once_with(bot, *DRAFT, POST_ID, request_timeout=15)
 
@@ -253,7 +253,7 @@ async def test_without_a_draft_nothing_is_edited(monkeypatch: pytest.MonkeyPatch
     remove = AsyncMock()
     monkeypatch.setattr(audio_preparation, "remove_draft_keyboard", remove)
 
-    await release_draft_keyboard(MagicMock(), AudioPreparation(POST_ID, None), ADMIN_ID)
+    await release_draft_keyboard(MagicMock(), None, POST_ID, ADMIN_ID)
 
     remove.assert_not_awaited()
 
@@ -265,7 +265,7 @@ async def test_a_failed_keyboard_removal_is_logged_and_never_raised(
         audio_preparation, "remove_draft_keyboard", AsyncMock(side_effect=TimeoutError("slow"))
     )
 
-    await release_draft_keyboard(MagicMock(), PREPARATION, ADMIN_ID)
+    await release_draft_keyboard(MagicMock(), DRAFT, POST_ID, ADMIN_ID)
 
     assert [(entry["event"], entry["post_id"]) for entry in logger.entries] == [
         ("draft_keyboard_removal_failed", POST_ID)
@@ -291,7 +291,7 @@ class Journal:
             raise self.prepare_error
         return self.preparation
 
-    async def release(self, bot: object, preparation: object, user_id: int) -> None:
+    async def release(self, bot: object, draft: object, post_id: int, user_id: int) -> None:
         self.order.append("keyboard")
 
     async def enqueue(self, *arguments: object) -> None:

@@ -216,7 +216,6 @@ def test_a_resolved_draft_carries_the_draft_keyboard() -> None:
 
     assert keyboard is not None
     assert [button.text for row in keyboard.inline_keyboard for button in row] == [
-        "Опублікувати в канал",
         "Зробити відео",
         "Редагувати",
     ]

@@ -210,9 +210,11 @@ watchEffect(() => {
         :fragment="detail.fragment"
         :client="client"
         :post-id="postId"
+        :post-stamp="detail.expected_post_updated_at"
         :web-app="webApp"
         @submitted="editor.reloadIfClean()"
         @prepared="editor.reloadIfClean()"
+        @cancelled="editor.reloadIfClean()"
       />
 
       <div v-if="editor.canApplyToChannel.value" class="card">
@@ -224,6 +226,18 @@ watchEffect(() => {
           @click="editor.applyToChannel()"
         >
           Застосувати в каналі
+        </button>
+      </div>
+
+      <div v-if="editor.coverAllowed.value" class="card">
+        <p v-if="!editor.canPublishCover.value" class="muted">Спершу збережіть зміни.</p>
+        <button
+          type="button"
+          class="btn btn--quiet"
+          :disabled="editor.busy.value || !editor.canPublishCover.value"
+          @click="editor.publishWithoutVideo()"
+        >
+          Опублікувати без відео
         </button>
       </div>
 

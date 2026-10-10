@@ -154,6 +154,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/posts/{post_id}/fragment/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel Audio Preparation */
+        post: operations["cancel_audio_preparation_api_posts__post_id__fragment_cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/posts/{post_id}/preview": {
         parameters: {
             query?: never;
@@ -165,6 +182,23 @@ export interface paths {
         put?: never;
         /** Preview Post Fields */
         post: operations["preview_post_fields_api_posts__post_id__preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/posts/{post_id}/publish-cover": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Publish Cover */
+        post: operations["publish_cover_api_posts__post_id__publish_cover_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -245,12 +279,27 @@ export interface components {
             /** Name */
             name: string;
         };
+        /** AudioPreparationCancelled */
+        AudioPreparationCancelled: {
+            /** Post Id */
+            post_id: number;
+            /** Status Label */
+            status_label: string;
+        };
         /** AudioPreparationStarted */
         AudioPreparationStarted: {
             /** Post Id */
             post_id: number;
             /** Status Label */
             status_label: string;
+        };
+        /** CancelPreparationRequest */
+        CancelPreparationRequest: {
+            /**
+             * Expected Post Updated At
+             * Format: date-time
+             */
+            expected_post_updated_at: string;
         };
         /** CaptionSegmentView */
         CaptionSegmentView: {
@@ -284,6 +333,31 @@ export interface components {
             visible_length: number;
             /** Warnings */
             warnings: string[];
+        };
+        /**
+         * CoverPublicationAvailability
+         * @description whether the cover can be published without a video, from the status and the preview.
+         */
+        CoverPublicationAvailability: {
+            /** Allowed */
+            allowed: boolean;
+            /** Reason */
+            reason: string | null;
+        };
+        /** CoverPublicationRequest */
+        CoverPublicationRequest: {
+            /**
+             * Expected Post Updated At
+             * Format: date-time
+             */
+            expected_post_updated_at: string;
+        };
+        /** CoverPublicationStarted */
+        CoverPublicationStarted: {
+            /** Post Id */
+            post_id: number;
+            /** Status Label */
+            status_label: string;
         };
         /** FieldError */
         FieldError: {
@@ -367,9 +441,11 @@ export interface components {
         /**
          * FragmentAvailability
          * @description whether the fragment can be chosen now, or the audio can be prepared for it, judged from
-         *     the status alone; at most one flag is true.
+         *     the status alone; at most one of the first three flags is true.
          */
         FragmentAvailability: {
+            /** Cancellable */
+            cancellable: boolean;
             /** Choosable */
             choosable: boolean;
             /** End Ms */
@@ -520,6 +596,7 @@ export interface components {
             /** Artists */
             artists: components["schemas"]["ArtistDetail"][];
             caption: components["schemas"]["CaptionView"] | null;
+            cover_publication: components["schemas"]["CoverPublicationAvailability"];
             /**
              * Created At
              * Format: date-time
@@ -1357,6 +1434,86 @@ export interface operations {
             };
         };
     };
+    cancel_audio_preparation_api_posts__post_id__fragment_cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                post_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CancelPreparationRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AudioPreparationCancelled"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FieldsInvalid"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
     preview_post_fields_api_posts__post_id__preview_post: {
         parameters: {
             query?: never;
@@ -1379,6 +1536,86 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PreviewResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FieldsInvalid"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    publish_cover_api_posts__post_id__publish_cover_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                post_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CoverPublicationRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoverPublicationStarted"];
                 };
             };
             /** @description Unauthorized */

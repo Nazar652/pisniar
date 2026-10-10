@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   CONFIRM_APPLY_TEXT,
   CONFIRM_ARCHIVE_TEXT,
+  CONFIRM_COVER_TEXT,
+  COVER_PUBLISHING_MESSAGE,
   INVALID_YEAR_MESSAGE,
   NOTHING_TO_APPLY_MESSAGE,
   usePostEditor,
@@ -512,6 +514,115 @@ describe('a published post', () => {
 
     expect(editor.archived.value).toBe(false)
     expect(editor.notice.value).toEqual({ kind: 'error', text: 'Повідомлення в каналі існує.' })
+  })
+})
+
+describe('publishing the cover without a video', () => {
+  const COVER_KEY = 'POST /api/posts/7/publish-cover'
+  const allowed = { allowed: true, reason: null }
+  const started = () => jsonResponse({ post_id: 7, status_label: 'Публікується' })
+
+  function serverFor(overrides = {}, extra = {}) {
+    return editorServer(makeDetail({ cover_publication: allowed, ...overrides }), {
+      [COVER_KEY]: started,
+      ...extra,
+    })
+  }
+
+  it('is offered only when the server allows it, the stored caption matches and nothing is unsaved', async () => {
+    const { editor } = await ready(serverFor())
+    expect(editor.canPublishCover.value).toBe(true)
+
+    const denied = await ready(
+      serverFor({ cover_publication: { allowed: false, reason: 'Вже є відео.' } }),
+    )
+    expect(denied.editor.coverAllowed.value).toBe(false)
+    expect(denied.editor.canPublishCover.value).toBe(false)
+
+    const stale = await ready(serverFor({ stored_caption_matches: false }))
+    expect(stale.editor.coverAllowed.value).toBe(true)
+    expect(stale.editor.canPublishCover.value).toBe(false)
+  })
+
+  it('is held back by an unsaved edit', async () => {
+    const { editor } = await ready(serverFor())
+
+    if (editor.form.value) editor.form.value.title = 'Інша'
+
+    expect(editor.coverAllowed.value).toBe(true)
+    expect(editor.canPublishCover.value).toBe(false)
+  })
+
+  it('asks for the exact confirmation, then sends the stamp the server gave', async () => {
+    const stamp = '2026-10-09T12:34:56.123456Z'
+    const server = serverFor({ expected_post_updated_at: stamp })
+    const { editor, deps } = await ready(server)
+
+    await editor.publishWithoutVideo()
+
+    expect(deps.confirm).toHaveBeenCalledWith(CONFIRM_COVER_TEXT)
+    const sent = server.requests.findIndex((request) => request.url.endsWith('/publish-cover'))
+    expect(server.bodies[sent]).toEqual({ expected_post_updated_at: stamp })
+    expect(server.callsTo(COVER_KEY)).toBe(1)
+    expect(editor.notice.value).toEqual({ kind: 'success', text: COVER_PUBLISHING_MESSAGE })
+  })
+
+  it('reloads the post after a successful request', async () => {
+    const server = serverFor()
+    const { editor } = await ready(server)
+    const reads = server.callsTo('GET /api/posts/7')
+
+    await editor.publishWithoutVideo()
+
+    expect(server.callsTo('GET /api/posts/7')).toBe(reads + 1)
+  })
+
+  it('sends nothing when the confirmation is declined or the cover cannot go', async () => {
+    const declined = serverFor()
+    const first = await ready(declined, makeDeps(false))
+    await first.editor.publishWithoutVideo()
+    expect(declined.callsTo(COVER_KEY)).toBe(0)
+
+    const denied = serverFor({ cover_publication: { allowed: false, reason: 'x' } })
+    const second = await ready(denied)
+    await second.editor.publishWithoutVideo()
+    expect(denied.callsTo(COVER_KEY)).toBe(0)
+    expect(second.deps.confirm).not.toHaveBeenCalled()
+  })
+
+  it.each(['stale_data', 'not_publishable'])(
+    'reloads and shows the sentence on %s',
+    async (code) => {
+      const server = serverFor(
+        {},
+        { [COVER_KEY]: () => errorResponse(409, code, 'Пост змінився.') },
+      )
+      const { editor } = await ready(server)
+      const reads = server.callsTo('GET /api/posts/7')
+
+      await editor.publishWithoutVideo()
+
+      expect(server.callsTo('GET /api/posts/7')).toBe(reads + 1)
+      expect(editor.notice.value).toEqual({ kind: 'error', text: 'Пост змінився.' })
+    },
+  )
+
+  it('shows every other sentence as it came, without a reload', async () => {
+    const server = serverFor(
+      {},
+      {
+        [COVER_KEY]: () =>
+          errorResponse(409, 'caption_not_applied', 'Зміни ще не застосовано до чернетки.'),
+      },
+    )
+    const { editor } = await ready(server)
+    const reads = server.callsTo('GET /api/posts/7')
+
+    await editor.publishWithoutVideo()
+
+    expect(server.callsTo('GET /api/posts/7')).toBe(reads)
+    expect(editor.notice.value?.text).toBe('Зміни ще не застосовано до чернетки.')
+    expect(editor.busy.value).toBe(false)
   })
 })
 

@@ -42,12 +42,13 @@ def statuses_with_an_edge_into(target: PostStatus) -> frozenset[PostStatus]:
     return frozenset(status for status, allowed in ALLOWED_TRANSITIONS.items() if target in allowed)
 
 
-def test_the_download_entry_statuses_are_the_legal_ones_except_failed() -> None:
-    """the bot writes the target status before dispatching, so a task that
-    finds `failed` can only be a redelivery."""
-    assert statuses_with_an_edge_into(PostStatus.DOWNLOADING) - {PostStatus.FAILED} == (
-        worker_tasks.DOWNLOAD_ENTRY_STATUSES
-    )
+def test_the_download_entry_is_downloading_alone() -> None:
+    """every producer writes `downloading` first, so a task that finds `resolved` (a cancelled
+    preparation) or `failed` is a late redelivery."""
+    entries = worker_tasks.DOWNLOAD_ENTRY_STATUSES
+    legal_sources = statuses_with_an_edge_into(PostStatus.DOWNLOADING)
+    assert entries == frozenset({PostStatus.DOWNLOADING})
+    assert entries.issubset(legal_sources)
 
 
 def test_the_render_entry_statuses_are_the_legal_ones_except_failed_rendered_and_editing() -> None:
@@ -715,7 +716,7 @@ async def test_yt_dlp_runs_with_no_session_and_no_lock_open(
     """a download takes minutes, and a lock held across it would block the bot;
     asserted, not assumed."""
     monkeypatch.setattr(worker_tasks.settings, "media_root", tmp_path)
-    post, track = media_fixtures(PostStatus.RESOLVED)
+    post, track = media_fixtures(PostStatus.DOWNLOADING)
     open_sessions = install_fake_database(monkeypatch, post, track, None)
     sessions_during_download: list[int] = []
 
@@ -1086,20 +1087,36 @@ def claim_fixtures(
     return post, sessions, session_factory
 
 
-@pytest.mark.parametrize("status", [PostStatus.RESOLVED, PostStatus.DOWNLOADING])
 async def test_a_previewed_post_is_never_downloaded_again(
-    status: PostStatus, monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    post, sessions, session_factory = claim_fixtures(status, preview_message_id=99)
+    post, sessions, session_factory = claim_fixtures(PostStatus.DOWNLOADING, preview_message_id=99)
     fake_logger = install_fake_logger(monkeypatch)
 
     claim = await worker_tasks.claim_post_for_downloading(session_factory, 7)
 
     assert claim is None
     assert logged(fake_logger, "download_post_audio_task_arrived_at_previewed_post") == [
-        {"post_id": 7, "status": status.value}
+        {"post_id": 7, "status": "downloading"}
     ]
-    assert post.status is status
+    assert post.status is PostStatus.DOWNLOADING
+    assert sum(session.commits for session in sessions) == 0
+
+
+async def test_a_download_that_finds_a_resolved_post_does_no_work(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """a cancelled preparation is `resolved` again; a late delivery must not bring it back."""
+    post, sessions, session_factory = claim_fixtures(PostStatus.RESOLVED, preview_message_id=None)
+    fake_logger = install_fake_logger(monkeypatch)
+
+    claim = await worker_tasks.claim_post_for_downloading(session_factory, 7)
+
+    assert claim is None
+    assert logged(fake_logger, "download_post_audio_task_arrived_at_settled_post") == [
+        {"post_id": 7, "status": "resolved"}
+    ]
+    assert post.status is PostStatus.RESOLVED
     assert sum(session.commits for session in sessions) == 0
 
 

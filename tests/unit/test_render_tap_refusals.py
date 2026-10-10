@@ -21,19 +21,27 @@ def post_in(status: PostStatus, *, preview_message_id: int | None) -> Post:
     return post
 
 
-@pytest.mark.parametrize("status", [PostStatus.FAILED, PostStatus.PUBLISHING])
-def test_a_tap_on_a_previewed_post_is_refused_before_the_status_moves(
-    status: PostStatus,
-) -> None:
+def test_a_tap_on_a_previewed_post_is_refused_before_the_status_moves() -> None:
     """a surviving draft button must not start a second render: the channel gets
     the newest `render` row, and the admin has only seen the first."""
-    post = post_in(status, preview_message_id=99)
+    post = post_in(PostStatus.FAILED, preview_message_id=99)
 
     refusal, reference = handlers.claim_post_for_media(post, 7, 111)
 
     assert refusal == handlers.PREVIEW_ALREADY_SHOWN_ANSWER.format(post_id=7)
     assert reference is None
-    assert post.status is status
+    assert post.status is PostStatus.FAILED
+
+
+@pytest.mark.parametrize("preview_message_id", [None, 99])
+def test_a_tap_on_a_publishing_post_says_it_is_publishing(preview_message_id: int | None) -> None:
+    post = post_in(PostStatus.PUBLISHING, preview_message_id=preview_message_id)
+
+    refusal, reference = handlers.claim_post_for_media(post, 7, 111)
+
+    assert refusal == handlers.ALREADY_PUBLISHING_ANSWER.format(post_id=7)
+    assert reference is None
+    assert post.status is PostStatus.PUBLISHING
 
 
 def test_the_refusal_names_no_state() -> None:

@@ -5,6 +5,7 @@ import type { Schemas } from '../api/outcome'
 import type { WebApp } from '../telegram/useTelegram'
 import { formatTime } from './bounds'
 import { useAudioPreparation } from './useAudioPreparation'
+import { useCancelPreparation } from './useCancelPreparation'
 import { useFragmentEditor } from './useFragmentEditor'
 import { CHUNK_FAILED_MESSAGE, useLoadRetry } from './useLoadRetry'
 
@@ -15,9 +16,10 @@ const props = defineProps<{
   fragment: Schemas['FragmentAvailability']
   client: ApiClient
   postId: number
+  postStamp: string
   webApp: WebApp | undefined
 }>()
-const emit = defineEmits<{ submitted: []; prepared: [] }>()
+const emit = defineEmits<{ submitted: []; prepared: []; cancelled: [] }>()
 
 const opened = ref(false)
 const editor = useFragmentEditor(props.client, props.postId, () => emit('submitted'))
@@ -25,6 +27,15 @@ const preparation = useAudioPreparation(props.client, props.postId, () => {
   opened.value = true
   emit('prepared')
 })
+const cancellation = useCancelPreparation(
+  props.client,
+  props.postId,
+  () => props.postStamp,
+  (cancelled) => {
+    if (cancelled) opened.value = false
+    emit('cancelled')
+  },
+)
 const chunk = useLoadRetry()
 
 // the editor and wavesurfer load only when the admin opens it, so the post editor stays light
@@ -77,6 +88,15 @@ onBeforeUnmount(() => preparation.dispose())
         <FragmentEditor v-else :editor="editor" :web-app="webApp" />
       </template>
       <button v-else type="button" class="btn" @click="opened = true">Обрати фрагмент</button>
+      <button
+        v-if="fragment.cancellable"
+        type="button"
+        class="btn btn--quiet"
+        :disabled="cancellation.busy.value"
+        @click="cancellation.cancel()"
+      >
+        Скасувати підготовку
+      </button>
     </template>
     <template v-else-if="canPrepare">
       <p v-if="waiting" class="muted" role="status">{{ PREPARING_LINE }}</p>
@@ -103,6 +123,13 @@ onBeforeUnmount(() => preparation.dispose())
       </template>
     </template>
     <p v-else class="muted">{{ fragment.reason ?? NOT_CHOOSABLE_FALLBACK }}</p>
+    <p
+      v-if="cancellation.message.value"
+      :class="cancellation.failed.value ? 'error' : 'muted'"
+      :role="cancellation.failed.value ? 'alert' : 'status'"
+    >
+      {{ cancellation.message.value }}
+    </p>
   </section>
 </template>
 

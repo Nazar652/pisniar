@@ -56,8 +56,8 @@ class Editability:
 
 FRAGMENT_PUBLISHED_REASON = "Пост уже опубліковано — відео в каналі змінити не можна."
 FRAGMENT_PREPARE_REASON = (
-    "Спершу підготуємо аудіо — це до хвилини. "
-    "Після цього пост піде відео, тільки обкладинку опублікувати вже не вийде."
+    "Спершу підготуємо аудіо — це до хвилини. Після цього пост піде відео; "
+    "щоб опублікувати лише обкладинку, підготовку доведеться скасувати."
 )
 FRAGMENT_PREPARE_AGAIN_REASON = (
     "Минулу підготовку аудіо перервала помилка. Спробуємо ще раз — це до хвилини."
@@ -83,18 +83,25 @@ FRAGMENT_REFUSAL_REASONS = {
 
 @dataclass(frozen=True)
 class Choosability:
-    """at most one flag is true; `reason` explains a refusal or what preparing means."""
+    """at most one of choosable, preparable and preparing; `reason` explains a refusal or what
+    preparing means. `cancellable` is orthogonal: ready audio can be given up."""
 
     choosable: bool
     preparable: bool
     preparing: bool
     reason: str | None
+    cancellable: bool = False
 
 
-def choosability_of(status: PostStatus, failed_from_status: PostStatus | None) -> Choosability:
+def choosability_of(
+    status: PostStatus, failed_from_status: PostStatus | None, has_preview: bool = False
+) -> Choosability:
     """a fragment is chosen once the audio is ready (before the first render) or on a previewed
     video; the reason is a sentence for the admin, never the name of the state."""
-    if status in (PostStatus.EDITING, PostStatus.RENDERED):
+    if status is PostStatus.EDITING:
+        cancellable = cancellation_refusal_of(status, has_preview) is None
+        return Choosability(True, False, False, None, cancellable=cancellable)
+    if status is PostStatus.RENDERED:
         return Choosability(True, False, False, None)
     if status is PostStatus.RESOLVED:
         return Choosability(False, True, False, FRAGMENT_PREPARE_REASON)
@@ -107,6 +114,77 @@ def choosability_of(status: PostStatus, failed_from_status: PostStatus | None) -
             return Choosability(False, True, False, FRAGMENT_PREPARE_AGAIN_REASON)
         return Choosability(False, False, False, FRAGMENT_FAILED_REASON)
     return Choosability(False, False, False, FRAGMENT_REFUSAL_REASONS[status])
+
+
+NOT_CANCELLABLE_REASON = "Скасувати можна лише підготовлене аудіо, поки фрагмент не обрано."
+RENDER_STARTED_REASON = "Рендер уже почався — скасувати підготовку не можна."
+RENDER_STARTED_STATUSES = frozenset(
+    {PostStatus.DOWNLOADED, PostStatus.RENDERING, PostStatus.RENDERED}
+)
+
+
+def cancellation_refusal_of(status: PostStatus, has_preview: bool) -> str | None:
+    """`None` when the prepared audio can be given up; otherwise a sentence without a state name."""
+    if status is PostStatus.EDITING and not has_preview:
+        return None
+    if status in RENDER_STARTED_STATUSES:
+        return RENDER_STARTED_REASON
+    return NOT_CANCELLABLE_REASON
+
+
+COVER_HAS_VIDEO_REASON = (
+    "Для цього поста вже є відео — публікуйте його кнопкою під прев'ю в чаті з ботом."
+)
+COVER_AUDIO_READY_REASON = (
+    "Аудіо вже підготовлено, тож пост піде відео. Щоб опублікувати лише обкладинку, "
+    "скасуйте підготовку в розділі «Фрагмент»."
+)
+COVER_RENDER_FAILED_REASON = (
+    "Відео для цього поста не вдалося підготувати. Повторіть його командою /retry."
+)
+COVER_PUBLISHED_REASON = "Пост уже опубліковано."
+COVER_ALLOWED_FAILURE_STAGES = frozenset({PostStatus.DOWNLOADING, PostStatus.PUBLISHING})
+# a status that can never be published as a cover has one sentence of its own
+COVER_REFUSAL_REASONS = {
+    PostStatus.DRAFT: NOT_RESOLVED_REASON,
+    PostStatus.RESOLVING: RESOLVING_REASON,
+    PostStatus.DOWNLOADING: MEDIA_IN_PROGRESS_REASON,
+    PostStatus.DOWNLOADED: MEDIA_IN_PROGRESS_REASON,
+    PostStatus.EDITING: COVER_AUDIO_READY_REASON,
+    PostStatus.RENDERING: MEDIA_IN_PROGRESS_REASON,
+    PostStatus.RENDERED: COVER_HAS_VIDEO_REASON,
+    PostStatus.PUBLISHING: PUBLISHING_REASON,
+    PostStatus.PUBLISHED: COVER_PUBLISHED_REASON,
+    PostStatus.ARCHIVED: ARCHIVED_REASON,
+}
+
+
+@dataclass(frozen=True)
+class CoverPublication:
+    allowed: bool
+    reason: str | None
+
+
+def cover_publication_of(
+    status: PostStatus, failed_from_status: PostStatus | None, has_preview: bool
+) -> CoverPublication:
+    """the cover alone goes out only for a draft with no video behind it; a post that has a
+    preview is published from that preview. The reason never names the state."""
+    if status in (PostStatus.PUBLISHED, PostStatus.ARCHIVED):
+        return CoverPublication(False, COVER_REFUSAL_REASONS[status])
+    if has_preview:
+        return CoverPublication(False, COVER_HAS_VIDEO_REASON)
+    if status is PostStatus.RESOLVED:
+        return CoverPublication(True, None)
+    if status is PostStatus.FAILED:
+        if failed_from_status in COVER_ALLOWED_FAILURE_STAGES:
+            return CoverPublication(True, None)
+        if failed_from_status in CHOOSABLE_FAILURE_STAGES:
+            return CoverPublication(False, COVER_RENDER_FAILED_REASON)
+        if failed_from_status is PostStatus.RESOLVING:
+            return CoverPublication(False, RESOLVE_FAILED_REASON)
+        return CoverPublication(False, UNKNOWN_FAILURE_REASON)
+    return CoverPublication(False, COVER_REFUSAL_REASONS[status])
 
 
 def editability_of(status: PostStatus, failed_from_status: PostStatus | None) -> Editability:

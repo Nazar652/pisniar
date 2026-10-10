@@ -16,11 +16,14 @@ from pisniar.db.states import PostStatus
 from pisniar.logging import get_logger
 from pisniar.webapp.applying import apply_caption, archive_post, edit_remaining
 from pisniar.webapp.audio_preparation import (
+    cancel_preparation,
     enqueue_audio_preparation,
     prepare_audio,
     release_draft_keyboard,
+    restore_draft,
 )
 from pisniar.webapp.auth import AdminUser, WebappContext, require_admin
+from pisniar.webapp.cover_publication import enqueue_cover_publication, start_cover_publication
 from pisniar.webapp.database import read_from_database, write_to_database
 from pisniar.webapp.editing import POST_NOT_FOUND_MESSAGE, preview_fields, save_fields
 from pisniar.webapp.errors import ApiProblem, FieldsInvalidError
@@ -37,7 +40,11 @@ from pisniar.webapp.schemas import (
     ApplyRequest,
     ApplyResponse,
     ArchiveResponse,
+    AudioPreparationCancelled,
     AudioPreparationStarted,
+    CancelPreparationRequest,
+    CoverPublicationRequest,
+    CoverPublicationStarted,
     FieldsInput,
     FieldsInvalid,
     FieldsUpdate,
@@ -275,9 +282,58 @@ async def start_audio_preparation(
     await enqueue_audio_preparation(
         celery_client, request.app.state.session_factory, preparation, admin.user_id
     )
-    await release_draft_keyboard(bot, preparation, admin.user_id)
+    await release_draft_keyboard(bot, preparation.draft, post_id, admin.user_id)
     return AudioPreparationStarted(
         post_id=post_id, status_label=STATUS_LABELS[PostStatus.DOWNLOADING]
+    )
+
+
+async def cancel_audio_preparation(
+    request: Request,
+    body: CancelPreparationRequest,
+    admin: Annotated[AdminUser, Depends(require_admin)],
+    post_id: Annotated[int, Path(ge=1, le=POST_ID_MAX)],
+) -> AudioPreparationCancelled:
+    logger.info("audio_preparation_cancel_requested", user_id=admin.user_id, post_id=post_id)
+    public_url = cast("str | None", request.app.state.webapp_public_url)
+    async with refusals_logged("audio_preparation_cancel_refused", admin.user_id, post_id):
+        bot = telegram_bot_of(request)
+        cancelled = await write_to_database(
+            request, lambda session: cancel_preparation(session, post_id, body, admin.user_id)
+        )
+        if cancelled is None:
+            raise ApiProblem(404, "post_not_found", POST_NOT_FOUND_MESSAGE)
+
+    logger.info("audio_preparation_cancelled", user_id=admin.user_id, post_id=post_id)
+    await restore_draft(bot, cancelled, public_url, admin.user_id)
+    return AudioPreparationCancelled(
+        post_id=post_id, status_label=STATUS_LABELS[PostStatus.RESOLVED]
+    )
+
+
+async def publish_cover(
+    request: Request,
+    body: CoverPublicationRequest,
+    admin: Annotated[AdminUser, Depends(require_admin)],
+    post_id: Annotated[int, Path(ge=1, le=POST_ID_MAX)],
+) -> CoverPublicationStarted:
+    logger.info("cover_publication_requested", user_id=admin.user_id, post_id=post_id)
+    async with refusals_logged("cover_publication_refused", admin.user_id, post_id):
+        bot = telegram_bot_of(request)
+        celery_client = celery_client_of(request)
+        publication = await write_to_database(
+            request,
+            lambda session: start_cover_publication(session, post_id, body, admin.user_id),
+        )
+        if publication is None:
+            raise ApiProblem(404, "post_not_found", POST_NOT_FOUND_MESSAGE)
+
+    await enqueue_cover_publication(
+        celery_client, request.app.state.session_factory, publication, admin.user_id
+    )
+    await release_draft_keyboard(bot, publication.draft, post_id, admin.user_id)
+    return CoverPublicationStarted(
+        post_id=post_id, status_label=STATUS_LABELS[PostStatus.PUBLISHING]
     )
 
 
@@ -324,6 +380,22 @@ def register_post_routes(app: FastAPI) -> None:
         start_audio_preparation,
         methods=["POST"],
         response_model=AudioPreparationStarted,
+        responses=EDIT_ERROR_RESPONSES,
+        dependencies=protected,
+    )
+    app.add_api_route(
+        "/api/posts/{post_id}/fragment/cancel",
+        cancel_audio_preparation,
+        methods=["POST"],
+        response_model=AudioPreparationCancelled,
+        responses=EDIT_ERROR_RESPONSES,
+        dependencies=protected,
+    )
+    app.add_api_route(
+        "/api/posts/{post_id}/publish-cover",
+        publish_cover,
+        methods=["POST"],
+        response_model=CoverPublicationStarted,
         responses=EDIT_ERROR_RESPONSES,
         dependencies=protected,
     )

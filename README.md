@@ -9,18 +9,21 @@ An admin sends a link, the bot classifies
 it, the worker resolves it across six external sources (song.link, Spotify,
 Deezer, iTunes, `ytmusicapi`, MusicBrainz) with an ISRC-first matching
 discipline, builds an HTML caption, and delivers a draft back with `/retry`
-on failure. The draft carries two buttons.
+on failure. The draft carries **Зробити відео** and, in a private chat, the
+Mini App's **Редагувати**; nothing in the chat publishes the cover alone.
 
-**Опублікувати в канал** publishes the cover plus that exact caption into
-the channel, once, and records who approved it.
-
-**Зробити відео** starts the media chain instead: the worker downloads the
+**Зробити відео** starts the media chain: the worker downloads the
 track's audio from YouTube Music, takes a 45-second fragment from the start,
 renders a 720x1280 video of the cover plus that audio, and sends it
 back as a **preview with its own publish button**. Publishing from there
 puts that exact file, with that exact caption, into the channel as a video.
 The preview is not a convenience — a published post cannot be revoked, so
 it is the one place a wrong fragment can still be caught.
+
+A post without a video can still go out with the cover and that exact caption:
+the Mini App's **Опублікувати без відео** (with a confirmation, once the caption
+is saved) publishes it and records who approved it. It needs `WEBAPP_PUBLIC_URL`
+and a private chat; without them there is no cover-only path.
 
 The video carries the track's **synced lyrics** under the cover: the
 previous, current and next line, timed to the audio. They come from
@@ -44,9 +47,10 @@ archived from the same screen. The buttons exist only when `WEBAPP_PUBLIC_URL`
 is set; without it the bot works exactly as before.
 
 On a draft, **Фрагмент** → **Обрати фрагмент** first prepares the audio (up to
-a minute; the draft's buttons go, so the cover alone can no longer be published),
-then opens the editor below, and the first preview is rendered with the chosen
-part. Once a post has a video preview, the **Фрагмент** section of the same editor
+a minute; the draft's buttons go), then opens the editor below, and the first
+preview is rendered with the chosen part. **Скасувати підготовку** under the
+editor gives the audio up: the post is a draft again, its buttons come back and
+the cover can be published without a video. Once a post has a video preview, the **Фрагмент** section of the same editor
 shows the track's waveform with the current fragment as a region. Drag it or
 its edges (or step them by ±1 s / ±0.1 s), listen with **Програти фрагмент**,
 and **Зробити відео з цим фрагментом** renders the post again with those bounds
@@ -265,12 +269,15 @@ With a real `.env` in place and the stack up (`make up`):
     required.`
 11. `git status` stays clean of `.env` and any `__pycache__`/cache
     directories — both are git-ignored.
-12. A delivered draft carries an **Опублікувати в канал** button. Tap it →
-    the button disappears, the post appears in `CHANNEL_ID` as a cover with
-    the same caption, and a confirmation with a link to it comes back. Do
-    this against a **test** channel first.
-13. Tap the button a second time (on an older draft that still shows one) →
-    "уже опубліковано", and no second post in the channel.
+12. A new draft carries **Зробити відео** and no publish button. In its editor
+    (**Редагувати**), save the caption and tap **Опублікувати без відео**, then
+    confirm → the draft's buttons disappear, the post appears in `CHANNEL_ID` as
+    a cover with the same caption, and a confirmation with a link to it comes
+    back. Do this against a **test** channel first.
+13. An older draft that still shows **Опублікувати в канал** → the tap is
+    refused with a pointer to the editor and nothing changes. Repeating
+    **Опублікувати без відео** on the published post → refused, and no second
+    post in the channel.
 14. Remove the bot's "post messages" right and publish again → the post goes
     `failed` with a Ukrainian explanation, no traceback in the chat, and
     `channel_message_id` stays `NULL` (`make psql`).
@@ -308,3 +315,10 @@ With a real `.env` in place and the stack up (`make up`):
     «Готуємо аудіо…» → the editor opens; choose 1:10–1:50 → the first preview is
     exactly that part. In the chat, the publish and render taps of such a post
     answer that the audio is ready, and `/retry` changes nothing.
+29. With the audio ready, **Скасувати підготовку** → «Підготовку скасовано.
+    Пост знову чернетка.», the draft in the chat gets **Зробити відео** and
+    **Редагувати** back, the YouTube Music link is editable again, and preparing
+    again is quick (the file is on the volume). Then **Опублікувати без відео**
+    works (test channel).
+30. A track without a YouTube Music link: **Обрати фрагмент** is refused with a
+    sentence; after a failed download the post is still publishable without a video.

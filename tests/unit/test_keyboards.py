@@ -26,11 +26,8 @@ def buttons(markup: InlineKeyboardMarkup) -> list[tuple[str, str | None]]:
     return [(button.text, button.callback_data) for row in markup.inline_keyboard for button in row]
 
 
-def test_the_draft_carries_publish_and_render_in_that_order() -> None:
-    assert buttons(draft_keyboard(42)) == [
-        (PUBLISH_BUTTON_TEXT, "publish:42"),
-        (RENDER_BUTTON_TEXT, "render:42"),
-    ]
+def test_the_draft_carries_the_render_trigger_and_no_publication() -> None:
+    assert buttons(draft_keyboard(42)) == [(RENDER_BUTTON_TEXT, "render:42")]
 
 
 def test_the_preview_carries_publication_alone() -> None:
@@ -49,11 +46,15 @@ def test_callback_data_fits_telegram_s_64_byte_cap(
 
 
 def test_every_button_s_own_payload_round_trips() -> None:
-    parsed = [parse_callback(callback_data) for _, callback_data in buttons(draft_keyboard(7))]
+    parsed = [
+        parse_callback(callback_data)
+        for keyboard in (draft_keyboard(7), preview_keyboard(7))
+        for _, callback_data in buttons(keyboard)
+    ]
 
     assert parsed == [
-        ParsedCallback(action=CallbackAction.PUBLISH, post_id=7),
         ParsedCallback(action=CallbackAction.RENDER, post_id=7),
+        ParsedCallback(action=CallbackAction.PUBLISH, post_id=7),
     ]
 
 

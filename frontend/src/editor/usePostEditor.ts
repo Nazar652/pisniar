@@ -21,6 +21,9 @@ export const CONFIRM_APPLY_TEXT =
   'Змінити підпис опублікованого допису в каналі? Підписники побачать нову версію.'
 export const CONFIRM_ARCHIVE_TEXT =
   'Повідомлення в каналі зникло. Позначити пост архівним? Повернути його буде не можна.'
+export const CONFIRM_COVER_TEXT =
+  'Пост піде в канал лише з обкладинкою і підписом, без відео. Скасувати публікацію не можна. Опублікувати?'
+export const COVER_PUBLISHING_MESSAGE = 'Публікую без відео. Підтвердження прийде в чат.'
 export const INVALID_YEAR_MESSAGE = 'Деякі поля заповнено неправильно.'
 export const NOTHING_TO_APPLY_MESSAGE = 'У посту ще немає підпису: спершу збережіть поля.'
 
@@ -75,6 +78,12 @@ export function usePostEditor(client: ApiClient, postId: number, deps: EditorDep
   )
   const canApplyToChannel = computed(
     () => isPublished.value && editable.value && detail.value?.stored_caption_matches === false,
+  )
+  const coverAllowed = computed(
+    () => detail.value?.cover_publication.allowed === true && !archived.value,
+  )
+  const canPublishCover = computed(
+    () => coverAllowed.value && detail.value?.stored_caption_matches === true && !dirty.value,
   )
   const warning = computed(() =>
     detail.value === null || form.value === null
@@ -176,7 +185,11 @@ export function usePostEditor(client: ApiClient, postId: number, deps: EditorDep
     if (failure.code === 'invalid_fields') {
       fieldErrors.value = fieldErrorMap(failure)
       say('error', failure.message)
-    } else if (failure.code === 'stale_data' || failure.code === 'caption_changed') {
+    } else if (
+      failure.code === 'stale_data' ||
+      failure.code === 'caption_changed' ||
+      failure.code === 'not_publishable'
+    ) {
       await reloadAfter(failure)
     } else if (failure.code === 'channel_message_missing') {
       channelMissing.value = true
@@ -283,6 +296,31 @@ export function usePostEditor(client: ApiClient, postId: number, deps: EditorDep
     }
   }
 
+  async function publishWithoutVideo(): Promise<void> {
+    const stored = detail.value
+    if (busy.value || stored === null || !canPublishCover.value) return
+    if (!(await deps.confirm(CONFIRM_COVER_TEXT))) return
+
+    busy.value = true
+    notice.value = null
+    try {
+      const answer = await outcomeOf(
+        client.POST('/api/posts/{post_id}/publish-cover', {
+          params: { path: { post_id: postId } },
+          body: { expected_post_updated_at: stored.expected_post_updated_at },
+        }),
+      )
+      if (!answer.ok) {
+        await fail(answer.failure)
+        return
+      }
+      await load(true)
+      say('success', COVER_PUBLISHING_MESSAGE)
+    } finally {
+      busy.value = false
+    }
+  }
+
   // «back to automatic» puts the stored value back, so the edit and the revert never disagree
   function toggleRevert(name: string): void {
     const stored = detail.value
@@ -320,12 +358,15 @@ export function usePostEditor(client: ApiClient, postId: number, deps: EditorDep
     editable,
     dirty,
     canApplyToChannel,
+    coverAllowed,
+    canPublishCover,
     warning,
     load,
     reloadIfClean,
     save,
     applyToChannel,
     archive,
+    publishWithoutVideo,
     toggleRevert,
     errorOf,
     dispose,

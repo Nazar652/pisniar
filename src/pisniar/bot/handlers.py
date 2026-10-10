@@ -22,6 +22,7 @@ from pisniar.db.session import session_scope
 from pisniar.db.states import IllegalStatusTransitionError, PostStatus, set_post_status
 from pisniar.dispatch import (
     DOWNLOAD_DISPATCH_FAILED_ERROR,
+    PUBLISH_DISPATCH_FAILED_ERROR,
     RENDER_DISPATCH_FAILED_ERROR,
     dispatch_task,
     mark_dispatch_failure,
@@ -59,7 +60,6 @@ router = Router(name="commands")
 settings = get_settings()
 
 DISPATCH_FAILED_ERROR = "не вдалося поставити задачу в чергу"
-PUBLISH_DISPATCH_FAILED_ERROR = "не вдалося поставити задачу публікації в чергу"
 UNKNOWN_CALLBACK_ANSWER = "Невідома дія."
 ARCHIVED_POST_ANSWER = "Пост {post_id} архівовано — дій із ним немає."
 EDIT_FORMAT_ANSWER = "Формат команди: /edit [post_id]"
@@ -71,7 +71,7 @@ POST_NOT_FOUND_ANSWER = "Пост {post_id} не знайдено."
 POST_BUSY_ANSWER = "Пост {post_id} зараз обробляється. Спробуйте за кілька секунд."
 DISPATCH_FAILED_RETRY_ANSWER = "Не вдалося поставити задачу в чергу. Спробуйте /retry {post_id}."
 
-# the text draft's publish button is still live during a render, and a
+# an old draft's publish button may still be tapped during a render, and a
 # refusal naming `downloading` would read to the admin like a breakage.
 MEDIA_IN_PROGRESS_STATUSES = frozenset(
     {PostStatus.DOWNLOADING, PostStatus.DOWNLOADED, PostStatus.RENDERING}
@@ -84,6 +84,11 @@ AUDIO_READY_ANSWER = (
     "Для поста {post_id} аудіо вже підготовлено — оберіть фрагмент у редакторі "
     "(/edit {post_id}, розділ «Фрагмент»)."
 )
+COVER_IN_EDITOR_ANSWER = (
+    "Пост {post_id}: з чату публікується лише відео («Зробити відео»). "
+    "Без відео — «Опублікувати без відео» в редакторі: /edit {post_id}."
+)
+ALREADY_PUBLISHING_ANSWER = "Пост {post_id} уже публікується."
 MEDIA_FAILED_STAGES = MEDIA_IN_PROGRESS_STATUSES | {PostStatus.EDITING}
 OUTDATED_PREVIEW_ANSWER = (
     "Пост {post_id}: це застаріле прев'ю. Публікуйте кнопкою під найновішим прев'ю."
@@ -596,7 +601,7 @@ def claim_post_for_publishing(
         logger.warning(
             "publish_refused", reason="already_publishing", user_id=user_id, post_id=post_id
         )
-        return f"Пост {post_id} уже публікується.", None
+        return ALREADY_PUBLISHING_ANSWER.format(post_id=post_id), None
 
     if post.status in MEDIA_IN_PROGRESS_STATUSES:
         # `RESOLVED -> PUBLISHING` is still legal, so this tap would
@@ -615,6 +620,16 @@ def claim_post_for_publishing(
             "publish_refused", reason="awaiting_fragment_choice", user_id=user_id, post_id=post_id
         )
         return AUDIO_READY_ANSWER.format(post_id=post_id), None
+
+    if post.preview_message_id is None:
+        # the cover alone is published from the editor; a chat tap needs a video preview.
+        logger.warning(
+            "publish_refused",
+            reason="cover_publication_in_editor",
+            user_id=user_id,
+            post_id=post_id,
+        )
+        return COVER_IN_EDITOR_ANSWER.format(post_id=post_id), None
 
     if post.preview_chat_id is not None and tapped != (
         post.preview_chat_id,
@@ -679,6 +694,12 @@ def claim_post_for_media(
             "render_refused", reason="awaiting_fragment_choice", user_id=user_id, post_id=post_id
         )
         return AUDIO_READY_ANSWER.format(post_id=post_id), None
+
+    if post.status is PostStatus.PUBLISHING:
+        logger.warning(
+            "render_refused", reason="already_publishing", user_id=user_id, post_id=post_id
+        )
+        return ALREADY_PUBLISHING_ANSWER.format(post_id=post_id), None
 
     if post.status is PostStatus.RENDERED:
         logger.warning(

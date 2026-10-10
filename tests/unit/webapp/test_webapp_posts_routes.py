@@ -20,6 +20,7 @@ from pisniar.webapp.auth import issue_session_token
 from pisniar.webapp.database import DATABASE_UNAVAILABLE_MESSAGE
 from pisniar.webapp.schemas import (
     POST_ID_MAX,
+    CoverPublicationAvailability,
     FragmentAvailability,
     PostDetail,
     PostListResponse,
@@ -70,8 +71,10 @@ def make_detail() -> PostDetail:
             choosable=False,
             preparable=False,
             preparing=False,
+            cancellable=False,
             reason="Фрагмент ще не обрано.",
         ),
+        cover_publication=CoverPublicationAvailability(allowed=True, reason=None),
         created_at=STAMP,
         published_at=None,
         title="Тема",

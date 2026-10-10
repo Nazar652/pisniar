@@ -161,6 +161,24 @@
         "title": "ArtistInput",
         "type": "object"
       },
+      "AudioPreparationCancelled": {
+        "properties": {
+          "post_id": {
+            "title": "Post Id",
+            "type": "integer"
+          },
+          "status_label": {
+            "title": "Status Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "post_id",
+          "status_label"
+        ],
+        "title": "AudioPreparationCancelled",
+        "type": "object"
+      },
       "AudioPreparationStarted": {
         "properties": {
           "post_id": {
@@ -177,6 +195,21 @@
           "status_label"
         ],
         "title": "AudioPreparationStarted",
+        "type": "object"
+      },
+      "CancelPreparationRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_post_updated_at": {
+            "format": "date-time",
+            "title": "Expected Post Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_post_updated_at"
+        ],
+        "title": "CancelPreparationRequest",
         "type": "object"
       },
       "CaptionSegmentView": {
@@ -284,6 +317,65 @@
           "sha256"
         ],
         "title": "CaptionView",
+        "type": "object"
+      },
+      "CoverPublicationAvailability": {
+        "description": "whether the cover can be published without a video, from the status and the preview.",
+        "properties": {
+          "allowed": {
+            "title": "Allowed",
+            "type": "boolean"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "allowed",
+          "reason"
+        ],
+        "title": "CoverPublicationAvailability",
+        "type": "object"
+      },
+      "CoverPublicationRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_post_updated_at": {
+            "format": "date-time",
+            "title": "Expected Post Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_post_updated_at"
+        ],
+        "title": "CoverPublicationRequest",
+        "type": "object"
+      },
+      "CoverPublicationStarted": {
+        "properties": {
+          "post_id": {
+            "title": "Post Id",
+            "type": "integer"
+          },
+          "status_label": {
+            "title": "Status Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "post_id",
+          "status_label"
+        ],
+        "title": "CoverPublicationStarted",
         "type": "object"
       },
       "FieldError": {
@@ -556,8 +648,12 @@
         "type": "object"
       },
       "FragmentAvailability": {
-        "description": "whether the fragment can be chosen now, or the audio can be prepared for it, judged from\nthe status alone; at most one flag is true.",
+        "description": "whether the fragment can be chosen now, or the audio can be prepared for it, judged from\nthe status alone; at most one of the first three flags is true.",
         "properties": {
+          "cancellable": {
+            "title": "Cancellable",
+            "type": "boolean"
+          },
           "choosable": {
             "title": "Choosable",
             "type": "boolean"
@@ -610,6 +706,7 @@
           "choosable",
           "preparable",
           "preparing",
+          "cancellable",
           "reason"
         ],
         "title": "FragmentAvailability",
@@ -1015,6 +1112,9 @@
               }
             ]
           },
+          "cover_publication": {
+            "$ref": "#/components/schemas/CoverPublicationAvailability"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -1181,6 +1281,7 @@
           "editable",
           "not_editable_reason",
           "fragment",
+          "cover_publication",
           "created_at",
           "published_at",
           "title",
@@ -2274,6 +2375,107 @@
         "summary": "Start Audio Preparation"
       }
     },
+    "/api/posts/{post_id}/fragment/cancel": {
+      "post": {
+        "operationId": "cancel_audio_preparation_api_posts__post_id__fragment_cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "post_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Post Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelPreparationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AudioPreparationCancelled"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FieldsInvalid"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Cancel Audio Preparation"
+      }
+    },
     "/api/posts/{post_id}/preview": {
       "post": {
         "operationId": "preview_post_fields_api_posts__post_id__preview_post",
@@ -2373,6 +2575,107 @@
           }
         },
         "summary": "Preview Post Fields"
+      }
+    },
+    "/api/posts/{post_id}/publish-cover": {
+      "post": {
+        "operationId": "publish_cover_api_posts__post_id__publish_cover_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "post_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Post Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CoverPublicationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoverPublicationStarted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FieldsInvalid"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Publish Cover"
       }
     },
     "/api/session": {

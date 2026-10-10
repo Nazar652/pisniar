@@ -21,7 +21,9 @@ from pisniar.db.models import Post, Track
 from pisniar.db.session import build_engine, build_session_factory
 from pisniar.db.states import PostStatus
 from pisniar.webapp.app import create_webapp
+from pisniar.webapp.audio_preparation import cancel_preparation
 from pisniar.webapp.auth import issue_session_token
+from pisniar.webapp.schemas import CancelPreparationRequest
 
 pytestmark = pytest.mark.integration
 
@@ -314,6 +316,35 @@ async def test_the_youtube_music_link_is_held_while_a_post_of_the_track_is_in_me
     assert response.json()["code"] == "media_in_progress"
     track = await stored_track(environment, seeded.track_id)
     assert links_of(track)["youtubeMusic"]["url"] == MUSIC_URL
+
+
+async def test_the_youtube_music_link_is_free_again_once_the_prepared_audio_is_given_up(
+    environment: Environment, seeded: Seeded
+) -> None:
+    for other_status, post_id in seeded.sibling_ids.items():
+        if other_status is not PostStatus.EDITING:
+            async with environment.session_factory() as session:
+                await session.execute(delete(Post).where(Post.id == post_id))
+                await session.commit()
+    editing_id = seeded.sibling_ids[PostStatus.EDITING]
+    body = await environment.form_of(seeded.post_id)
+    body["platform_links"]["youtubeMusic"] = OTHER_MUSIC_URL
+    assert (await environment.save(seeded.post_id, body)).status_code == 409
+
+    async with environment.session_factory() as session:
+        editing = await session.get(Post, editing_id)
+        assert editing is not None
+        request = CancelPreparationRequest(expected_post_updated_at=editing.updated_at)
+        cancelled = await cancel_preparation(session, editing_id, request, ADMIN_ID)
+        await session.commit()
+    assert cancelled is not None
+    body = await environment.form_of(seeded.post_id)
+    body["platform_links"]["youtubeMusic"] = OTHER_MUSIC_URL
+    response = await environment.save(seeded.post_id, body)
+
+    assert response.status_code == 200
+    track = await stored_track(environment, seeded.track_id)
+    assert links_of(track)["youtubeMusic"]["url"] == OTHER_MUSIC_URL
 
 
 async def test_removing_the_youtube_music_link_is_held_too(

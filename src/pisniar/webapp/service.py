@@ -35,6 +35,7 @@ from pisniar.webapp.schemas import (
     ArtistDetail,
     CaptionSegmentView,
     CaptionView,
+    CoverPublicationAvailability,
     FragmentAvailability,
     GenreDetail,
     PlatformLinkDetail,
@@ -42,7 +43,12 @@ from pisniar.webapp.schemas import (
     PostListResponse,
     PostSummary,
 )
-from pisniar.webapp.status import STATUS_LABELS, choosability_of, editability_of
+from pisniar.webapp.status import (
+    STATUS_LABELS,
+    choosability_of,
+    cover_publication_of,
+    editability_of,
+)
 
 DEFAULT_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 50
@@ -125,7 +131,12 @@ async def detail_of(session: AsyncSession, post: Post, track: Track) -> PostDeta
 
 def build_post_detail(post: Post, track: Track, other_post_ids: list[int]) -> PostDetail:
     editability = editability_of(post.status, post.failed_from_status)
-    choosability = choosability_of(post.status, post.failed_from_status)
+    choosability = choosability_of(
+        post.status, post.failed_from_status, post.preview_message_id is not None
+    )
+    cover = cover_publication_of(
+        post.status, post.failed_from_status, post.preview_message_id is not None
+    )
     caption_view, rebuilt_html = rebuild_caption(post, track)
 
     return PostDetail(
@@ -140,8 +151,10 @@ def build_post_detail(post: Post, track: Track, other_post_ids: list[int]) -> Po
             choosable=choosability.choosable,
             preparable=choosability.preparable,
             preparing=choosability.preparing,
+            cancellable=choosability.cancellable,
             reason=choosability.reason,
         ),
+        cover_publication=CoverPublicationAvailability(allowed=cover.allowed, reason=cover.reason),
         created_at=post.created_at,
         published_at=post.published_at,
         title=track.title,

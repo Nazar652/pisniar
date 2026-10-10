@@ -38,8 +38,9 @@ async def test_deliver_draft_sends_html_and_sets_draft_reference() -> None:
     assert post.draft_message_id == 42
 
 
-async def test_deliver_draft_attaches_both_triggers() -> None:
-    """without these buttons a delivered draft goes nowhere by any route."""
+async def test_deliver_draft_attaches_the_render_trigger_alone() -> None:
+    """without this button a delivered draft goes nowhere from the chat; the cover alone is
+    published from the editor."""
     bot = AsyncMock()
     bot.send_message.return_value.message_id = 42
     post = make_post()
@@ -53,8 +54,7 @@ async def test_deliver_draft_attaches_both_triggers() -> None:
         for button in row
     ]
     assert [(one.action, one.post_id) for one in parsed if one is not None] == [
-        (CallbackAction.PUBLISH, post.id),
-        (CallbackAction.RENDER, post.id),
+        (CallbackAction.RENDER, post.id)
     ]
 
 

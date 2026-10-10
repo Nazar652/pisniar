@@ -911,9 +911,9 @@ async def fail_publish(
             await send_alert(bot, chat_id, alert_text)
 
 
-# legal entries per `db.states` minus FAILED: the bot writes the target status
-# before dispatching, so a task that finds FAILED is always a redelivery.
-DOWNLOAD_ENTRY_STATUSES = frozenset({PostStatus.RESOLVED, PostStatus.DOWNLOADING})
+# every producer writes `DOWNLOADING` before it dispatches, so a task that finds any other
+# status (a cancelled preparation back in `RESOLVED` included) is a late redelivery.
+DOWNLOAD_ENTRY_STATUSES = frozenset({PostStatus.DOWNLOADING})
 # `EDITING` is the pause for a human's fragment choice: a render that finds it is not ours.
 RENDER_ENTRY_STATUSES = frozenset({PostStatus.DOWNLOADED, PostStatus.RENDERING})
 

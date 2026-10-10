@@ -56,6 +56,8 @@ def test_the_exported_schema_lists_the_api_and_hides_the_static_routes() -> None
         "/api/posts/{post_id}/fields",
         "/api/posts/{post_id}/fragment",
         "/api/posts/{post_id}/fragment/audio",
+        "/api/posts/{post_id}/fragment/cancel",
+        "/api/posts/{post_id}/publish-cover",
         "/api/posts/{post_id}/preview",
         "/api/posts/{post_id}/apply",
         "/api/posts/{post_id}/archive",

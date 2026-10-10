@@ -152,6 +152,19 @@ def make_callback(
     return callback
 
 
+def preview_tap(post_id: int) -> AsyncMock:
+    """a publish tap under the video preview, the only message that publishes from the chat."""
+    return make_callback(
+        f"publish:{post_id}", tapped=(DRAFT_CHAT_ID, post_id + PREVIEW_MESSAGE_OFFSET)
+    )
+
+
+async def make_previewed_post(session_factory: async_sessionmaker[AsyncSession]) -> int:
+    return await make_post_with_draft(
+        session_factory, status=PostStatus.RENDERED, with_preview=True
+    )
+
+
 def make_message(text: str, user_id: int = PUBLISHER_ID) -> AsyncMock:
     message = AsyncMock()
     message.text = text
@@ -175,8 +188,8 @@ async def load_post(session_factory: async_sessionmaker[AsyncSession], post_id: 
 async def test_the_button_moves_the_post_to_publishing_and_dispatches(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    post_id = await make_post_with_draft(session_factory)
-    callback = make_callback(f"publish:{post_id}")
+    post_id = await make_previewed_post(session_factory)
+    callback = preview_tap(post_id)
     celery_client = MagicMock()
 
     await handle_callback(callback, AsyncMock(), session_factory, celery_client)
@@ -196,8 +209,8 @@ async def test_the_button_is_removed_before_the_task_is_dispatched(
 ) -> None:
     """the keyboard goes first so a second tap has nothing left to press; the
     status transition above is what actually refuses one."""
-    post_id = await make_post_with_draft(session_factory)
-    callback = make_callback(f"publish:{post_id}")
+    post_id = await make_previewed_post(session_factory)
+    callback = preview_tap(post_id)
     order: list[str] = []
 
     bot = AsyncMock()
@@ -212,7 +225,7 @@ async def test_the_button_is_removed_before_the_task_is_dispatched(
     assert removal is not None
     assert removal.kwargs == {
         "chat_id": DRAFT_CHAT_ID,
-        "message_id": post_id,
+        "message_id": post_id + PREVIEW_MESSAGE_OFFSET,
         "reply_markup": None,
     }
 
@@ -285,13 +298,11 @@ async def test_a_failed_publish_dispatch_leaves_the_post_retryable(
 ) -> None:
     """the post is already committed as `publishing`, and no task exists to move
     it on."""
-    post_id = await make_post_with_draft(session_factory)
+    post_id = await make_previewed_post(session_factory)
     celery_client = MagicMock()
     celery_client.send_task.side_effect = RuntimeError("broker down")
 
-    await handle_callback(
-        make_callback(f"publish:{post_id}"), AsyncMock(), session_factory, celery_client
-    )
+    await handle_callback(preview_tap(post_id), AsyncMock(), session_factory, celery_client)
 
     post = await load_post(session_factory, post_id)
     assert post.status is PostStatus.FAILED
@@ -316,16 +327,12 @@ async def test_a_tap_on_a_post_already_publishing_dispatches_nothing(
 async def test_two_simultaneous_taps_dispatch_only_once(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    post_id = await make_post_with_draft(session_factory)
+    post_id = await make_previewed_post(session_factory)
     celery_client = MagicMock()
 
     await asyncio.gather(
-        handle_callback(
-            make_callback(f"publish:{post_id}"), AsyncMock(), session_factory, celery_client
-        ),
-        handle_callback(
-            make_callback(f"publish:{post_id}"), AsyncMock(), session_factory, celery_client
-        ),
+        handle_callback(preview_tap(post_id), AsyncMock(), session_factory, celery_client),
+        handle_callback(preview_tap(post_id), AsyncMock(), session_factory, celery_client),
     )
 
     assert celery_client.send_task.call_count == 1
@@ -360,11 +367,9 @@ async def test_the_tap_and_its_dispatch_are_both_logged_with_the_user(
     was ever queued."""
     fake_logger = MagicMock()
     monkeypatch.setattr(handlers, "logger", fake_logger)
-    post_id = await make_post_with_draft(session_factory)
+    post_id = await make_previewed_post(session_factory)
 
-    await handle_callback(
-        make_callback(f"publish:{post_id}"), AsyncMock(), session_factory, MagicMock()
-    )
+    await handle_callback(preview_tap(post_id), AsyncMock(), session_factory, MagicMock())
 
     assert logged_fields(fake_logger.info, "publish_button_tapped") == [
         {"user_id": PUBLISHER_ID, "post_id": post_id}
@@ -402,13 +407,11 @@ async def test_a_failed_publish_dispatch_is_logged_as_a_refusal(
 ) -> None:
     fake_logger = MagicMock()
     monkeypatch.setattr(handlers, "logger", fake_logger)
-    post_id = await make_post_with_draft(session_factory)
+    post_id = await make_previewed_post(session_factory)
     celery_client = MagicMock()
     celery_client.send_task.side_effect = RuntimeError("broker down")
 
-    await handle_callback(
-        make_callback(f"publish:{post_id}"), AsyncMock(), session_factory, celery_client
-    )
+    await handle_callback(preview_tap(post_id), AsyncMock(), session_factory, celery_client)
 
     assert logged_fields(fake_logger.warning, "publish_refused") == [
         {"reason": "dispatch_failed", "user_id": PUBLISHER_ID, "post_id": post_id}

@@ -102,14 +102,44 @@ class CaptionView(BaseModel):
 
 class FragmentAvailability(BaseModel):
     """whether the fragment can be chosen now, or the audio can be prepared for it, judged from
-    the status alone; at most one flag is true."""
+    the status alone; at most one of the first three flags is true."""
 
     start_ms: int | None
     end_ms: int | None
     choosable: bool
     preparable: bool
     preparing: bool
+    cancellable: bool
     reason: str | None
+
+
+class CoverPublicationAvailability(BaseModel):
+    """whether the cover can be published without a video, from the status and the preview."""
+
+    allowed: bool
+    reason: str | None
+
+
+class CoverPublicationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_post_updated_at: datetime
+
+
+class CoverPublicationStarted(BaseModel):
+    post_id: int
+    status_label: str
+
+
+class CancelPreparationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_post_updated_at: datetime
+
+
+class AudioPreparationCancelled(BaseModel):
+    post_id: int
+    status_label: str
 
 
 class FragmentPeaks(BaseModel):
@@ -160,6 +190,7 @@ class PostDetail(BaseModel):
     editable: bool
     not_editable_reason: str | None
     fragment: FragmentAvailability
+    cover_publication: CoverPublicationAvailability
     created_at: datetime
     published_at: datetime | None
     title: str | None

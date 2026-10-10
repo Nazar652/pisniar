@@ -80,11 +80,10 @@ def post_list_keyboard(chat_id: int, webapp_public_url: str | None) -> InlineKey
 def draft_keyboard(
     post_id: int, chat_id: int | None = None, webapp_public_url: str | None = None
 ) -> InlineKeyboardMarkup:
-    """both triggers under a text draft: publish the cover as a photo, or
-    spend the disk and the minutes on a video first; the editor when it may open."""
+    """under a text draft: the video trigger and the editor where it may open; the cover alone
+    is published from the editor, never from the chat."""
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [callback_button(PUBLISH_BUTTON_TEXT, CallbackAction.PUBLISH, post_id)],
             [callback_button(RENDER_BUTTON_TEXT, CallbackAction.RENDER, post_id)],
             *edit_button_rows(chat_id, webapp_public_url, post_id),
         ]

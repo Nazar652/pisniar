@@ -84,13 +84,33 @@ def test_an_illegal_status_is_refused_with_the_status_in_the_log(
 ) -> None:
     fake_logger = capture_logger(monkeypatch)
     post = make_post(PostStatus.RESOLVING)
+    post.preview_chat_id, post.preview_message_id = 111, 300
 
-    refusal, _ = handlers.claim_post_for_publishing(post, POST_ID, PUBLISHER_ID)
+    refusal, _ = handlers.claim_post_for_publishing(post, POST_ID, PUBLISHER_ID, (111, 300))
 
     assert refusal is not None
     refusal_fields = warnings_named(fake_logger, "publish_refused")[0]
     assert refusal_fields["reason"] == "illegal_status"
     assert refusal_fields["status"] == "resolving"
+
+
+def test_a_tap_on_a_draft_without_a_preview_points_to_the_editor_and_changes_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_logger = capture_logger(monkeypatch)
+    post = make_post()
+    for step in (PostStatus.RESOLVING, PostStatus.RESOLVED):
+        set_post_status(post, step)
+
+    refusal, reference = handlers.claim_post_for_publishing(post, POST_ID, PUBLISHER_ID)
+
+    assert refusal == handlers.COVER_IN_EDITOR_ANSWER.format(post_id=POST_ID)
+    assert len(refusal) <= 200
+    assert reference is None
+    assert post.status is PostStatus.RESOLVED
+    assert warnings_named(fake_logger, "publish_refused")[0]["reason"] == (
+        "cover_publication_in_editor"
+    )
 
 
 def test_a_tap_under_another_message_than_the_preview_is_refused_with_its_own_reason(
@@ -120,11 +140,14 @@ def test_a_claimed_post_is_not_logged_as_a_refusal(monkeypatch: pytest.MonkeyPat
         set_post_status(post, step)
     post.draft_chat_id = 111
     post.draft_message_id = 222
+    post.preview_chat_id, post.preview_message_id = 111, 300
 
-    refusal, draft_reference = handlers.claim_post_for_publishing(post, POST_ID, PUBLISHER_ID)
+    refusal, draft_reference = handlers.claim_post_for_publishing(
+        post, POST_ID, PUBLISHER_ID, (111, 300)
+    )
 
     assert refusal is None
-    assert draft_reference == (111, 222)
+    assert draft_reference == (111, 300)
     assert warnings_named(fake_logger, "publish_refused") == []
 
 

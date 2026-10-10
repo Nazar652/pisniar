@@ -100,17 +100,32 @@ async def tap_render(tap: SimpleNamespace) -> None:
     )
 
 
+PREVIEW_REFERENCE = (777, 88)
+
+
+def tap_under_the_preview(tap: SimpleNamespace) -> None:
+    """a publish tap is valid only under the video preview of a rendered post."""
+    tap.post = make_post(
+        PostStatus.RENDERED,
+        preview_chat_id=PREVIEW_REFERENCE[0],
+        preview_message_id=PREVIEW_REFERENCE[1],
+    )
+    tap.callback.message.chat.id, tap.callback.message.message_id = PREVIEW_REFERENCE
+
+
 async def test_a_publish_tap_runs_database_then_keyboard_then_dispatch(
     tap: SimpleNamespace,
 ) -> None:
+    tap_under_the_preview(tap)
+
     await tap_publish(tap)
 
     assert tap.post.status is PostStatus.PUBLISHING
     assert tap.order == ["commit", "keyboard", "dispatch", "answer"]
     keyboard_call = tap.bot.edit_message_reply_markup.await_args
     assert keyboard_call.kwargs == {
-        "chat_id": DRAFT_REFERENCE[0],
-        "message_id": DRAFT_REFERENCE[1],
+        "chat_id": PREVIEW_REFERENCE[0],
+        "message_id": PREVIEW_REFERENCE[1],
         "reply_markup": None,
     }
     tap.celery_client.send_task.assert_called_once_with(
@@ -158,6 +173,7 @@ async def test_a_missing_post_is_refused_on_both_buttons(tap: SimpleNamespace) -
 async def test_a_failed_publish_dispatch_fails_the_post_and_tells_the_admin(
     tap: SimpleNamespace,
 ) -> None:
+    tap_under_the_preview(tap)
     tap.celery_client.send_task = MagicMock(side_effect=ConnectionError("redis is down"))
 
     await tap_publish(tap)
@@ -175,6 +191,7 @@ async def test_a_failed_publish_dispatch_fails_the_post_and_tells_the_admin(
 async def test_a_keyboard_that_cannot_be_removed_does_not_stop_the_dispatch(
     tap: SimpleNamespace,
 ) -> None:
+    tap_under_the_preview(tap)
     tap.bot.edit_message_reply_markup = AsyncMock(
         side_effect=TelegramAPIError(method=SendPhoto(chat_id=1, photo="x"), message="gone")
     )
@@ -182,6 +199,20 @@ async def test_a_keyboard_that_cannot_be_removed_does_not_stop_the_dispatch(
     await tap_publish(tap)
 
     tap.celery_client.send_task.assert_called_once()
+
+
+async def test_a_publish_tap_on_a_draft_is_refused_with_the_editor_pointer(
+    tap: SimpleNamespace,
+) -> None:
+    await tap_publish(tap)
+
+    assert tap.post.status is PostStatus.RESOLVED
+    assert tap.order == ["commit", "answer"]
+    tap.bot.edit_message_reply_markup.assert_not_awaited()
+    tap.celery_client.send_task.assert_not_called()
+    assert tap.callback.answer.await_args.args[0] == handlers.COVER_IN_EDITOR_ANSWER.format(
+        post_id=POST_ID
+    )
 
 
 async def test_a_render_tap_runs_database_then_keyboard_then_dispatch(

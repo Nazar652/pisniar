@@ -173,8 +173,17 @@ def test_the_detail_judges_the_fragment_from_the_status_alone() -> None:
         choosable=True,
         preparable=False,
         preparing=False,
+        cancellable=False,
         reason=None,
     )
+    assert ready.fragment.cancellable is True
+    assert (
+        build_post_detail(
+            make_post(PostStatus.EDITING, preview_message_id=99), make_track(), []
+        ).fragment.cancellable
+        is False
+    )
+    assert (resolved.fragment.cancellable, downloading.fragment.cancellable) == (False, False)
     assert published.fragment.choosable is False
     assert published.fragment.reason
     assert published.fragment.start_ms is None
@@ -182,6 +191,19 @@ def test_the_detail_judges_the_fragment_from_the_status_alone() -> None:
     assert (downloading.fragment.preparing, downloading.fragment.choosable) == (True, False)
     assert ready.fragment.choosable is True
     assert ready.status_label == "Аудіо готове — оберіть фрагмент"
+
+
+def test_the_detail_carries_the_cover_publication_verdict_with_the_preview_in_mind() -> None:
+    draft = build_post_detail(make_post(PostStatus.RESOLVED), make_track(), [])
+    previewed = build_post_detail(
+        make_post(PostStatus.RESOLVED, preview_message_id=99), make_track(), []
+    )
+    ready = build_post_detail(make_post(PostStatus.EDITING), make_track(), [])
+
+    assert (draft.cover_publication.allowed, draft.cover_publication.reason) == (True, None)
+    assert previewed.cover_publication.allowed is False
+    assert ready.cover_publication.allowed is False
+    assert ready.cover_publication.reason
 
 
 def test_a_valid_album_id_gives_the_album_link_and_a_bad_one_none() -> None:

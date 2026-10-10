@@ -13,11 +13,12 @@ from aiogram.methods import SendVideo
 
 from pisniar.db.models import Post
 from pisniar.telegram import preview as preview_module
-from pisniar.telegram.keyboards import CallbackAction, parse_callback
+from pisniar.telegram.keyboards import CallbackAction, parse_callback, preview_keyboard
 from pisniar.telegram.preview import (
     deliver_preview,
     remove_draft_keyboard,
     remove_preview_keyboard,
+    restore_draft_keyboard,
 )
 from pisniar.telegram.video import RenderedVideo
 
@@ -201,4 +202,50 @@ async def test_a_failed_keyboard_removal_never_raises_and_warns(
 
     fake_logger.warning.assert_called_once()
     assert fake_logger.warning.call_args.args == ("draft_keyboard_removal_failed",)
+    assert fake_logger.warning.call_args.kwargs["post_id"] == 7
+
+
+async def test_a_restored_draft_keyboard_is_sent_with_the_markup_and_the_timeout() -> None:
+    bot = AsyncMock()
+    markup = preview_keyboard(7)
+
+    await restore_draft_keyboard(bot, 555, 41, 7, markup, request_timeout=15)
+
+    assert bot.edit_message_reply_markup.await_args.kwargs == {
+        "chat_id": 555,
+        "message_id": 41,
+        "reply_markup": markup,
+        "request_timeout": 15,
+    }
+
+
+async def test_an_unchanged_keyboard_is_a_success_not_a_warning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_logger = MagicMock()
+    monkeypatch.setattr(preview_module, "logger", fake_logger)
+    bot = AsyncMock()
+    bot.edit_message_reply_markup.side_effect = TelegramBadRequest(
+        method=SendVideo(chat_id=555, video="x"),
+        message="Bad Request: message is not modified: specified new message content",
+    )
+
+    await restore_draft_keyboard(bot, 555, 41, 7, None)
+
+    fake_logger.warning.assert_not_called()
+
+
+async def test_a_refused_restore_never_raises_and_warns_with_the_post(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_logger = MagicMock()
+    monkeypatch.setattr(preview_module, "logger", fake_logger)
+    bot = AsyncMock()
+    bot.edit_message_reply_markup.side_effect = TelegramAPIError(
+        method=SendVideo(chat_id=555, video="x"), message="message to edit not found"
+    )
+
+    await restore_draft_keyboard(bot, 555, 41, 7, None)
+
+    assert fake_logger.warning.call_args.args == ("draft_keyboard_restore_failed",)
     assert fake_logger.warning.call_args.kwargs["post_id"] == 7
