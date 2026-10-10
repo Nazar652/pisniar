@@ -65,7 +65,7 @@ def test_a_pause_marker_is_kept_because_it_ends_the_line_before_it() -> None:
     ],
 )
 def test_nothing_but_synced_lyrics_is_ever_written(outcome: LyricsOutcome) -> None:
-    """untimed text stays a log class while `start_ms` is NOT NULL."""
+    """this writer stores timed lines of a synced answer and nothing else."""
     result = LyricsResult(outcome=outcome, lines=(LyricsLine(start_ms=None, text="голий текст"),))
 
     assert lyrics.rows_to_write(TRACK_ID, result) == ([], 0)
@@ -122,6 +122,12 @@ QUERY = lyrics.LyricsQuery(
     track_id=TRACK_ID, artist_names=("Burned Time Machine",), title="Покаяння", duration_ms=212_000
 )
 STORED_LINES = (LyricLine(line_index=0, start_ms=1_000, text="раз"),)
+NOTHING_STORED = lyrics.StoredLyrics(renderable_lines=(), total_count=0, edited_by_admin=False)
+TIMED_STORED = lyrics.StoredLyrics(
+    renderable_lines=STORED_LINES, total_count=1, edited_by_admin=False
+)
+UNTIMED_STORED = lyrics.StoredLyrics(renderable_lines=(), total_count=3, edited_by_admin=False)
+REMOVED_STORED = lyrics.StoredLyrics(renderable_lines=(), total_count=0, edited_by_admin=True)
 
 
 class PrepareSpy:
@@ -132,8 +138,8 @@ class PrepareSpy:
         self,
         monkeypatch: pytest.MonkeyPatch,
         *,
-        stored_before: tuple[LyricLine, ...],
-        stored_after: tuple[LyricLine, ...] = (),
+        stored_before: lyrics.StoredLyrics,
+        stored_after: lyrics.StoredLyrics = NOTHING_STORED,
         fetch_result: LyricsResult | BaseException | None = None,
         persist_outcome: LyricsPersistOutcome = LyricsPersistOutcome.WRITTEN,
     ) -> None:
@@ -142,11 +148,11 @@ class PrepareSpy:
         self.fetch_result = fetch_result
         self.persist_outcome = persist_outcome
 
-        monkeypatch.setattr(lyrics, "load_renderable_lines", self.load)
+        monkeypatch.setattr(lyrics, "load_stored_lyrics", self.load)
         monkeypatch.setattr(lyrics, "fetch_lyrics", self.fetch)
         monkeypatch.setattr(lyrics, "persist_lyrics_in_own_transaction", self.persist)
 
-    async def load(self, session_factory: object, track_id: int) -> tuple[LyricLine, ...]:
+    async def load(self, session_factory: object, track_id: int) -> lyrics.StoredLyrics:
         self.calls.append("load")
         return self.stored.pop(0)
 
@@ -173,7 +179,7 @@ async def prepare() -> lyrics.PreparedLyrics:
 async def test_stored_lines_are_used_and_lrclib_is_never_asked(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    spy = PrepareSpy(monkeypatch, stored_before=STORED_LINES)
+    spy = PrepareSpy(monkeypatch, stored_before=TIMED_STORED)
 
     prepared = await prepare()
 
@@ -183,6 +189,73 @@ async def test_stored_lines_are_used_and_lrclib_is_never_asked(
     )
 
 
+@pytest.mark.parametrize(
+    ("stored", "reason"),
+    [
+        (TIMED_STORED, lyrics.LYRICS_ALREADY_STORED),
+        (UNTIMED_STORED, lyrics.LYRICS_UNTIMED),
+        (REMOVED_STORED, lyrics.LYRICS_REMOVED_BY_ADMIN),
+        (
+            lyrics.StoredLyrics(renderable_lines=STORED_LINES, total_count=4, edited_by_admin=True),
+            lyrics.LYRICS_ALREADY_STORED,
+        ),
+        (
+            lyrics.StoredLyrics(renderable_lines=(), total_count=2, edited_by_admin=True),
+            lyrics.LYRICS_UNTIMED,
+        ),
+    ],
+)
+async def test_stored_lines_or_a_saved_text_mean_no_network_and_a_class_each(
+    monkeypatch: pytest.MonkeyPatch, stored: lyrics.StoredLyrics, reason: str
+) -> None:
+    spy = PrepareSpy(monkeypatch, stored_before=stored)
+
+    prepared = await prepare()
+
+    assert spy.calls == ["load"]
+    assert prepared == lyrics.PreparedLyrics(lines=stored.renderable_lines, reason=reason)
+
+
+def test_nothing_stored_and_no_human_decision_leaves_the_sources_free() -> None:
+    assert lyrics.reason_for_stored(NOTHING_STORED) is None
+
+
+@pytest.mark.parametrize(
+    ("stored", "reason"),
+    [
+        (TIMED_STORED, lyrics.LYRICS_ALREADY_STORED),
+        (UNTIMED_STORED, lyrics.LYRICS_UNTIMED),
+        (REMOVED_STORED, lyrics.LYRICS_REMOVED_BY_ADMIN),
+    ],
+)
+def test_each_stored_state_has_its_own_reason(stored: lyrics.StoredLyrics, reason: str) -> None:
+    assert lyrics.reason_for_stored(stored) == reason
+
+
+@pytest.mark.parametrize(
+    ("after", "reason"),
+    [
+        (TIMED_STORED, lyrics.LYRICS_ALREADY_STORED),
+        (UNTIMED_STORED, lyrics.LYRICS_UNTIMED),
+        (REMOVED_STORED, lyrics.LYRICS_REMOVED_BY_ADMIN),
+    ],
+)
+async def test_a_writer_that_kept_what_was_there_reports_what_is_there(
+    monkeypatch: pytest.MonkeyPatch, after: lyrics.StoredLyrics, reason: str
+) -> None:
+    PrepareSpy(
+        monkeypatch,
+        stored_before=NOTHING_STORED,
+        stored_after=after,
+        fetch_result=synced((1_000, "інше")),
+        persist_outcome=LyricsPersistOutcome.KEPT_EXISTING,
+    )
+
+    prepared = await prepare()
+
+    assert prepared == lyrics.PreparedLyrics(lines=after.renderable_lines, reason=reason)
+
+
 async def test_fresh_synced_lyrics_are_persisted_then_read_back(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -190,8 +263,8 @@ async def test_fresh_synced_lyrics_are_persisted_then_read_back(
     differ once a line is truncated to the CHECK."""
     spy = PrepareSpy(
         monkeypatch,
-        stored_before=(),
-        stored_after=STORED_LINES,
+        stored_before=NOTHING_STORED,
+        stored_after=TIMED_STORED,
         fetch_result=synced((1_000, "раз")),
     )
 
@@ -206,8 +279,8 @@ async def test_lines_written_by_someone_else_meanwhile_count_as_already_stored(
 ) -> None:
     PrepareSpy(
         monkeypatch,
-        stored_before=(),
-        stored_after=STORED_LINES,
+        stored_before=NOTHING_STORED,
+        stored_after=TIMED_STORED,
         fetch_result=synced((1_000, "інше")),
         persist_outcome=LyricsPersistOutcome.KEPT_EXISTING,
     )
@@ -230,7 +303,9 @@ async def test_lines_written_by_someone_else_meanwhile_count_as_already_stored(
 async def test_an_answer_without_timed_lines_carries_its_own_class(
     monkeypatch: pytest.MonkeyPatch, outcome: LyricsOutcome
 ) -> None:
-    PrepareSpy(monkeypatch, stored_before=(), fetch_result=LyricsResult(outcome=outcome))
+    PrepareSpy(
+        monkeypatch, stored_before=NOTHING_STORED, fetch_result=LyricsResult(outcome=outcome)
+    )
 
     prepared = await prepare()
 
@@ -248,7 +323,7 @@ async def test_an_answer_without_timed_lines_carries_its_own_class(
 async def test_a_source_that_fails_means_a_video_without_text(
     monkeypatch: pytest.MonkeyPatch, failure: BaseException
 ) -> None:
-    spy = PrepareSpy(monkeypatch, stored_before=(), fetch_result=failure)
+    spy = PrepareSpy(monkeypatch, stored_before=NOTHING_STORED, fetch_result=failure)
 
     prepared = await prepare()
 
@@ -267,14 +342,14 @@ async def test_a_timeout_or_a_database_error_under_the_fetch_is_never_swallowed(
 ) -> None:
     """the soft limit is reported as a timeout, and `SourceCache` talks to
     Postgres inside the fetch: neither is the source failing."""
-    PrepareSpy(monkeypatch, stored_before=(), fetch_result=failure)
+    PrepareSpy(monkeypatch, stored_before=NOTHING_STORED, fetch_result=failure)
 
     with pytest.raises(type(failure)):
         await prepare()
 
 
 async def test_a_failed_persist_fails_loudly(monkeypatch: pytest.MonkeyPatch) -> None:
-    spy = PrepareSpy(monkeypatch, stored_before=(), fetch_result=synced((1_000, "раз")))
+    spy = PrepareSpy(monkeypatch, stored_before=NOTHING_STORED, fetch_result=synced((1_000, "раз")))
 
     async def refuse(*args: object, **kwargs: object) -> object:
         raise lyrics.LyricsPersistError("записано 0 рядків із 1")
@@ -292,7 +367,7 @@ async def test_a_failed_read_of_stored_lines_fails_loudly(
     async def refuse(*args: object, **kwargs: object) -> object:
         raise OperationalError("SELECT lyric", {}, Exception("server closed"))
 
-    monkeypatch.setattr(lyrics, "load_renderable_lines", refuse)
+    monkeypatch.setattr(lyrics, "load_stored_lyrics", refuse)
 
     with pytest.raises(OperationalError):
         await prepare()
@@ -313,6 +388,11 @@ async def test_a_failed_read_of_stored_lines_fails_loudly(
             "lyrics_outside_fragment",
             "Текст є, але жоден рядок не потрапляє у вибраний фрагмент.",
         ),
+        (
+            "lyrics_untimed",
+            "Текст є, але ще не відстукано — відкрийте «Текст» у редакторі поста.",
+        ),
+        ("lyrics_removed_by_admin", "Текст прибрано вручну — відео без тексту."),
     ],
 )
 def test_every_reason_for_a_missing_text_has_its_own_sentence(reason: str, sentence: str) -> None:

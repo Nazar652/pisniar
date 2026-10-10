@@ -1,6 +1,6 @@
-"""The render's lyrics: stored lines first, LRCLIB only when there are none, with
-no session open during the request. Persistence is a short transaction of its
-own; only timed lines are written, never over existing lines of any `source`.
+"""The render's lyrics: stored lines first, LRCLIB only when there are none and no
+human saved the text, with no session open during the request. Persistence is a
+short transaction of its own, never over lines of any `source` or a saved text.
 """
 
 from __future__ import annotations
@@ -31,6 +31,10 @@ LRCLIB_SOURCE = "lrclib"
 LYRICS_ALREADY_STORED = "lyrics_already_stored"
 # timed lines exist, yet the fragment has none of them, so the `.ass` is empty.
 LYRICS_OUTSIDE_FRAGMENT = "lyrics_outside_fragment"
+# lines are stored but none is timed; the text was saved by a human, or found without times.
+LYRICS_UNTIMED = "lyrics_untimed"
+# a human saved an empty text: no source is asked.
+LYRICS_REMOVED_BY_ADMIN = "lyrics_removed_by_admin"
 
 # one sentence per class: "LRCLIB did not answer" and "LRCLIB has no text" call
 # for different things from the admin.
@@ -43,6 +47,8 @@ NO_TEXT_NOTICES = {
         "Знайдений текст належить іншому треку — не використано."
     ),
     LYRICS_OUTSIDE_FRAGMENT: "Текст є, але жоден рядок не потрапляє у вибраний фрагмент.",
+    LYRICS_UNTIMED: "Текст є, але ще не відстукано — відкрийте «Текст» у редакторі поста.",
+    LYRICS_REMOVED_BY_ADMIN: "Текст прибрано вручну — відео без тексту.",
 }
 UNEXPLAINED_NO_TEXT_NOTICE = "Відео зібрано без тексту."
 
@@ -71,7 +77,7 @@ class LyricsPersistResult:
 @dataclass(frozen=True)
 class LyricRow:
     line_index: int
-    start_ms: int
+    start_ms: int | None
     text: str
 
 
@@ -134,18 +140,27 @@ async def persist_under_track_lock(
     rows: list[LyricRow],
     source_outcome: LyricsOutcome,
     truncated_count: int,
+    source: str = LRCLIB_SOURCE,
 ) -> LyricsPersistResult:
     # FOR NO KEY UPDATE, the lock `persist_track_in_own_transaction` takes:
     # `INSERT INTO post` (FOR KEY SHARE) still passes. Any other lyric writer must take it too.
-    track = await session.get(Track, track_id, with_for_update={"key_share": True})
+    # populate_existing: a track already in the identity map must not hand back a stale marker.
+    track = await session.get(
+        Track, track_id, with_for_update={"key_share": True}, populate_existing=True
+    )
     if track is None:
         raise LyricsPersistError(f"трек {track_id} не знайдено — текст нікуди писати")
 
     existing_count = await session.scalar(
         select(func.count()).select_from(Lyric).where(Lyric.track_id == track_id)
     )
-    if existing_count:
-        logger.info("lyrics_persist_kept_existing", track_id=track_id, existing=existing_count)
+    if existing_count or track.lyrics_edited_at is not None:
+        logger.info(
+            "lyrics_persist_kept_existing",
+            track_id=track_id,
+            existing=existing_count,
+            edited_by_admin=track.lyrics_edited_at is not None,
+        )
         return LyricsPersistResult(
             outcome=LyricsPersistOutcome.KEPT_EXISTING, source_outcome=source_outcome
         )
@@ -159,7 +174,7 @@ async def persist_under_track_lock(
                     "line_index": row.line_index,
                     "start_ms": row.start_ms,
                     "text": row.text,
-                    "source": LRCLIB_SOURCE,
+                    "source": source,
                 }
                 for row in rows
             ]
@@ -201,17 +216,48 @@ class PreparedLyrics:
     reason: str
 
 
-async def load_renderable_lines(
+@dataclass(frozen=True)
+class StoredLyrics:
+    """`total_count` counts every stored line, timed or not; the render sees only
+    `renderable_lines`."""
+
+    renderable_lines: tuple[LyricLine, ...]
+    total_count: int
+    edited_by_admin: bool
+
+
+async def load_stored_lyrics(
     session_factory: async_sessionmaker[AsyncSession], track_id: int
-) -> tuple[LyricLine, ...]:
+) -> StoredLyrics:
     """plain values out of a session closed on return, so nothing lazily
-    reloads once the long phase starts."""
+    reloads once the long phase starts. REPEATABLE READ, so the rows, the count and the
+    marker come from one snapshot."""
     async with session_factory() as session:
+        await session.connection(execution_options={"isolation_level": "REPEATABLE READ"})
         rows = (await session.scalars(renderable_lyrics_statement(track_id))).all()
-        return tuple(
-            LyricLine(line_index=row.line_index, start_ms=row.start_ms, text=row.text)
-            for row in rows
+        total_count = await session.scalar(
+            select(func.count()).select_from(Lyric).where(Lyric.track_id == track_id)
         )
+        edited_at = await session.scalar(select(Track.lyrics_edited_at).where(Track.id == track_id))
+        return StoredLyrics(
+            renderable_lines=tuple(
+                LyricLine(line_index=row.line_index, start_ms=row.start_ms, text=row.text)
+                for row in rows
+            ),
+            total_count=total_count or 0,
+            edited_by_admin=edited_at is not None,
+        )
+
+
+def reason_for_stored(stored: StoredLyrics) -> str | None:
+    """`None` means nothing is stored and no human decided: a source may be asked."""
+    if stored.renderable_lines:
+        return LYRICS_ALREADY_STORED
+    if stored.total_count > 0:
+        return LYRICS_UNTIMED
+    if stored.edited_by_admin:
+        return LYRICS_REMOVED_BY_ADMIN
+    return None
 
 
 async def prepare_lyrics(
@@ -222,9 +268,10 @@ async def prepare_lyrics(
 ) -> PreparedLyrics:
     """a source that fails means a video without text. Our own failures (persist,
     read) raise, and so do timeouts and database errors raised under the fetch."""
-    stored = await load_renderable_lines(session_factory, query.track_id)
-    if stored:
-        return build_prepared_lyrics(query.track_id, stored, LYRICS_ALREADY_STORED)
+    stored = await load_stored_lyrics(session_factory, query.track_id)
+    stored_reason = reason_for_stored(stored)
+    if stored_reason is not None:
+        return build_prepared_lyrics(query.track_id, stored.renderable_lines, stored_reason)
 
     try:
         result = await fetch_lyrics(
@@ -246,11 +293,12 @@ async def prepare_lyrics(
         return build_prepared_lyrics(query.track_id, (), LyricsOutcome.SOURCE_UNAVAILABLE.value)
 
     persisted = await persist_lyrics_in_own_transaction(session_factory, query.track_id, result)
-    lines = await load_renderable_lines(session_factory, query.track_id)
+    reloaded = await load_stored_lyrics(session_factory, query.track_id)
 
     if persisted.outcome is LyricsPersistOutcome.KEPT_EXISTING:
-        return build_prepared_lyrics(query.track_id, lines, LYRICS_ALREADY_STORED)
-    return build_prepared_lyrics(query.track_id, lines, result.outcome.value)
+        kept_reason = reason_for_stored(reloaded) or LYRICS_ALREADY_STORED
+        return build_prepared_lyrics(query.track_id, reloaded.renderable_lines, kept_reason)
+    return build_prepared_lyrics(query.track_id, reloaded.renderable_lines, result.outcome.value)
 
 
 def reason_after_subtitles(

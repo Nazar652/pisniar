@@ -16,6 +16,7 @@ pytestmark = pytest.mark.integration
 
 PREVIOUS_REVISION = "be8d6bff2a6c"
 MANUAL_FIELDS_REVISION = "6134b8e293e1"
+PREVIEW_HASH_REVISION = "ba0fdb351081"
 
 
 def test_upgrade_head_then_downgrade_base_then_upgrade_head(
@@ -163,7 +164,9 @@ async def test_preview_params_hash_backfill_takes_the_newest_render_and_fails_wi
                 datetime(stamp_year, 1, 1, tzinfo=UTC),
             )
 
-        head = run_alembic("upgrade", "head", database_url=migrations_test_database_url)
+        head = run_alembic(
+            "upgrade", PREVIEW_HASH_REVISION, database_url=migrations_test_database_url
+        )
         assert head.returncode == 0, head.stdout + head.stderr
 
         stored = {
@@ -188,7 +191,9 @@ async def test_preview_params_hash_backfill_takes_the_newest_render_and_fails_wi
             "INSERT INTO post (id, track_id, created_by_user_id, preview_chat_id, "
             "preview_message_id) OVERRIDING SYSTEM VALUE VALUES (3, 1, 1, -200, 11)"
         )
-        failed = run_alembic("upgrade", "head", database_url=migrations_test_database_url)
+        failed = run_alembic(
+            "upgrade", PREVIEW_HASH_REVISION, database_url=migrations_test_database_url
+        )
     finally:
         await connection.close()
 
@@ -200,3 +205,72 @@ async def test_preview_params_hash_backfill_takes_the_newest_render_and_fails_wi
     assert (column_left, check_left) == (0, 0)
     assert failed.returncode != 0
     assert "ck_post_preview_params_hash_matches_ref" in failed.stdout + failed.stderr
+
+
+async def test_untimed_lines_migration_keeps_the_check_and_downgrade_drops_the_untimed(
+    migrations_test_database_url: str,
+    run_alembic: Callable[..., subprocess.CompletedProcess[str]],
+) -> None:
+    """an existing track has no marker; a line without a time may be stored but a negative one
+    may not; going back deletes the untimed lines (a NOT NULL column cannot hold them)."""
+    upgraded = run_alembic(
+        "upgrade", PREVIEW_HASH_REVISION, database_url=migrations_test_database_url
+    )
+    assert upgraded.returncode == 0, upgraded.stdout + upgraded.stderr
+
+    plain_dsn = (
+        make_url(migrations_test_database_url)
+        .set(drivername="postgresql")
+        .render_as_string(hide_password=False)
+    )
+    connection = await asyncpg.connect(plain_dsn)
+    try:
+        await connection.execute(
+            "INSERT INTO track (id, source_url, source_url_normalized) "
+            "OVERRIDING SYSTEM VALUE VALUES (1, 'test://1', 'test://1')"
+        )
+        await connection.execute(
+            "INSERT INTO lyric (track_id, line_index, start_ms, text, source) "
+            "VALUES (1, 0, 1000, 'timed', 'lrclib')"
+        )
+        with pytest.raises(asyncpg.NotNullViolationError):
+            await connection.execute(
+                "INSERT INTO lyric (track_id, line_index, start_ms, text, source) "
+                "VALUES (1, 1, NULL, 'untimed', 'manual')"
+            )
+
+        head = run_alembic("upgrade", "head", database_url=migrations_test_database_url)
+        assert head.returncode == 0, head.stdout + head.stderr
+
+        marker = await connection.fetchval("SELECT lyrics_edited_at FROM track WHERE id = 1")
+        await connection.execute(
+            "INSERT INTO lyric (track_id, line_index, start_ms, text, source) "
+            "VALUES (1, 1, NULL, 'untimed', 'manual')"
+        )
+        with pytest.raises(asyncpg.CheckViolationError, match="ck_lyric_start_ms_non_negative"):
+            await connection.execute(
+                "INSERT INTO lyric (track_id, line_index, start_ms, text, source) "
+                "VALUES (1, 2, -1, 'negative', 'manual')"
+            )
+
+        downgraded = run_alembic("downgrade", "-1", database_url=migrations_test_database_url)
+        assert downgraded.returncode == 0, downgraded.stdout + downgraded.stderr
+        kept = await connection.fetch("SELECT text FROM lyric ORDER BY line_index")
+        marker_columns = await connection.fetchval(
+            "SELECT count(*) FROM information_schema.columns "
+            "WHERE table_name = 'track' AND column_name = 'lyrics_edited_at'"
+        )
+        start_ms_nullable = await connection.fetchval(
+            "SELECT is_nullable FROM information_schema.columns "
+            "WHERE table_name = 'lyric' AND column_name = 'start_ms'"
+        )
+
+        reupgraded = run_alembic("upgrade", "head", database_url=migrations_test_database_url)
+    finally:
+        await connection.close()
+
+    assert marker is None
+    assert [record["text"] for record in kept] == ["timed"]
+    assert marker_columns == 0
+    assert start_ms_nullable == "NO"
+    assert reupgraded.returncode == 0, reupgraded.stdout + reupgraded.stderr

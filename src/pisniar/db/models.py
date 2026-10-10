@@ -57,6 +57,12 @@ CHANNEL_MESSAGE_KINDS_SQL_LIST = ", ".join(f"'{value}'" for value in CHANNEL_MES
 # a karaoke line, not a verse: anything longer is a parser that lost the line
 # breaks, and the CHECK is where that stops being silent.
 MAX_LYRIC_TEXT_LENGTH = 500
+# a stored text is ~50 lines and ~1 000 characters; the ceilings leave room for a
+# pasted whole song and stop a paste of a book.
+MAX_LYRIC_LINES = 300
+MAX_LYRICS_TOTAL_CHARACTERS = 20_000
+# a saved set's JSON body: 20 000 four-byte characters plus ~40 bytes of keys per line.
+LYRICS_MAX_BODY_BYTES = 96 * 1024
 
 
 class PostStatusType(TypeDecorator[PostStatus]):
@@ -131,6 +137,9 @@ class Track(IdAndTimestampsMixin, Base):
     removed_platforms: Mapped[list[object]] = mapped_column(
         JSONB, nullable=False, server_default=text("'[]'::jsonb")
     )
+    # set when a human saved the text, an empty set included: no automatic source
+    # writes or asks again. NULL means nobody edited it.
+    lyrics_edited_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
 
     # passive_deletes="all": without it, SQLAlchemy nulls track_id before
     # delete, so ON DELETE RESTRICT never fires.
@@ -308,7 +317,7 @@ class Render(IdAndTimestampsMixin, Base):
 
 class Lyric(IdAndTimestampsMixin, Base):
     """keyed to a track, so posts of one recording share the text. `start_ms` is
-    absolute in the full track; there is no `end_ms`, render time derives it."""
+    absolute in the full track, NULL for a line not yet timed; there is no `end_ms`."""
 
     __tablename__ = "lyric"
     __table_args__ = (
@@ -324,7 +333,7 @@ class Lyric(IdAndTimestampsMixin, Base):
     )
     # the only source of render order — `start_ms` orders nothing.
     line_index: Mapped[int] = mapped_column(Integer, nullable=False)
-    start_ms: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    start_ms: Mapped[int | None] = mapped_column(BigInteger)
     # raw as the source gave it; the ASS substitution happens at render time
     # (`worker.ass`), so nothing lossy is stored.
     text: Mapped[str] = mapped_column(Text, nullable=False)
@@ -333,8 +342,7 @@ class Lyric(IdAndTimestampsMixin, Base):
 
 
 def renderable_lyrics_statement(track_id: int) -> Select[tuple[Lyric]]:
-    """the render path's only read of `lyric`. `IS NOT NULL` is a tautology while the
-    column is NOT NULL, so allowing untimed lines later changes no render code."""
+    """the render path's only read of `lyric`: a line not yet timed never reaches it."""
     return (
         select(Lyric)
         .where(Lyric.track_id == track_id, Lyric.start_ms.is_not(None))

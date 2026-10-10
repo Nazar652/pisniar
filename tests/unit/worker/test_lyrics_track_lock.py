@@ -1,10 +1,11 @@
 """`lyrics.persist_under_track_lock` with a faked session: the track is locked
-`FOR NO KEY UPDATE`, existing lines of any source win, and a write that lands short
-raises instead of committing a partial set.
+`FOR NO KEY UPDATE`, existing lines of any source and a saved text win, and a write
+that lands short raises instead of committing a partial set.
 """
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -44,7 +45,9 @@ async def test_the_track_is_locked_for_no_key_update() -> None:
 
     await persist(session)
 
-    session.get.assert_awaited_once_with(Track, TRACK_ID, with_for_update={"key_share": True})
+    session.get.assert_awaited_once_with(
+        Track, TRACK_ID, with_for_update={"key_share": True}, populate_existing=True
+    )
 
 
 async def test_a_missing_track_has_nowhere_to_write() -> None:
@@ -64,6 +67,37 @@ async def test_existing_lines_of_any_source_mean_nothing_is_written() -> None:
     assert result.outcome is LyricsPersistOutcome.KEPT_EXISTING
     assert result.source_outcome is LyricsOutcome.SYNCED
     session.execute.assert_not_awaited()
+
+
+async def test_a_saved_text_with_no_lines_means_nothing_is_written() -> None:
+    """a human removed the text: zero lines is a decision, not an empty track."""
+    track = Track()
+    track.lyrics_edited_at = datetime(2026, 10, 10, tzinfo=UTC)
+    session = make_session(track, existing_count=0, inserted_rows=0)
+
+    result = await persist(session)
+
+    assert result.outcome is LyricsPersistOutcome.KEPT_EXISTING
+    session.execute.assert_not_awaited()
+
+
+async def test_the_insert_carries_the_given_source_and_untimed_rows() -> None:
+    session = make_session(Track(), existing_count=0, inserted_rows=2)
+    rows = [
+        LyricRow(line_index=0, start_ms=None, text="перший"),
+        LyricRow(line_index=1, start_ms=2_000, text="другий"),
+    ]
+
+    await worker_lyrics.persist_under_track_lock(
+        session, TRACK_ID, rows, LyricsOutcome.UNSYNCED, 0, source="genius"
+    )
+
+    parameters = session.execute.await_args.args[0].compile().params
+    assert {value for key, value in parameters.items() if key.startswith("source")} == {"genius"}
+    assert [value for key, value in parameters.items() if key.startswith("start_ms")] == [
+        None,
+        2_000,
+    ]
 
 
 async def test_all_rows_landing_is_a_written_result_with_the_counts() -> None:

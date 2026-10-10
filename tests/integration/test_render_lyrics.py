@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import ANY, AsyncMock, MagicMock
 
@@ -25,7 +26,7 @@ from pisniar.db.states import PostStatus, set_post_status
 from pisniar.resolve.sources import lrclib
 from pisniar.worker import ffmpeg as media_tools
 from pisniar.worker import tasks as worker_tasks
-from pisniar.worker.lyrics import LYRICS_ALREADY_STORED
+from pisniar.worker.lyrics import LYRICS_ALREADY_STORED, LYRICS_REMOVED_BY_ADMIN, LYRICS_UNTIMED
 from pisniar.worker.render import text_version_of
 
 pytestmark = pytest.mark.integration
@@ -337,6 +338,78 @@ async def test_stored_lines_are_rendered_without_asking_lrclib(
     assert renderer.subtitles[0] is not None
     assert "Свій" in renderer.subtitles[0]
     assert preview.lyrics_reasons == [LYRICS_ALREADY_STORED]
+
+
+async def test_a_removed_text_renders_without_text_and_never_asks_lrclib(
+    session_factory: async_sessionmaker[AsyncSession],
+    alerts: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    post_id, track_id, _, _ = await make_downloaded_post(session_factory)
+    async with session_factory() as session:
+        track = await session.get(Track, track_id)
+        assert track is not None
+        track.lyrics_edited_at = datetime.now(UTC)
+        await session.commit()
+
+    async def refuse(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("the text was saved by a human, LRCLIB must not be asked")
+
+    renderer, preview = install_pipeline(monkeypatch, refuse)
+
+    await worker_tasks.perform_render_post_video(post_id)
+
+    post, render = await render_row_of(session_factory, post_id)
+    assert post.status is PostStatus.RENDERED
+    assert render.text_version is None
+    assert renderer.subtitles == [None]
+    assert await lyric_count(session_factory, track_id) == 0
+    assert preview.lyrics_reasons == [LYRICS_REMOVED_BY_ADMIN]
+    alerts.assert_awaited_once_with(
+        ANY,
+        111,
+        f"Пост {post_id}: Текст прибрано вручну — відео без тексту.",
+        reply_to_message_id=post_id + PREVIEW_MESSAGE_OFFSET,
+    )
+
+
+async def test_untimed_lines_never_reach_the_subtitles_nor_lrclib(
+    session_factory: async_sessionmaker[AsyncSession],
+    alerts: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    post_id, track_id, _, _ = await make_downloaded_post(session_factory)
+    async with session_factory() as session:
+        for line_index in range(2):
+            session.add(
+                Lyric(
+                    track_id=track_id,
+                    line_index=line_index,
+                    start_ms=None,
+                    text=f"Безчасовий {line_index}",
+                    source="manual",
+                )
+            )
+        await session.commit()
+
+    async def refuse(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("lines are stored, LRCLIB must not be asked")
+
+    renderer, preview = install_pipeline(monkeypatch, refuse)
+
+    await worker_tasks.perform_render_post_video(post_id)
+
+    _, render = await render_row_of(session_factory, post_id)
+    assert render.text_version is None
+    assert renderer.subtitles == [None]
+    assert await lyric_count(session_factory, track_id) == 2
+    assert preview.lyrics_reasons == [LYRICS_UNTIMED]
+    alerts.assert_awaited_once_with(
+        ANY,
+        111,
+        f"Пост {post_id}: Текст є, але ще не відстукано — відкрийте «Текст» у редакторі поста.",
+        reply_to_message_id=post_id + PREVIEW_MESSAGE_OFFSET,
+    )
 
 
 async def test_an_unavailable_lrclib_still_yields_a_video_without_text(

@@ -1,6 +1,5 @@
-"""Two statements that look pointless today: one orders by a column that happens
-to match the timecodes, the other filters on a NOT NULL column. Both are what
-lets untimed lines arrive later without touching the render path.
+"""The render's read of `lyric`: it orders by `line_index` and keeps a line not yet
+timed (`start_ms` NULL) out of the render, so the render path needs no other guard.
 """
 
 from __future__ import annotations
@@ -26,9 +25,7 @@ def test_the_render_read_orders_by_line_index_and_never_by_the_timecode() -> Non
     assert "ORDER BY lyric.start_ms" not in sql
 
 
-def test_the_render_read_spells_the_timecode_predicate_out_while_it_is_a_tautology() -> None:
-    """`start_ms` is NOT NULL today, so this filters nothing; dropping NOT NULL
-    later leaves the render path unchanged by one character."""
+def test_the_render_read_leaves_out_a_line_without_a_timecode() -> None:
     sql = compiled_sql()
 
     assert "lyric.start_ms IS NOT NULL" in sql

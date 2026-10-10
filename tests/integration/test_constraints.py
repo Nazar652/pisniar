@@ -1,7 +1,7 @@
 """Schema-level guarantees the ORM alone cannot enforce: the status CHECKs,
 the fragment-bounds CHECK, the `languages` default and CHECK, the partial
-unique index, `ON DELETE RESTRICT` on `post.track_id`, and the media
-artifact tables (positive-size CHECKs, idempotency keys, `ON DELETE CASCADE`)."""
+unique index, `ON DELETE RESTRICT` on `post.track_id`, the media artifact tables
+(positive-size CHECKs, idempotency keys, `ON DELETE CASCADE`) and the lyric lines."""
 
 from __future__ import annotations
 
@@ -16,10 +16,12 @@ from pisniar.db.models import (
     CHANNEL_MESSAGE_KINDS,
     MANUAL_FIELD_NAMES,
     AudioAsset,
+    Lyric,
     Post,
     Render,
     SourceFetch,
     Track,
+    renderable_lyrics_statement,
 )
 from pisniar.db.states import PostStatus
 
@@ -501,6 +503,49 @@ async def test_deleting_a_track_cascades_to_its_audio(db_session: AsyncSession) 
         select(AudioAsset.id).where(AudioAsset.track_id == track.id)
     )
     assert remaining.scalars().all() == []
+
+
+async def test_a_lyric_line_may_lack_a_timecode_but_never_have_a_negative_one(
+    db_session: AsyncSession,
+) -> None:
+    track = await make_track(db_session)
+    db_session.add(
+        Lyric(track_id=track.id, line_index=0, start_ms=None, text="без часу", source="x")
+    )
+    db_session.add(Lyric(track_id=track.id, line_index=1, start_ms=0, text="з часом", source="x"))
+    await db_session.flush()  # must not raise
+
+    db_session.add(Lyric(track_id=track.id, line_index=2, start_ms=-1, text="до нуля", source="x"))
+    with pytest.raises(IntegrityError, match="ck_lyric_start_ms_non_negative"):
+        await db_session.flush()
+
+
+async def test_the_render_read_never_returns_a_line_without_a_timecode(
+    db_session: AsyncSession,
+) -> None:
+    track = await make_track(db_session)
+    for line_index, start_ms in enumerate((None, 1_000, None, 5_000)):
+        db_session.add(
+            Lyric(
+                track_id=track.id,
+                line_index=line_index,
+                start_ms=start_ms,
+                text=f"рядок {line_index}",
+                source="manual",
+            )
+        )
+    await db_session.flush()
+
+    rows = (await db_session.scalars(renderable_lyrics_statement(track.id))).all()
+
+    assert [(row.line_index, row.start_ms) for row in rows] == [(1, 1_000), (3, 5_000)]
+
+
+async def test_a_new_track_has_no_lyrics_marker(db_session: AsyncSession) -> None:
+    track = await make_track(db_session)
+    await db_session.refresh(track)
+
+    assert track.lyrics_edited_at is None
 
 
 async def test_render_check_rejects_an_empty_video(db_session: AsyncSession) -> None:
