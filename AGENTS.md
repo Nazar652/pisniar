@@ -67,7 +67,9 @@ suggest or introduce either.
   through six modules: `resolve.urls` (syntactic classification, no network),
   `resolve.types` (the `USER_INPUT_SOURCE` constant), `telegram.client`,
   `telegram.keyboards` (the `callback_data` grammar), `telegram.menu` and
-  `worker.celery_app` (task dispatch by name). The resolve pipeline
+  `worker.celery_app` (task dispatch by name, through `pisniar.dispatch`, the leaf the
+  Mini App shares: `dispatch_task` and `mark_dispatch_failure`; it imports neither `bot/`,
+  `webapp/` nor `worker/`). The resolve pipeline
   (`resolve.service`/`resolve.registry`, the six source adapters) and `post/`
   caption building run only in `pisniar/worker/`.
   `tests/unit/webapp/test_package_boundaries.py` scans the AST imports of
@@ -199,11 +201,17 @@ suggest or introduce either.
   existence probe is `editMessageReplyMarkup(reply_markup=None)`: on a live message without a
   keyboard (a channel post) it answers «not modified», on a deleted one «not found»; it is only
   ever aimed at messages that carry no keyboard.
-- **The Mini App server (`pisniar/webapp/`) never imports `bot/`, and from `worker/` only three leaf
-  modules**: `worker.fragment`, `worker.storage` and `worker.peaks_format` (the peaks file format and
-  its validating `read_peaks`, which `worker.peaks` imports too). They import no other worker module,
-  so the webapp never loads ffmpeg, the tasks, the download or the render; the boundary test pins
-  both lists. Every route but the three public ones and the signed audio route sits behind
+- **The Mini App server (`pisniar/webapp/`) never imports `bot/`, and from `worker/` only four leaf
+  modules**: `worker.fragment`, `worker.storage`, `worker.peaks_format` (the peaks file format and
+  its validating `read_peaks`, which `worker.peaks` imports too) and `worker.celery_app` (imports
+  only celery). They import no other worker module, so the webapp never loads ffmpeg, the tasks, the
+  download or the render; the boundary test pins both lists. The webapp is a producer of **one task
+  only**: `RENDER_POST_VIDEO_TASK_NAME`, through `pisniar.dispatch.dispatch_task`; the same test
+  fails on any other `*_TASK_NAME`, a direct `send_task` or a spelled-out `pisniar.worker.` name in
+  `webapp/`. The limit is enforced by the code and that test, not by the broker credential: `webapp` gets the
+  bot's authenticated `REDIS_URL` in `compose.yaml` but no `depends_on: redis`. Its Celery client
+  (`webapp.main`, closed on shutdown) connects lazily, so the app serves while Redis is down and only
+  this route answers 503. Every route but the three public ones and the signed audio route sits behind
   `require_admin` with a `response_model`. Its reads are
   plain SELECTs through `database.read_from_database`: no lock, one session per call, and a
   database failure is a Ukrainian 503, never a 401. The post list hides `archived` and `draft`,
@@ -234,6 +242,25 @@ suggest or introduce either.
   for its whole TTL. Logs carry `fragment_audio_served` (`http_status`) and `media_token_rejected`, never the
   token, and a filter on `uvicorn.access` (`webapp.access_log`) cuts the query off every request line.
   The CSP gains `media-src 'self'`.
+- **`POST /api/posts/{id}/fragment` starts a render with new bounds, in the order database, queue,
+  old keyboard** (`webapp.fragment_choice`). One `write_to_database` transaction: the post `FOR
+  UPDATE NOWAIT`, the choosability verdict (`RENDERED`, or `FAILED` from `downloaded`/`rendering`),
+  `expected_post_updated_at` (409 `stale_data`), then the track `FOR NO KEY UPDATE`, the `audio_asset`
+  of the **current** `youtubeMusic` videoId (409 `audio_missing`), `worker.fragment.validate_chosen_bounds`
+  against the measured duration (422 `invalid_fragment`: the sentence with the numbers), in `RENDERED`
+  the bounds the post already has (409 `fragment_unchanged`), `assign_if_changed` for both bounds and
+  `set_post_status(RENDERING)`; no Telegram call and no broker call inside it. A refused NOWAIT or a hit
+  `lock_timeout` is 409 `post_busy`, any other database failure 503. After the commit the task is
+  enqueued; a refused enqueue runs `dispatch.mark_dispatch_failure(expected_status=RENDERING)`, so the
+  post is `FAILED` from `rendering` with a `last_error`, and answers 503 `dispatch_failed` with
+  `/retry N` in the sentence (`/retry` then renders the stored bounds; a publish tap under the old
+  preview is already refused for a post that is not `RENDERED`). Only after a successful enqueue does
+  the old preview lose its keyboard (`telegram.preview.remove_preview_keyboard`, best effort, 15 s
+  `request_timeout`): a Telegram refusal is logged there as
+  `preview_superseded_keyboard_removal_failed` with the `post_id`, any other exception as
+  `fragment_preview_keyboard_removal_failed`; neither fails the request. The request model refuses extra fields, `bool` and values
+  beyond BIGINT; the response is `FragmentRenderStarted`. Logs: `fragment_render_requested`,
+  `fragment_render_refused` (`reason`), `fragment_render_dispatched`, never a token.
 - **Saving fields from the Mini App is one short transaction with no Telegram call**
   (`webapp.editing.save_fields`): the post `FOR UPDATE NOWAIT`, then the track `FOR NO KEY UPDATE`
   (`db.locks.lock_post_without_waiting` / `lock_track_for_write`, the lock the resolve and the

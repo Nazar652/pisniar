@@ -9,14 +9,21 @@ from datetime import UTC, datetime
 from typing import Annotated, cast
 
 from aiogram import Bot
+from celery import Celery
 from fastapi import Depends, FastAPI, Path, Query, Request
 
+from pisniar.db.states import PostStatus
 from pisniar.logging import get_logger
 from pisniar.webapp.applying import apply_caption, archive_post, edit_remaining
 from pisniar.webapp.auth import AdminUser, WebappContext, require_admin
 from pisniar.webapp.database import read_from_database, write_to_database
 from pisniar.webapp.editing import POST_NOT_FOUND_MESSAGE, preview_fields, save_fields
 from pisniar.webapp.errors import ApiProblem, FieldsInvalidError
+from pisniar.webapp.fragment_choice import (
+    choose_fragment,
+    enqueue_render,
+    release_superseded_preview,
+)
 from pisniar.webapp.fragment_view import build_fragment_view, fetch_fragment_source
 from pisniar.webapp.meta import build_meta
 from pisniar.webapp.schemas import (
@@ -28,6 +35,8 @@ from pisniar.webapp.schemas import (
     FieldsInput,
     FieldsInvalid,
     FieldsUpdate,
+    FragmentRenderStarted,
+    FragmentRequest,
     FragmentView,
     MetaResponse,
     PostDetail,
@@ -40,10 +49,12 @@ from pisniar.webapp.service import (
     fetch_post_detail,
     fetch_post_page,
 )
+from pisniar.webapp.status import STATUS_LABELS
 
 logger = get_logger(__name__)
 
 TELEGRAM_UNAVAILABLE_MESSAGE = "Зв'язок із Telegram не налаштовано."
+QUEUE_UNAVAILABLE_MESSAGE = "Зв'язок із чергою завдань не налаштовано."
 READ_ERROR_RESPONSES: dict[int | str, dict[str, type[ApiError]]] = {
     401: {"model": ApiError},
     403: {"model": ApiError},
@@ -58,7 +69,13 @@ EDIT_ERROR_RESPONSES: dict[int | str, dict[str, type[ApiError]]] = {
 }
 # the refusals no deeper layer logs; every other one is logged where it is decided
 LOGGED_AT_THE_ROUTE = frozenset(
-    {"post_not_found", "post_busy", "database_unavailable", "telegram_unavailable"}
+    {
+        "post_not_found",
+        "post_busy",
+        "database_unavailable",
+        "telegram_unavailable",
+        "queue_unavailable",
+    }
 )
 
 
@@ -104,6 +121,14 @@ def telegram_bot_of(request: Request) -> Bot:
         logger.error("webapp_telegram_not_configured")
         raise ApiProblem(503, "telegram_unavailable", TELEGRAM_UNAVAILABLE_MESSAGE)
     return bot
+
+
+def celery_client_of(request: Request) -> Celery:
+    celery_client = cast("Celery | None", request.app.state.celery_client)
+    if celery_client is None:
+        logger.error("webapp_queue_not_configured")
+        raise ApiProblem(503, "queue_unavailable", QUEUE_UNAVAILABLE_MESSAGE)
+    return celery_client
 
 
 def current_year_of(request: Request) -> int:
@@ -194,6 +219,38 @@ async def read_fragment(
         return await asyncio.to_thread(build_fragment_view, context, source, admin.user_id)
 
 
+async def start_fragment_render(
+    request: Request,
+    body: FragmentRequest,
+    admin: Annotated[AdminUser, Depends(require_admin)],
+    post_id: Annotated[int, Path(ge=1, le=POST_ID_MAX)],
+) -> FragmentRenderStarted:
+    logger.info(
+        "fragment_render_requested",
+        user_id=admin.user_id,
+        post_id=post_id,
+        start_ms=body.start_ms,
+        end_ms=body.end_ms,
+    )
+    async with refusals_logged("fragment_render_refused", admin.user_id, post_id):
+        bot = telegram_bot_of(request)
+        celery_client = celery_client_of(request)
+        choice = await write_to_database(
+            request, lambda session: choose_fragment(session, post_id, body, admin.user_id)
+        )
+        if choice is None:
+            raise ApiProblem(404, "post_not_found", POST_NOT_FOUND_MESSAGE)
+
+    await enqueue_render(celery_client, request.app.state.session_factory, choice, admin.user_id)
+    await release_superseded_preview(bot, choice, admin.user_id)
+    return FragmentRenderStarted(
+        post_id=post_id,
+        status_label=STATUS_LABELS[PostStatus.RENDERING],
+        start_ms=choice.bounds.start_ms,
+        end_ms=choice.bounds.end_ms,
+    )
+
+
 async def read_meta() -> MetaResponse:
     return build_meta()
 
@@ -221,6 +278,14 @@ def register_post_routes(app: FastAPI) -> None:
         read_fragment,
         methods=["GET"],
         response_model=FragmentView,
+        responses=EDIT_ERROR_RESPONSES,
+        dependencies=protected,
+    )
+    app.add_api_route(
+        "/api/posts/{post_id}/fragment",
+        start_fragment_render,
+        methods=["POST"],
+        response_model=FragmentRenderStarted,
         responses=EDIT_ERROR_RESPONSES,
         dependencies=protected,
     )

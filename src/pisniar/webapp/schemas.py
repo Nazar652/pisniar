@@ -3,15 +3,20 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 # real `initData` is under 2 KiB; the bound keeps a hostile body cheap to reject.
 INIT_DATA_MAX_LENGTH = 8192
 
-# the largest value of a Postgres BIGINT: an id beyond it is a bad request, not a database error
-POST_ID_MAX = 9_223_372_036_854_775_807
+# the range of a Postgres BIGINT: a value beyond it is a bad request, not a database error
+BIGINT_MAX = 9_223_372_036_854_775_807
+BIGINT_MIN = -BIGINT_MAX - 1
+POST_ID_MAX = BIGINT_MAX
+
+# a whole number of ms that Postgres can hold; `bool` is refused
+BigintMs = Annotated[StrictInt, Field(ge=BIGINT_MIN, le=BIGINT_MAX)]
 
 
 class ApiError(BaseModel):
@@ -120,6 +125,24 @@ class FragmentView(BaseModel):
     peaks: FragmentPeaks | None
     audio_url: str
     audio_url_expires_at: datetime
+
+
+class FragmentRequest(BaseModel):
+    """the bounds the admin chose, in whole ms from the start of the full track, and the
+    version of the post the editor was opened with."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    start_ms: BigintMs
+    end_ms: BigintMs
+    expected_post_updated_at: datetime
+
+
+class FragmentRenderStarted(BaseModel):
+    post_id: int
+    status_label: str
+    start_ms: int
+    end_ms: int
 
 
 class PostDetail(BaseModel):

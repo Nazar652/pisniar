@@ -56,6 +56,16 @@ def current_video_id(platform_links: dict[str, object]) -> str | None:
     return None if url is None else track_video_id_of(url)
 
 
+async def current_audio_asset(session: AsyncSession, track: Track) -> AudioAsset | None:
+    """the downloaded audio of the track's current `youtubeMusic` recording, if there is one."""
+    video_id = current_video_id(track.platform_links)
+    if video_id is None:
+        return None
+    return await session.scalar(
+        select(AudioAsset).where(AudioAsset.track_id == track.id, AudioAsset.video_id == video_id)
+    )
+
+
 async def fetch_fragment_source(
     session: AsyncSession, post_id: int, user_id: int
 ) -> FragmentSource | None:
@@ -77,24 +87,15 @@ async def fetch_fragment_source(
         assert verdict.reason is not None
         raise ApiProblem(409, "not_choosable", verdict.reason)
 
-    video_id = current_video_id(track.platform_links)
-    asset = (
-        None
-        if video_id is None
-        else await session.scalar(
-            select(AudioAsset).where(
-                AudioAsset.track_id == track.id, AudioAsset.video_id == video_id
-            )
-        )
-    )
-    if video_id is None or asset is None:
+    asset = await current_audio_asset(session, track)
+    if asset is None:
         refuse_audio_missing(user_id, post_id)
 
     return FragmentSource(
         post_id=post.id,
         post_updated_at=post.updated_at,
         track_id=track.id,
-        video_id=video_id,
+        video_id=asset.video_id,
         audio_duration_ms=asset.duration_ms,
         stored_start_ms=post.fragment_start_ms,
         stored_end_ms=post.fragment_end_ms,

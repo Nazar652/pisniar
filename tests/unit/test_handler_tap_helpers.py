@@ -1,5 +1,5 @@
-"""`dispatch_task` and `handle_tap`, the two helpers under every dispatch and both buttons: the
-event names and fields are the caller's, and the order is database, keyboard, dispatch.
+"""`handle_tap`, the helper under both buttons: the event names and fields are the caller's,
+and the order is database, keyboard, dispatch.
 """
 
 from __future__ import annotations
@@ -22,41 +22,6 @@ def fake_logger(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
     logger = MagicMock()
     monkeypatch.setattr(handlers, "logger", logger)
     return logger
-
-
-async def test_dispatch_task_sends_the_task_by_name_with_the_given_kwargs(
-    fake_logger: MagicMock,
-) -> None:
-    celery_client = MagicMock()
-
-    sent = await handlers.dispatch_task(
-        celery_client, "some.task", {"post_id": POST_ID}, "some_dispatch_failed", post_id=POST_ID
-    )
-
-    assert sent is True
-    celery_client.send_task.assert_called_once_with("some.task", kwargs={"post_id": POST_ID})
-    fake_logger.exception.assert_not_called()
-
-
-async def test_dispatch_task_logs_the_callers_event_and_fields_on_a_broker_failure(
-    fake_logger: MagicMock,
-) -> None:
-    celery_client = MagicMock()
-    celery_client.send_task.side_effect = ConnectionError("redis is down")
-
-    sent = await handlers.dispatch_task(
-        celery_client,
-        "some.task",
-        {"post_id": POST_ID},
-        "some_dispatch_failed",
-        task_name="some.task",
-        post_id=POST_ID,
-    )
-
-    assert sent is False
-    fake_logger.exception.assert_called_once_with(
-        "some_dispatch_failed", task_name="some.task", post_id=POST_ID
-    )
 
 
 class FakeSession:

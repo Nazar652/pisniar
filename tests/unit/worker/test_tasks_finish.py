@@ -336,6 +336,7 @@ async def test_the_superseded_keyboard_is_removed_from_the_old_preview(
         "chat_id": OLD_PREVIEW_CHAT_ID,
         "message_id": OLD_PREVIEW_MESSAGE_ID,
         "reply_markup": None,
+        "request_timeout": None,
     }
 
 

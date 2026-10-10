@@ -129,7 +129,8 @@ export interface paths {
         /** Read Fragment */
         get: operations["read_fragment_api_posts__post_id__fragment_get"];
         put?: never;
-        post?: never;
+        /** Start Fragment Render */
+        post: operations["start_fragment_render_api_posts__post_id__fragment_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -359,6 +360,33 @@ export interface components {
             peaks_per_second: number;
             /** Values */
             values: number[];
+        };
+        /** FragmentRenderStarted */
+        FragmentRenderStarted: {
+            /** End Ms */
+            end_ms: number;
+            /** Post Id */
+            post_id: number;
+            /** Start Ms */
+            start_ms: number;
+            /** Status Label */
+            status_label: string;
+        };
+        /**
+         * FragmentRequest
+         * @description the bounds the admin chose, in whole ms from the start of the full track, and the
+         *     version of the post the editor was opened with.
+         */
+        FragmentRequest: {
+            /** End Ms */
+            end_ms: number;
+            /**
+             * Expected Post Updated At
+             * Format: date-time
+             */
+            expected_post_updated_at: string;
+            /** Start Ms */
+            start_ms: number;
         };
         /**
          * FragmentView
@@ -1086,6 +1114,86 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FragmentView"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FieldsInvalid"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    start_fragment_render_api_posts__post_id__fragment_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                post_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FragmentRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FragmentRenderStarted"];
                 };
             };
             /** @description Unauthorized */

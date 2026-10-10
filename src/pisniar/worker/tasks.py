@@ -1715,7 +1715,7 @@ async def remove_superseded_preview_keyboard(post_id: int, superseded: PreviewRe
     preview, so a leftover button on the old one is refused anyway."""
     try:
         async with bot_client() as bot:
-            await remove_preview_keyboard(bot, superseded.chat_id, superseded.message_id)
+            await remove_preview_keyboard(bot, superseded.chat_id, superseded.message_id, post_id)
     except SoftTimeLimitExceeded:
         logger.error("render_post_video_superseded_keyboard_timed_out", post_id=post_id)
     except Exception:

@@ -92,12 +92,13 @@ async def test_a_post_that_already_has_a_preview_gets_a_new_one_and_points_at_it
 async def test_a_superseded_preview_loses_its_keyboard() -> None:
     bot = AsyncMock()
 
-    await remove_preview_keyboard(bot, 999, 42)
+    await remove_preview_keyboard(bot, 999, 42, 7, request_timeout=15)
 
     assert bot.edit_message_reply_markup.await_args.kwargs == {
         "chat_id": 999,
         "message_id": 42,
         "reply_markup": None,
+        "request_timeout": 15,
     }
 
 
@@ -111,9 +112,10 @@ async def test_a_failed_superseded_keyboard_removal_never_raises_and_warns(
         method=SendVideo(chat_id=999, video="x"), message="boom"
     )
 
-    await remove_preview_keyboard(bot, 999, 42)
+    await remove_preview_keyboard(bot, 999, 42, 7)
 
     fake_logger.warning.assert_called_once()
+    assert fake_logger.warning.call_args.kwargs["post_id"] == 7
 
 
 async def test_a_keyboard_that_is_already_gone_is_a_success_not_a_warning(
@@ -127,10 +129,11 @@ async def test_a_keyboard_that_is_already_gone_is_a_success_not_a_warning(
         message="Bad Request: message is not modified: specified new message content",
     )
 
-    await remove_preview_keyboard(bot, 999, 42)
+    await remove_preview_keyboard(bot, 999, 42, 7)
 
     fake_logger.warning.assert_not_called()
     fake_logger.info.assert_called_once()
+    assert fake_logger.info.call_args.kwargs["post_id"] == 7
 
 
 async def test_previewing_without_a_caption_raises_instead_of_sending(tmp_path: Path) -> None:

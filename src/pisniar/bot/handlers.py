@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -21,6 +20,11 @@ from pisniar.config import get_settings
 from pisniar.db.models import Post, Track
 from pisniar.db.session import session_scope
 from pisniar.db.states import IllegalStatusTransitionError, PostStatus, set_post_status
+from pisniar.dispatch import (
+    RENDER_DISPATCH_FAILED_ERROR,
+    dispatch_task,
+    mark_dispatch_failure,
+)
 from pisniar.logging import bind_post_id, get_logger
 from pisniar.resolve.types import USER_INPUT_SOURCE
 from pisniar.resolve.urls import (
@@ -56,7 +60,6 @@ settings = get_settings()
 DISPATCH_FAILED_ERROR = "не вдалося поставити задачу в чергу"
 PUBLISH_DISPATCH_FAILED_ERROR = "не вдалося поставити задачу публікації в чергу"
 DOWNLOAD_DISPATCH_FAILED_ERROR = "не вдалося поставити задачу завантаження аудіо в чергу"
-RENDER_DISPATCH_FAILED_ERROR = "не вдалося поставити задачу рендера відео в чергу"
 UNKNOWN_CALLBACK_ANSWER = "Невідома дія."
 ARCHIVED_POST_ANSWER = "Пост {post_id} архівовано — дій із ним немає."
 EDIT_FORMAT_ANSWER = "Формат команди: /edit [post_id]"
@@ -946,43 +949,6 @@ async def get_or_create_track(
 
 async def select_track_by_url(session: AsyncSession, normalized_url: str) -> Track | None:
     return await session.scalar(select(Track).where(Track.source_url_normalized == normalized_url))
-
-
-async def mark_dispatch_failure(
-    session_factory: async_sessionmaker[AsyncSession],
-    post_id: int,
-    *,
-    expected_status: PostStatus,
-    error: str,
-) -> None:
-    """the post is committed as in-progress with no task to move it, so the
-    bot's own "спробуйте /retry" advice would be false until it goes stale."""
-    try:
-        async with session_scope(session_factory) as session:
-            post = await session.get(Post, post_id, with_for_update=True)
-            if post is None or post.status is not expected_status:
-                return
-
-            set_post_status(post, PostStatus.FAILED, error=error)
-    except Exception:
-        logger.exception("dispatch_failure_status_write_failed", post_id=post_id)
-
-
-async def dispatch_task(
-    celery_client: Celery,
-    celery_task_name: str,
-    task_kwargs: dict[str, int],
-    failure_event: str,
-    **failure_fields: object,
-) -> bool:
-    """by name: `bot/` never imports `worker.tasks`. `send_task()` blocks, so it runs
-    off-loop, or an unreachable Redis stalls this single-loop process."""
-    try:
-        await asyncio.to_thread(celery_client.send_task, celery_task_name, kwargs=task_kwargs)
-    except Exception:
-        logger.exception(failure_event, **failure_fields)
-        return False
-    return True
 
 
 async def dispatch_resolve_task(celery_client: Celery, post_id: int) -> bool:

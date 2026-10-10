@@ -117,9 +117,12 @@ services:
       target: webapp
     env_file:
       - .env
-    # the database and the media volume, read-only: nothing here talks to Redis or dispatches a task.
+    # the database, the media volume read-only, and the broker URL. The broker credential allows
+    # any task: that this process enqueues only the render one is enforced by the code and by
+    # `test_package_boundaries.py`. No `depends_on: redis`: the producer connects lazily, so the
+    # rest of the app serves while Redis is down and only that route answers 503.
     environment:
-      DATABASE_URL: *database-url
+      <<: *app-environment
     volumes:
       - media-data:/data:ro
     depends_on:

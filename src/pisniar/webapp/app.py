@@ -12,6 +12,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from aiogram import Bot
+from celery import Celery
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -41,6 +42,7 @@ def create_webapp(
     clock: Callable[[], float] = time.time,
     session_factory: async_sessionmaker[AsyncSession] | None = None,
     bot: Bot | None = None,
+    celery_client: Celery | None = None,
 ) -> FastAPI:
     app = FastAPI(title="pisniar webapp", docs_url=None, redoc_url=None, openapi_url=None)
     app.state.context = WebappContext(
@@ -57,6 +59,7 @@ def create_webapp(
     )
     app.state.session_factory = session_factory
     app.state.bot = bot
+    app.state.celery_client = celery_client
     app.state.webapp_public_url = settings.webapp_public_url
     register_error_handlers(app)
 

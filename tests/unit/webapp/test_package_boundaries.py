@@ -1,6 +1,7 @@
-"""Package boundaries: `webapp` never imports `bot` and reaches `worker` only through three leaf
-modules that load neither ffmpeg nor the tasks; nothing imports `webapp`; `bot` reaches
-`resolve`, `post`, `telegram` and `worker` only through a short list of modules.
+"""Package boundaries: `webapp` never imports `bot` and reaches `worker` only through four leaf
+modules that load neither ffmpeg nor the tasks, and enqueues the render task alone; nothing
+imports `webapp`; `dispatch` is a leaf; `bot` reaches `resolve`, `post`, `telegram` and `worker`
+only through a short list of modules.
 """
 
 from __future__ import annotations
@@ -53,6 +54,7 @@ BOT_ALLOWED_MODULES = frozenset(
 
 WEBAPP_ALLOWED_WORKER_MODULES = frozenset(
     {
+        "pisniar.worker.celery_app",
         "pisniar.worker.fragment",
         "pisniar.worker.peaks_format",
         "pisniar.worker.storage",
@@ -102,6 +104,73 @@ def test_the_allowed_worker_modules_import_no_other_worker_module() -> None:
     """so the webapp never loads ffmpeg, the tasks, the download or the render."""
     for module_name in sorted(WEBAPP_ALLOWED_WORKER_MODULES):
         assert worker_modules_imported_by(module_name) <= WEBAPP_ALLOWED_WORKER_MODULES, module_name
+
+
+def task_name_references(package_directory: Path) -> set[str]:
+    """every `*_TASK_NAME` constant the package mentions, imported or used."""
+    found: set[str] = set()
+    for path in package_directory.rglob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Name) and node.id.endswith("_TASK_NAME"):
+                found.add(node.id)
+            elif isinstance(node, ast.alias) and node.name.endswith("_TASK_NAME"):
+                found.add(node.name)
+    return found
+
+
+def queue_calls(package_directory: Path) -> list[str]:
+    """each call that puts a task on the queue, with the first thing it names as the task."""
+    found: list[str] = []
+    for path in package_directory.rglob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if not isinstance(node, ast.Call):
+                continue
+            callee = ast.unparse(node.func)
+            if callee.endswith("send_task"):
+                found.append(f"{path.name}: {callee}")
+            elif callee.endswith("dispatch_task"):
+                task = ast.unparse(node.args[1]) if len(node.args) > 1 else "?"
+                found.append(f"{path.name}: {callee}({task})")
+    return found
+
+
+def task_name_literals(package_directory: Path) -> list[str]:
+    """a task name spelled as a string would slip past the constant scan."""
+    return [
+        node.value
+        for path in package_directory.rglob("*.py")
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and node.value.startswith("pisniar.worker.")
+    ]
+
+
+def test_the_webapp_enqueues_the_render_task_and_nothing_else() -> None:
+    webapp_directory = SOURCE_ROOT / "webapp"
+
+    assert task_name_references(webapp_directory) == {"RENDER_POST_VIDEO_TASK_NAME"}
+    assert queue_calls(webapp_directory) == [
+        "fragment_choice.py: dispatch_task(RENDER_POST_VIDEO_TASK_NAME)"
+    ]
+    assert task_name_literals(webapp_directory) == []
+
+
+def test_the_queue_scan_sees_the_bot_dispatches_and_a_spelled_out_task_name() -> None:
+    bot_calls = queue_calls(SOURCE_ROOT / "bot")
+
+    assert "handlers.py: dispatch_task(RESOLVE_POST_TASK_NAME)" in bot_calls
+    assert "handlers.py: dispatch_task(PUBLISH_POST_TASK_NAME)" in bot_calls
+    assert task_name_literals(SOURCE_ROOT / "worker") != []
+
+
+def test_dispatch_is_a_leaf_that_imports_neither_the_bot_nor_the_webapp() -> None:
+    imported = imported_modules(SOURCE_ROOT)["dispatch.py"]
+
+    assert not any(
+        module.startswith(("pisniar.bot", "pisniar.webapp", "pisniar.worker"))
+        for module in imported
+    )
 
 
 def test_the_worker_import_scan_resolves_the_from_import_form() -> None:
