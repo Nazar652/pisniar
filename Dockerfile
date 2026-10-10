@@ -25,7 +25,7 @@ WORKDIR /app
 FROM base AS deps-prod
 
 COPY pyproject.toml uv.lock ./
-RUN uv sync --locked --no-install-project --no-dev
+RUN uv sync --locked --no-install-project --no-default-groups
 
 FROM base AS deps-dev
 
@@ -42,7 +42,7 @@ COPY pyproject.toml uv.lock ./
 COPY src ./src
 COPY alembic ./alembic
 COPY alembic.ini ./
-RUN uv sync --locked --no-dev \
+RUN uv sync --locked --no-default-groups \
     && chown -R app:app /app /opt/venv
 USER app
 
@@ -93,6 +93,9 @@ FROM source-prod AS worker
 USER root
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg fonts-noto-core && rm -rf /var/lib/apt/lists/*
+# the worker alone gets the drawing library; bot and webapp stay without it
+RUN uv sync --locked --no-default-groups --group worker \
+    && chown -R app:app /opt/venv
 # docker seeds an empty named volume from the image path, ownership included —
 # this chown is the only thing that lets non-root `app` write to /data.
 RUN mkdir -p /data/audio /data/render /data/tmp && chown -R app:app /data

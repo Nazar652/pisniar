@@ -75,3 +75,10 @@ dev = [
     "ty>=0.0.82,<0.1",
     "watchfiles>=0.24,<1",
 ]
+worker = [
+    "pillow==12.3.0",
+]
+
+[tool.uv]
+# the worker group is installed on the host and in the dev images; prod images opt in per stage
+default-groups = ["dev", "worker"]
