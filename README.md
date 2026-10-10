@@ -43,6 +43,15 @@ confirmation. A published post whose channel message was deleted by hand can be
 archived from the same screen. The buttons exist only when `WEBAPP_PUBLIC_URL`
 is set; without it the bot works exactly as before.
 
+Once a post has a video preview, the **Фрагмент** section of the same editor
+shows the track's waveform with the current fragment as a region. Drag it or
+its edges (or step them by ±1 s / ±0.1 s), listen with **Програти фрагмент**,
+and **Зробити відео з цим фрагментом** renders the post again with those bounds
+(up to 2 minutes, no minimum). A new preview arrives in the chat and the old
+one loses its buttons: only the newest preview can be published. The waveform
+is computed by the worker after each download; `make peaks` writes it for audio
+that was downloaded before (a post with a preview is never downloaded again).
+
 ## Prerequisites
 
 - Docker Desktop, running.
@@ -208,6 +217,7 @@ make api-types     # regenerate the frontend API types after an API change
 make frontend-build # build the Mini App into frontend/dist
 make frontend-watch # rebuild it on every change
 make dev-token u=<user id>   # session token for a browser outside Telegram (a secret)
+make peaks         # write missing or outdated waveform files for stored audio, in the worker
 make funnel-init   # create the Tailscale state volume (once)
 make funnel-up     # start the Funnel
 make funnel-down   # stop it; the node and its URL stay
@@ -279,3 +289,15 @@ With a real `.env` in place and the stack up (`make up`):
 22. `docker compose logs | grep` for a real `initData`, session token or
     `TS_AUTHKEY` → empty output. Do this by hand; never script a check that
     echoes the secret.
+23. On a post with a video preview, open **Фрагмент** → **Обрати фрагмент** → a
+    waveform with one region; Telegram Desktop devtools show no CSP violation and
+    the audio arrives as Range requests.
+24. Drag the region to another part, **Програти фрагмент** plays only it; tap
+    **Зробити відео з цим фрагментом** → a new preview with that part (and its
+    lyric lines) arrives, the old preview loses its buttons, and publishing from
+    the new one sends the new video. Do this against a **test** channel.
+25. A publish tap under an old preview → refused as outdated, nothing published.
+26. A fragment longer than 2 minutes cannot be chosen, or is refused with a
+    sentence that names the numbers.
+27. Two tabs on the same fragment: the second submit reloads with a sentence
+    instead of starting a second render.

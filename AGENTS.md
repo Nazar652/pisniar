@@ -330,8 +330,8 @@ suggest or introduce either.
   (`isVersionAtLeast('7.7')`). The logic is pure `fragment/bounds.ts` (100 ms grid, the server's
   limits, ±1 s / ±0.1 s steps that move one edge) and `useFragmentEditor` (`loading -> ready ->
   submitting -> submitted | failed`); `expected_post_updated_at` is the server's string, never a
-  `Date`. The bundle check also fails when an initial script contains wavesurfer or the lazy scripts
-  exceed 40 KB gzip. wavesurfer writes one `<style>` into a shadow root, so the prod CSP is
+  `Date`. The bundle check also fails when an initial script contains wavesurfer, when no lazy
+  chunk does, or when the chunk carrying it exceeds 40 KB gzip. wavesurfer writes one `<style>` into a shadow root, so the prod CSP is
   `style-src 'self' 'sha256-…'` (`webapp.app.WAVESURFER_STYLE_HASH`, valid for
   `WAVESURFER_VERSION` at `waveform.WAVEFORM_HEIGHT_PX`); `tests/scripts/csp.test.ts` recomputes it
   from the installed package and a Python test ties the version to `package.json`. Never
@@ -776,6 +776,11 @@ with previous, current and next line under the cover, and delivers it as a
 **preview with a publish button**. A video without text still reaches the
 preview, with a notice under it saying why. Publication sends that same file
 with that same caption as `send_video`, and the file is deleted afterwards.
+
+From a preview the admin can open the Mini App's fragment editor, pick other
+bounds on the waveform and render again: the post goes back to `RENDERING`, a
+new preview replaces the old one as the only publishable message, and
+publication sends the file `preview_params_hash` points at.
 
 Revoking a published post is deliberately not implemented — a wrong post is
 deleted by hand in Telegram, and the row goes on saying `published`.
