@@ -126,6 +126,14 @@ suggest or introduce either.
   publication (`pisniar.telegram.publish.publish_to_channel`) are the
   opposite on purpose: both are the product, so their failures propagate to
   `failed`.
+- **Every Telegram client is built by `telegram.client.build_bot`, which registers
+  `RetryUnsentRequestMiddleware`**: a call is repeated (3 attempts, 1 s and 3 s apart, each logged as
+  `telegram_request_retried`) only when `is_unsent_connect_error` proves no request was sent — a
+  `TelegramNetworkError` caused by `aiohttp.ClientConnectorError` (SSL and certificate errors included). Timeouts, disconnects and API answers
+  are never repeated, since the request may have arrived and a second `sendPhoto`/`sendVideo` would publish
+  twice; `GetUpdates` is left to aiogram's own polling backoff. Each attempt has the call's full
+  `request_timeout`, so a caller holding a lock across the call (the Mini App's apply holds the post
+  `FOR UPDATE NOWAIT`) may hold it across all attempts; the last error propagates unchanged.
 - **Channel publication is idempotent through three barriers, and only the
   first one deduplicates.** (1) `publish_post` locks the `post` row `FOR
   UPDATE` and returns early if `channel_message_id IS NOT NULL` or the status
