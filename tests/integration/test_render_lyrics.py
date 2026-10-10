@@ -23,7 +23,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from pisniar.db.models import AudioAsset, Lyric, Post, Render, Track
 from pisniar.db.session import build_engine, build_session_factory
 from pisniar.db.states import PostStatus, set_post_status
-from pisniar.resolve.sources import lrclib
+from pisniar.resolve.sources import lrclib, ytmusic_lyrics
+from pisniar.resolve.sources.lrclib import LyricsLine, LyricsOutcome, LyricsResult
 from pisniar.worker import ffmpeg as media_tools
 from pisniar.worker import tasks as worker_tasks
 from pisniar.worker.lyrics import LYRICS_ALREADY_STORED, LYRICS_REMOVED_BY_ADMIN, LYRICS_UNTIMED
@@ -175,6 +176,12 @@ def install_pipeline(
     )
     monkeypatch.setattr(worker_tasks.video_render, "render_fragment_within_size_limit", renderer)
     monkeypatch.setattr(worker_tasks.video_render, "render_thumbnail", lambda *a, **k: None)
+    # `ytmusicapi` has its own transport, so the mock transport above cannot see it; the cache
+    # row is keyed by the video id every test shares, so the whole call is replaced.
+    monkeypatch.setattr(
+        ytmusic_lyrics, "fetch_lyrics", AsyncMock(return_value=LyricsResult(LyricsOutcome.ABSENT))
+    )
+    monkeypatch.setattr(worker_tasks, "queue_plain_lyrics_lookup", AsyncMock())
     monkeypatch.setattr(worker_tasks, "deliver_preview_for", preview)
     return renderer, preview
 
@@ -340,6 +347,81 @@ async def test_stored_lines_are_rendered_without_asking_lrclib(
     assert preview.lyrics_reasons == [LYRICS_ALREADY_STORED]
 
 
+async def test_youtube_music_timed_text_is_stored_first_and_lrclib_is_not_asked(
+    session_factory: async_sessionmaker[AsyncSession],
+    alerts: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    post_id, track_id, _, _ = await make_downloaded_post(session_factory)
+
+    async def refuse(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("YouTube Music had timed text, LRCLIB must not be asked")
+
+    renderer, preview = install_pipeline(monkeypatch, refuse)
+    youtube_answer = LyricsResult(
+        outcome=LyricsOutcome.SYNCED,
+        lines=(
+            LyricsLine(start_ms=1_000, text="Перший рядок"),
+            LyricsLine(start_ms=6_000, text=""),
+            LyricsLine(start_ms=9_000, text="Другий рядок"),
+        ),
+    )
+    monkeypatch.setattr(ytmusic_lyrics, "fetch_lyrics", AsyncMock(return_value=youtube_answer))
+
+    await worker_tasks.perform_render_post_video(post_id)
+
+    alerts.assert_not_awaited()
+    async with session_factory() as session:
+        stored = (
+            await session.scalars(
+                select(Lyric).where(Lyric.track_id == track_id).order_by(Lyric.line_index)
+            )
+        ).all()
+    assert [(row.start_ms, row.text, row.source) for row in stored] == [
+        (1_000, "Перший рядок", "ytmusic"),
+        (6_000, "", "ytmusic"),
+        (9_000, "Другий рядок", "ytmusic"),
+    ]
+    assert renderer.subtitles[0] is not None
+    assert "Перший рядок" in renderer.subtitles[0]
+    assert preview.lyrics_reasons == ["lyrics_synced"]
+
+
+async def test_plain_text_found_while_rendering_is_stored_without_times_and_explained(
+    session_factory: async_sessionmaker[AsyncSession],
+    alerts: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    post_id, track_id, artist, title = await make_downloaded_post(session_factory)
+
+    async def plain_only(request: httpx.Request) -> httpx.Response:
+        record = {**lrclib_record(artist, title), "syncedLyrics": ""}
+        return httpx.Response(200, json=record)
+
+    renderer, preview = install_pipeline(monkeypatch, plain_only)
+
+    await worker_tasks.perform_render_post_video(post_id)
+
+    async with session_factory() as session:
+        stored = (
+            await session.scalars(
+                select(Lyric).where(Lyric.track_id == track_id).order_by(Lyric.line_index)
+            )
+        ).all()
+    assert [(row.start_ms, row.text, row.source) for row in stored] == [
+        (None, "Перший рядок", "lrclib"),
+        (None, "Другий рядок", "lrclib"),
+    ]
+    assert renderer.subtitles == [None]
+    assert preview.lyrics_reasons == [LYRICS_UNTIMED]
+    alerts.assert_awaited_once_with(
+        ANY,
+        111,
+        f"Пост {post_id}: Текст є, але ще не відстукано — відкрийте «Текст» у редакторі поста.",
+        reply_to_message_id=post_id + PREVIEW_MESSAGE_OFFSET,
+    )
+
+
 async def test_a_removed_text_renders_without_text_and_never_asks_lrclib(
     session_factory: async_sessionmaker[AsyncSession],
     alerts: AsyncMock,
@@ -437,7 +519,7 @@ async def test_an_unavailable_lrclib_still_yields_a_video_without_text(
     alerts.assert_awaited_once_with(
         ANY,
         111,
-        f"Пост {post_id}: LRCLIB не відповів — відео зібрано без тексту.",
+        f"Пост {post_id}: Джерело тексту не відповіло — відео зібрано без тексту.",
         reply_to_message_id=post_id + PREVIEW_MESSAGE_OFFSET,
     )
 
@@ -467,7 +549,8 @@ async def test_a_redelivered_render_explains_the_missing_text_only_once(
     alerts.assert_awaited_once_with(
         ANY,
         111,
-        f"Пост {post_id}: Тексту цього треку в LRCLIB немає — відео без тексту.",
+        f"Пост {post_id}: Тексту цього треку немає ні на YouTube Music, ні в LRCLIB — "
+        "відео без тексту.",
         reply_to_message_id=post_id + PREVIEW_MESSAGE_OFFSET,
     )
 

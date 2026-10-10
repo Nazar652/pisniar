@@ -32,7 +32,11 @@ from pisniar.worker.lyrics import (
 from pisniar.worker.render import text_version_of
 
 LYRICS_QUERY = LyricsQuery(
-    track_id=3, artist_names=("Burned Time Machine",), title="Покаяння", duration_ms=212_000
+    track_id=3,
+    artist_names=("Burned Time Machine",),
+    title="Покаяння",
+    duration_ms=212_000,
+    video_id="n4bPzdIs_nc",
 )
 
 SOURCE_ROOT = Path(worker_tasks.__file__).resolve().parents[1]
@@ -1191,6 +1195,7 @@ async def test_the_render_claim_carries_the_lyrics_query_as_plain_values() -> No
         artist_names=("Burned Time Machine",),
         title="Покаяння",
         duration_ms=212_000,
+        video_id="n4bPzdIs_nc",
     )
 
 
@@ -1210,7 +1215,10 @@ class NoticePipeline:
         self.sessions: list[FakeSession] = []
         self.alerts: list[dict[str, object]] = []
         self.failures: list[str] = []
+        # (track id, reason, alerts already sent): the lookup is queued after the notice.
+        self.plain_lookups: list[tuple[int, str, int]] = []
 
+        monkeypatch.setattr(worker_tasks, "queue_plain_lyrics_lookup", self.queue_lookup)
         monkeypatch.setattr(worker_tasks.settings, "media_root", tmp_path)
         monkeypatch.setattr(worker_tasks, "build_engine", lambda *a, **k: FakeEngine())
         monkeypatch.setattr(worker_tasks, "build_session_factory", lambda engine: self.session)
@@ -1245,6 +1253,9 @@ class NoticePipeline:
     async def fail(self, session_factory: object, post_id: int, error: str) -> None:
         self.failures.append(error)
 
+    async def queue_lookup(self, track_id: int, lyrics_reason: str) -> None:
+        self.plain_lookups.append((track_id, lyrics_reason, len(self.alerts)))
+
     def render_returns(
         self, monkeypatch: pytest.MonkeyPatch, *, text_version: str | None, reason: str
     ) -> None:
@@ -1274,7 +1285,10 @@ async def test_a_video_without_text_is_explained_under_its_preview_after_the_com
     assert pipeline.alerts == [
         {
             "chat_id": PREVIEW_CHAT_ID,
-            "text": "Пост 7: Тексту цього треку в LRCLIB немає — відео без тексту.",
+            "text": (
+                "Пост 7: Тексту цього треку немає ні на YouTube Music, ні в LRCLIB — "
+                "відео без тексту."
+            ),
             "reply_to_message_id": PREVIEW_MESSAGE_ID,
             "status": PostStatus.RENDERED,
             # transaction 1 and transaction 2 are both committed by then
@@ -1282,6 +1296,34 @@ async def test_a_video_without_text_is_explained_under_its_preview_after_the_com
         }
     ]
     assert pipeline.failures == []
+
+
+async def test_the_plain_lookup_is_queued_after_the_notice_for_the_tracks_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pipeline = NoticePipeline(monkeypatch, tmp_path)
+    pipeline.render_returns(monkeypatch, text_version=None, reason="lyrics_absent")
+
+    await worker_tasks.perform_render_post_video(7)
+
+    assert pipeline.plain_lookups == [(3, "lyrics_absent", 1)]
+
+
+async def test_no_lookup_is_queued_when_the_preview_failed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pipeline = NoticePipeline(monkeypatch, tmp_path)
+    pipeline.render_returns(monkeypatch, text_version=None, reason="lyrics_absent")
+
+    async def refuse(post: Post, outcome: object) -> None:
+        raise RuntimeError("telegram is down")
+
+    monkeypatch.setattr(worker_tasks, "deliver_preview_for", refuse)
+
+    await worker_tasks.perform_render_post_video(7)
+
+    assert pipeline.plain_lookups == []
+    assert pipeline.alerts == []
 
 
 async def test_a_video_with_text_gets_no_notice(

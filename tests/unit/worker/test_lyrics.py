@@ -14,7 +14,7 @@ import pytest
 from celery.exceptions import SoftTimeLimitExceeded
 from sqlalchemy.exc import OperationalError
 
-from pisniar.db.models import MAX_LYRIC_TEXT_LENGTH
+from pisniar.db.models import MAX_LYRIC_LINES, MAX_LYRIC_TEXT_LENGTH, MAX_LYRICS_TOTAL_CHARACTERS
 from pisniar.resolve.lrc import LrcParseError
 from pisniar.resolve.sources.lrclib import LrclibApiError, LyricsLine, LyricsOutcome, LyricsResult
 from pisniar.worker import lyrics
@@ -58,15 +58,103 @@ def test_a_pause_marker_is_kept_because_it_ends_the_line_before_it() -> None:
 @pytest.mark.parametrize(
     "outcome",
     [
-        LyricsOutcome.UNSYNCED,
         LyricsOutcome.INSTRUMENTAL,
         LyricsOutcome.ABSENT,
         LyricsOutcome.REJECTED_BY_MATCHING,
     ],
 )
-def test_nothing_but_synced_lyrics_is_ever_written(outcome: LyricsOutcome) -> None:
-    """this writer stores timed lines of a synced answer and nothing else."""
+def test_an_answer_that_is_neither_synced_nor_plain_writes_nothing(outcome: LyricsOutcome) -> None:
     result = LyricsResult(outcome=outcome, lines=(LyricsLine(start_ms=None, text="голий текст"),))
+
+    assert lyrics.rows_to_write(TRACK_ID, result) == ([], 0)
+
+
+def test_the_lines_to_store_are_decided_by_the_class_of_the_answer() -> None:
+    mixed = (LyricsLine(start_ms=None, text="a"), LyricsLine(start_ms=5, text="b"))
+
+    synced_lines = lyrics.lines_to_store(LyricsResult(LyricsOutcome.SYNCED, mixed))
+    plain_lines = lyrics.lines_to_store(LyricsResult(LyricsOutcome.UNSYNCED, mixed))
+
+    assert [(line.start_ms, line.text) for line in synced_lines] == [(5, "b")]
+    assert [(line.start_ms, line.text) for line in plain_lines] == [(None, "a"), (None, "b")]
+    assert lyrics.lines_to_store(LyricsResult(LyricsOutcome.ABSENT, mixed)) == []
+
+
+@pytest.mark.parametrize(
+    ("line_count", "character_count", "fits"),
+    [
+        (MAX_LYRIC_LINES, MAX_LYRICS_TOTAL_CHARACTERS, True),
+        (MAX_LYRIC_LINES + 1, 1, False),
+        (1, MAX_LYRICS_TOTAL_CHARACTERS + 1, False),
+        (0, 0, True),
+    ],
+)
+def test_the_stored_text_limits_are_inclusive(
+    line_count: int, character_count: int, fits: bool
+) -> None:
+    assert lyrics.fits_stored_text_limits(line_count, character_count) is fits
+
+
+def test_plain_lines_are_written_without_a_time() -> None:
+    result = LyricsResult(
+        outcome=LyricsOutcome.UNSYNCED,
+        lines=(LyricsLine(start_ms=None, text="раз"), LyricsLine(start_ms=None, text="два")),
+    )
+
+    rows, truncated = lyrics.rows_to_write(TRACK_ID, result)
+
+    assert [(row.line_index, row.start_ms, row.text) for row in rows] == [
+        (0, None, "раз"),
+        (1, None, "два"),
+    ]
+    assert truncated == 0
+
+
+def test_a_synced_answer_leaves_its_untimed_lines_out() -> None:
+    result = LyricsResult(
+        outcome=LyricsOutcome.SYNCED,
+        lines=(
+            LyricsLine(start_ms=None, text="без часу"),
+            LyricsLine(start_ms=500, text="з часом"),
+        ),
+    )
+
+    rows, _ = lyrics.rows_to_write(TRACK_ID, result)
+
+    assert [(row.start_ms, row.text) for row in rows] == [(500, "з часом")]
+
+
+def test_a_text_within_the_limits_passes(persist_logger: MagicMock) -> None:
+    rows = [lyrics.LyricRow(line_index=index, start_ms=None, text="р") for index in range(300)]
+
+    assert lyrics.within_stored_text_limits(TRACK_ID, rows) is True
+    persist_logger.warning.assert_not_called()
+
+
+def test_too_many_lines_are_not_written_and_the_log_has_counts_only(
+    persist_logger: MagicMock,
+) -> None:
+    result = LyricsResult(
+        outcome=LyricsOutcome.UNSYNCED,
+        lines=tuple(LyricsLine(start_ms=None, text="книга") for _ in range(MAX_LYRIC_LINES + 1)),
+    )
+
+    assert lyrics.rows_to_write(TRACK_ID, result) == ([], 0)
+    persist_logger.warning.assert_called_once_with(
+        "lyrics_over_stored_text_limits",
+        track_id=TRACK_ID,
+        line_count=MAX_LYRIC_LINES + 1,
+        character_count=5 * (MAX_LYRIC_LINES + 1),
+    )
+
+
+def test_too_many_characters_are_not_written() -> None:
+    long_line = "й" * MAX_LYRIC_TEXT_LENGTH
+    line_count = MAX_LYRICS_TOTAL_CHARACTERS // MAX_LYRIC_TEXT_LENGTH + 1
+    result = LyricsResult(
+        outcome=LyricsOutcome.UNSYNCED,
+        lines=tuple(LyricsLine(start_ms=None, text=long_line) for _ in range(line_count)),
+    )
 
     assert lyrics.rows_to_write(TRACK_ID, result) == ([], 0)
 
@@ -112,6 +200,7 @@ async def test_a_result_with_nothing_to_write_never_opens_a_session() -> None:
         cast(Any, refuse_session),
         TRACK_ID,
         LyricsResult(outcome=LyricsOutcome.UNSYNCED),
+        source="lrclib",
     )
 
     assert result.outcome is LyricsPersistOutcome.NOTHING_TO_WRITE
@@ -119,7 +208,11 @@ async def test_a_result_with_nothing_to_write_never_opens_a_session() -> None:
 
 
 QUERY = lyrics.LyricsQuery(
-    track_id=TRACK_ID, artist_names=("Burned Time Machine",), title="Покаяння", duration_ms=212_000
+    track_id=TRACK_ID,
+    artist_names=("Burned Time Machine",),
+    title="Покаяння",
+    duration_ms=212_000,
+    video_id=None,
 )
 STORED_LINES = (LyricLine(line_index=0, start_ms=1_000, text="раз"),)
 NOTHING_STORED = lyrics.StoredLyrics(renderable_lines=(), total_count=0, edited_by_admin=False)
@@ -149,7 +242,7 @@ class PrepareSpy:
         self.persist_outcome = persist_outcome
 
         monkeypatch.setattr(lyrics, "load_stored_lyrics", self.load)
-        monkeypatch.setattr(lyrics, "fetch_lyrics", self.fetch)
+        monkeypatch.setattr(lyrics, "fetch_lrclib_lyrics", self.fetch)
         monkeypatch.setattr(lyrics, "persist_lyrics_in_own_transaction", self.persist)
 
     async def load(self, session_factory: object, track_id: int) -> lyrics.StoredLyrics:
@@ -164,7 +257,7 @@ class PrepareSpy:
         return self.fetch_result
 
     async def persist(
-        self, session_factory: object, track_id: int, result: LyricsResult
+        self, session_factory: object, track_id: int, result: LyricsResult, *, source: str
     ) -> lyrics.LyricsPersistResult:
         self.calls.append("persist")
         return lyrics.LyricsPersistResult(
@@ -376,10 +469,17 @@ async def test_a_failed_read_of_stored_lines_fails_loudly(
 @pytest.mark.parametrize(
     ("reason", "sentence"),
     [
-        ("lyrics_absent", "Тексту цього треку в LRCLIB немає — відео без тексту."),
+        (
+            "lyrics_absent",
+            "Тексту цього треку немає ні на YouTube Music, ні в LRCLIB — відео без тексту.",
+        ),
         ("lyrics_unsynced", "Текст знайдено, але без таймкодів — у відео його немає."),
         ("lyrics_instrumental", "Трек інструментальний — відео без тексту, так і має бути."),
-        ("lyrics_source_unavailable", "LRCLIB не відповів — відео зібрано без тексту."),
+        ("lyrics_source_unavailable", "Джерело тексту не відповіло — відео зібрано без тексту."),
+        (
+            "lyrics_over_limits",
+            "Знайдений текст завеликий, щоб його зберегти — відео без тексту.",
+        ),
         (
             "lyrics_rejected_by_matching",
             "Знайдений текст належить іншому треку — не використано.",

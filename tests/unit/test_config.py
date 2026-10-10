@@ -226,6 +226,25 @@ def test_a_render_soft_limit_at_or_above_the_hard_limit_is_refused() -> None:
     assert "render" in str(excinfo.value)
 
 
+def test_a_plain_lyrics_soft_limit_at_or_above_the_hard_limit_is_refused() -> None:
+    with pytest.raises(pydantic.ValidationError) as excinfo:
+        build_settings(
+            plain_lyrics_task_soft_time_limit_seconds=90,
+            plain_lyrics_task_time_limit_seconds=90,
+        )
+
+    assert "plain_lyrics" in str(excinfo.value)
+
+
+def test_the_plain_lyrics_task_has_its_own_short_limits(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("PLAIN_LYRICS_TASK_SOFT_TIME_LIMIT_SECONDS", raising=False)
+    monkeypatch.delenv("PLAIN_LYRICS_TASK_TIME_LIMIT_SECONDS", raising=False)
+    settings = build_settings()
+
+    assert settings.plain_lyrics_task_soft_time_limit_seconds == 60
+    assert settings.plain_lyrics_task_time_limit_seconds == 90
+
+
 def test_media_task_limits_are_separate_from_the_resolve_ones(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

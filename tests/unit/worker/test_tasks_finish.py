@@ -196,7 +196,9 @@ RENDER_CLAIM = RenderClaim(
     cover_url=None,
     fragment_start_ms=0,
     fragment_end_ms=45_000,
-    lyrics_query=LyricsQuery(track_id=3, artist_names=("A",), title="T", duration_ms=None),
+    lyrics_query=LyricsQuery(
+        track_id=3, artist_names=("A",), title="T", duration_ms=None, video_id=None
+    ),
 )
 RENDER_OUTCOME = RenderOutcome(
     params_hash="a" * 64,

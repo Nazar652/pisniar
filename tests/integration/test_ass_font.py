@@ -36,6 +36,19 @@ def test_the_family_named_in_the_style_row_is_installed_and_covers_ukrainian() -
     assert ass.FONT_FAMILY in families_covering_ukrainian()
 
 
+def test_the_music_note_of_an_instrumental_break_comes_from_a_fallback_family() -> None:
+    """Noto Sans lacks U+266A, so libass draws the note from a fallback Noto family."""
+    executable = shutil.which("fc-list")
+    assert executable is not None, "fc-list is missing — run this inside the worker container"
+
+    listing = subprocess.run(
+        [executable, ":charset=266a", "family"], capture_output=True, text=True, check=True
+    )
+
+    families = {name.strip() for line in listing.stdout.splitlines() for name in line.split(",")}
+    assert families & {"Noto Sans Symbols", "Noto Music"}
+
+
 def test_the_family_the_plan_originally_named_is_not_installed_at_all() -> None:
     """naming `Montserrat` would produce a correct-looking `.ass` and a video
     rendered in some other font."""

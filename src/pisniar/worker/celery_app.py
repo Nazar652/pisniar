@@ -17,6 +17,9 @@ DOWNLOAD_POST_AUDIO_TASK_NAME = "pisniar.worker.download_post_audio"
 PREPARE_POST_AUDIO_TASK_NAME = "pisniar.worker.prepare_post_audio"
 RENDER_POST_VIDEO_TASK_NAME = "pisniar.worker.render_post_video"
 
+# queued by the render after its preview, never by the bot or the Mini App.
+FETCH_PLAIN_LYRICS_TASK_NAME = "pisniar.worker.fetch_plain_lyrics"
+
 # keeps one wedged socket from owning the worker slot. `bot.handlers` reads these
 # as the stale-resolve window, so media tasks take their limits from `Settings`.
 TASK_SOFT_TIME_LIMIT_SECONDS = 300

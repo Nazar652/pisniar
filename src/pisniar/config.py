@@ -100,6 +100,9 @@ class Settings(BaseSettings):
     # 120 s turntable render: a slow lyrics source must end as a video without text.
     render_task_soft_time_limit_seconds: int = Field(default=600, gt=0)
     render_task_time_limit_seconds: int = Field(default=660, gt=0)
+    # one search and one page from a plain-text source, each with a 30 s timeout.
+    plain_lyrics_task_soft_time_limit_seconds: int = Field(default=60, gt=0)
+    plain_lyrics_task_time_limit_seconds: int = Field(default=90, gt=0)
 
     # unset disables the Mini App entry points; `https` only, since Telegram refuses plain http.
     webapp_public_url: str | None = None
@@ -167,6 +170,11 @@ class Settings(BaseSettings):
                 "render",
                 self.render_task_soft_time_limit_seconds,
                 self.render_task_time_limit_seconds,
+            ),
+            (
+                "plain_lyrics",
+                self.plain_lyrics_task_soft_time_limit_seconds,
+                self.plain_lyrics_task_time_limit_seconds,
             ),
         )
         for task_name, soft_limit, hard_limit in limit_pairs:

@@ -78,8 +78,9 @@ suggest or introduce either.
 - `pisniar/resolve/` (six source adapters + ISRC-first matching/merge, plus
   the LRCLIB adapter and the LRC parser) and `pisniar/post/`
   (caption/hashtags/sanitize/render) never import `bot/` or `worker/` — they
-  are pure libraries the worker orchestrates. LRCLIB is not one of the six:
-  `resolve.service` never calls it, only `worker.lyrics` does, at render time.
+  are pure libraries the worker orchestrates. LRCLIB, the YouTube Music lyrics
+  and Genius are not among the six: `resolve.service` never calls them, only
+  `worker.lyrics` does (the first two at render time, Genius in its own task).
 - The one edge back the other way is `post.sanitize`, which `resolve/` may
   import (`musicbrainz` logs a source-supplied URL through it) — and it is
   the **only** `post/` module allowed there. That works because
@@ -689,9 +690,17 @@ suggest or introduce either.
   One read returns `StoredLyrics(renderable_lines, total_count, edited_by_admin)`.
   Timed lines win (`lyrics_already_stored`); lines with none timed are
   `lyrics_untimed`; a saved text with zero lines is `lyrics_removed_by_admin`.
-  Each has its own notice sentence and none asks LRCLIB. Only when nothing is stored
-  and no human saved the text does `worker.lyrics.prepare_lyrics` fetch, persist in a short
-  transaction of its own and read the lines back as plain values. Then
+  Each has its own notice sentence and none asks a source. Only when nothing is stored
+  and no human saved the text does `worker.lyrics.prepare_lyrics` ask the sources, persist in a
+  short transaction of its own and read the lines back as plain values. The order is
+  **YouTube Music timed text, LRCLIB timed text, YouTube Music plain text, LRCLIB plain
+  text**; LRCLIB is not asked after a timed YouTube Music answer. The first answer with lines
+  is written under its own `source` (`ytmusic`, `lrclib`); plain text is written with
+  `start_ms` NULL, so the video has no text, the reason is `lyrics_untimed` and the admin's
+  editor has the lines. Each source is isolated by `ask_source` (a failure is a log line
+  naming it, the soft limit and `SQLAlchemyError` pass); no source answering with lines
+  leaves LRCLIB's class as the reason. A text past `MAX_LYRIC_LINES` or
+  `MAX_LYRICS_TOTAL_CHARACTERS` is not written. Then
   `ass.build_ass_subtitles` shifts them into fragment time, and
   `render.text_version_of` hashes the resulting `.ass` text. `text_version`
   (`None` without text) is an input to `params_hash`, so the lines, their
@@ -718,6 +727,28 @@ suggest or introduce either.
   `RENDERED` commit, only while `text_version` is `None`, one sentence per
   class; a lost notice is a log line, never a failed post, and a redelivery
   stops at the claim before it.
+- **The YouTube Music lyrics (`resolve/sources/ytmusic_lyrics.py`) are asked for the
+  `youtubeMusic` videoId, the recording the audio comes from.** Two `ytmusicapi` calls
+  (`get_watch_playlist` for the lyrics page id, then `get_lyrics(timestamps=True)`) run in one
+  thread under `wait_for`, through `SourceCache` (`ytmusic:lyrics:<videoId>`). The shape
+  classifies: timed lines are synced, a string is plain, no page or `None` is absent, anything
+  else raises `YtmusicLyricsApiError` and is never cached. The `♪` mark becomes an empty line,
+  which the render reads as a pause, and lines are sorted by time.
+- **Plain text of the remaining sources is a task of its own** (`fetch_plain_lyrics`, queued by
+  the render after the preview and its notice, only for `lyrics_absent`,
+  `lyrics_rejected_by_matching` and `lyrics_source_unavailable`; a refused enqueue is a log
+  line). It reads the track, asks `resolve.plain_lyrics.PLAIN_LYRICS_SOURCES` with no session
+  open, and writes under the track lock with the same guard, so it never writes over lines or a
+  saved text; it has its own limits (`plain_lyrics_task_*`, 60/90 s) and no Celery retry.
+  The one source is **Genius** (`resolve/sources/genius.py`), read by scraping the song page
+  because its API serves no text: the search hit must pass `matching.is_match` (names stripped of
+  `(…)`/`[…]` annotations; the credit as a whole or any one primary artist), must not be a
+  translation, must have `lyrics_state` complete and a path matching `/<ascii>-lyrics`, and the
+  page URL is built from that path on `genius.com` with redirects not followed. The HTML goes
+  through a stdlib parser that keeps only the text of `data-lyrics-container` elements (not the
+  `data-exclude-from-selection` ones), `[…]` section labels are dropped, a page with no such
+  text raises and is never cached. The terms of use of Genius forbid scraping; the owner accepted
+  that risk.
 - **LRCLIB is classified by the body, never by the status.** Synced,
   unsynced, instrumental and the documented miss are the only answers; the
   miss is a 404 whose JSON body has `"name": "TrackNotFound"` **and**
@@ -811,9 +842,8 @@ suggest or introduce either.
 - `lyric` is one line per row, keyed to a **track**
   (`ON DELETE CASCADE`, like `audio_asset`), so posts of one recording share
   the text. `start_ms` is nullable: NULL is a line not yet timed (the `>= 0`
-  CHECK stays). The LRCLIB writer stores only synced lines, so plain text it
-  finds stays visible only as the reason class `lyrics_unsynced` in the log and
-  the admin's notice. `line_index` is
+  CHECK stays). A synced answer writes its timed lines only; an unsynced one
+  writes its plain lines with NULL. `line_index` is
   the only order, `start_ms` orders nothing, and there is no `end_ms` — the
   render derives it. The render path reads the table only through
   `models.renderable_lyrics_statement`, whose `start_ms IS NOT NULL` keeps an
@@ -822,7 +852,7 @@ suggest or introduce either.
   as the source gave it (the ASS substitution happens at render time) and
   bounded at 500 characters by a CHECK; a longer line is cut, never dropped,
   because a `line_index` gap would read like a line deleted by hand. `source`
-  is `'lrclib'` or `'manual'`.
+  is `'ytmusic'`, `'lrclib'`, `'genius'` or `'manual'`.
 - **Lines are written automatically only onto a track that has none, of any
   `source`, and whose `lyrics_edited_at` is NULL.** That column marks a text a
   human saved, an empty one included, so a removed text is not refilled.

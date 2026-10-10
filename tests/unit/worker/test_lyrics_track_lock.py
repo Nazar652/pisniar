@@ -36,7 +36,7 @@ async def persist(
     session: MagicMock, truncated_count: int = 0
 ) -> worker_lyrics.LyricsPersistResult:
     return await worker_lyrics.persist_under_track_lock(
-        session, TRACK_ID, ROWS, LyricsOutcome.SYNCED, truncated_count
+        session, TRACK_ID, ROWS, LyricsOutcome.SYNCED, truncated_count, source="lrclib"
     )
 
 

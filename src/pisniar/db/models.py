@@ -337,7 +337,7 @@ class Lyric(IdAndTimestampsMixin, Base):
     # raw as the source gave it; the ASS substitution happens at render time
     # (`worker.ass`), so nothing lossy is stored.
     text: Mapped[str] = mapped_column(Text, nullable=False)
-    # `'lrclib'`, or `'manual'` for hand-edited text.
+    # `'lrclib'`, `'ytmusic'`, `'genius'` or `'manual'` (hand-edited text).
     source: Mapped[str] = mapped_column(Text, nullable=False)
 
 

@@ -79,6 +79,7 @@ from pisniar.worker import render as video_render
 from pisniar.worker import storage as media_storage
 from pisniar.worker.celery_app import (
     DOWNLOAD_POST_AUDIO_TASK_NAME,
+    FETCH_PLAIN_LYRICS_TASK_NAME,
     PING_TASK_NAME,
     PREPARE_POST_AUDIO_TASK_NAME,
     PUBLISH_POST_TASK_NAME,
@@ -1375,6 +1376,7 @@ async def perform_render_post_video(post_id: int) -> None:
         preview = await finish_render_or_fail(session_factory, claim, outcome)
         if preview is not None:
             await notify_about_missing_text(claim.post_id, outcome, preview)
+            await queue_plain_lyrics_lookup(claim.track_id, outcome.lyrics_reason)
 
 
 async def finish_render_or_fail(
@@ -1430,6 +1432,84 @@ async def notify_about_missing_text(
         lyrics_reason=outcome.lyrics_reason,
         delivered=delivered,
     )
+
+
+async def queue_plain_lyrics_lookup(track_id: int, lyrics_reason: str) -> None:
+    """after the preview and its notice, so a refused enqueue costs only a log line: the
+    video is already out. The soft limit is not swallowed as a dispatch failure."""
+    if not worker_lyrics.wants_plain_lookup(lyrics_reason):
+        return
+
+    try:
+        await asyncio.to_thread(
+            celery_app.send_task, FETCH_PLAIN_LYRICS_TASK_NAME, kwargs={"track_id": track_id}
+        )
+    except SoftTimeLimitExceeded:
+        logger.error("plain_lyrics_task_dispatch_timed_out", track_id=track_id)
+        return
+    except Exception:
+        logger.warning("plain_lyrics_task_dispatch_failed", track_id=track_id, exc_info=True)
+        return
+
+    logger.info("plain_lyrics_task_dispatched", track_id=track_id, lyrics_reason=lyrics_reason)
+
+
+@celery_app.task(
+    name=FETCH_PLAIN_LYRICS_TASK_NAME,
+    bind=True,
+    soft_time_limit=settings.plain_lyrics_task_soft_time_limit_seconds,
+    time_limit=settings.plain_lyrics_task_time_limit_seconds,
+)
+def fetch_plain_lyrics(self: Any, track_id: int) -> None:
+    """no Celery retry: a miss is tried again by the next render, not by this task."""
+    bind_celery_task_id(self.request.id)
+    try:
+        run_async(perform_fetch_plain_lyrics(track_id))
+    except SoftTimeLimitExceeded:
+        logger.error("fetch_plain_lyrics_soft_time_limit", track_id=track_id)
+
+
+async def perform_fetch_plain_lyrics(track_id: int) -> None:
+    async with task_session_factory(lock_timeout_ms=LOCK_TIMEOUT_MS) as session_factory:
+        query = await load_plain_lyrics_query(session_factory, track_id)
+        if query is None:
+            logger.warning("plain_lyrics_track_missing", track_id=track_id)
+            return
+
+        http_client = build_http_client()
+        try:
+            persisted = await worker_lyrics.store_plain_lyrics(
+                session_factory,
+                http_client,
+                SourceCache(
+                    session_factory=session_factory, ttl_seconds=settings.source_fetch_ttl_seconds
+                ),
+                query,
+            )
+        finally:
+            await http_client.aclose()
+
+    logger.info(
+        "plain_lyrics_task_done",
+        track_id=track_id,
+        persist_outcome=persisted.outcome.value if persisted is not None else None,
+    )
+
+
+async def load_plain_lyrics_query(
+    session_factory: async_sessionmaker[AsyncSession], track_id: int
+) -> worker_lyrics.LyricsQuery | None:
+    async with session_factory() as session:
+        track = await session.get(Track, track_id)
+        if track is None:
+            return None
+        return worker_lyrics.LyricsQuery(
+            track_id=track.id,
+            artist_names=artist_names_from_stored(track.artists),
+            title=track.title or "",
+            duration_ms=track.duration_ms,
+            video_id=None,
+        )
 
 
 async def claim_post_for_rendering(
@@ -1514,6 +1594,7 @@ async def read_render_preconditions(
                 artist_names=artist_names_from_stored(track.artists),
                 title=track.title or "",
                 duration_ms=track.duration_ms,
+                video_id=video_id,
             ),
         ),
         None,

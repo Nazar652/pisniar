@@ -567,7 +567,11 @@ async def test_render_preconditions_build_a_claim_of_plain_values() -> None:
     assert (claim.fragment_start_ms, claim.fragment_end_ms) == (5_000, 50_000)
     assert claim.cover_url == "c"
     assert claim.lyrics_query == LyricsQuery(
-        track_id=3, artist_names=("Burned Time Machine",), title="Покаяння", duration_ms=212_000
+        track_id=3,
+        artist_names=("Burned Time Machine",),
+        title="Покаяння",
+        duration_ms=212_000,
+        video_id="n4bPzdIs_nc",
     )
 
 
