@@ -52,6 +52,25 @@ describe('FragmentEditor', () => {
     expect(html).toContain('<audio')
   })
 
+  it('offers the fragment, the whole track and an edge at the playhead', async () => {
+    const { editor } = await loadedEditor()
+
+    const html = await render(FragmentEditor, { editor, webApp: undefined })
+
+    expect(html).toContain('Програти фрагмент')
+    expect(html).toContain('Грати трек')
+    expect(html).toContain('Початок тут')
+    expect(html).toContain('Кінець тут')
+  })
+
+  it('keeps the edge-at-playhead buttons off until the audio has loaded', async () => {
+    const { editor } = await loadedEditor()
+
+    const html = await render(FragmentEditor, { editor, webApp: undefined })
+
+    expect(html.match(/fragment__here"[^>]*disabled/g)).toHaveLength(2)
+  })
+
   it('keeps the play button off until the waveform has made its region', async () => {
     const { editor } = await loadedEditor()
 

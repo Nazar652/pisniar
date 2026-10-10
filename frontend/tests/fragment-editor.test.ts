@@ -131,6 +131,38 @@ describe('useFragmentEditor bounds', () => {
     expect(editor.bounds.value).toEqual({ startMs: 0, endMs: 45_000 })
   })
 
+  it('sets an edge at the playhead on the grid, and the edge set wins', async () => {
+    const editor = await loaded(serverWith([makeFragmentView()]))
+
+    editor.setEdgeAt('start', 12.349)
+    expect(editor.bounds.value).toEqual({ startMs: 12_300, endMs: 45_000 })
+    editor.setEdgeAt('end', 70.02)
+    expect(editor.bounds.value).toEqual({ startMs: 12_300, endMs: 70_000 })
+    editor.setEdgeAt('end', 150)
+    expect(editor.bounds.value).toEqual({ startMs: 30_000, endMs: 150_000 })
+  })
+
+  it('keeps the length when an edge is set across the other one', async () => {
+    const editor = await loaded(serverWith([makeFragmentView()]))
+
+    editor.setEdgeAt('start', 60)
+
+    expect(editor.bounds.value).toEqual({ startMs: 60_000, endMs: 105_000 })
+  })
+
+  it('does not set an edge from the playhead before ready or while submitting', async () => {
+    const early = useFragmentEditor(serverWith([makeFragmentView()]).client, 7)
+    early.setEdgeAt('start', 10)
+    expect(early.bounds.value).toEqual({ startMs: 0, endMs: 1 })
+
+    const answer = new Promise<Response>(() => undefined)
+    const editor = await loaded(serverWith([makeFragmentView()], { [POST]: () => answer }))
+    void editor.submit()
+    editor.setEdgeAt('start', 10)
+
+    expect(editor.bounds.value).toEqual({ startMs: 0, endMs: 45_000 })
+  })
+
   it('calls back once the render has been accepted, and not on a refusal', async () => {
     const accepted = vi.fn()
     const refused = vi.fn()

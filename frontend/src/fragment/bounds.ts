@@ -75,13 +75,34 @@ export function isWithinRules(bounds: Bounds, limits: Limits): boolean {
 // a drop lands on the 100 ms grid; the end of the track stays reachable although it is off it
 export function snapBounds(bounds: Bounds, limits: Limits, moved: Moved = 'both'): Bounds {
   const start = snap(bounds.startMs)
-  const nearTrackEnd = bounds.endMs >= limits.durationMs - SNAP_MS / 2
-  const end = nearTrackEnd ? limits.durationMs : snap(bounds.endMs)
+  const end = snapEnd(bounds.endMs, limits)
   const next =
     moved === 'both'
       ? { startMs: start, endMs: start + bounds.endMs - bounds.startMs }
       : { startMs: start, endMs: end }
   return clampToRules(next, limits, moved)
+}
+
+function snapEnd(ms: number, limits: Limits): number {
+  return ms >= limits.durationMs - SNAP_MS / 2 ? limits.durationMs : snap(ms)
+}
+
+// the start goes to the playhead and wins; when it lands at or after the end the previous length
+// is kept, and a length over the maximum or past the track end moves the end instead
+export function startAt(bounds: Bounds, ms: number, limits: Limits): Bounds {
+  const start = clamp(snap(ms), 0, Math.max(0, Math.round(limits.durationMs) - 1))
+  const length = bounds.endMs - bounds.startMs
+  const end = start >= bounds.endMs ? start + length : bounds.endMs
+  return clampToRules({ startMs: start, endMs: end }, limits, 'end')
+}
+
+// the mirror of `startAt`: the end wins, the start follows when it would otherwise cross or
+// stretch past the maximum, and the end of the track stays reachable although it is off the grid
+export function endAt(bounds: Bounds, ms: number, limits: Limits): Bounds {
+  const end = clamp(snapEnd(ms, limits), 1, Math.max(1, Math.round(limits.durationMs)))
+  const length = bounds.endMs - bounds.startMs
+  const start = end <= bounds.startMs ? end - length : bounds.startMs
+  return clampToRules({ startMs: start, endMs: end }, limits, 'start')
 }
 
 // a step moves one edge and changes the length; at a limit the edge stops there

@@ -4,6 +4,7 @@ import {
   FALLBACK_BUTTON_COLOR,
   FALLBACK_HINT_COLOR,
   clampToRules,
+  endAt,
   formatTime,
   isWithinRules,
   nudge,
@@ -11,12 +12,14 @@ import {
   regionStateOf,
   snap,
   snapBounds,
+  startAt,
   themeColorsOf,
   type Limits,
 } from '../src/fragment/bounds'
 import {
   FLAT_LEVEL,
   PEAK_MAX,
+  PLAYBACK_VOLUME,
   flatChannelOf,
   peakChannelOf,
   waveformOf,
@@ -155,6 +158,91 @@ describe('snapBounds', () => {
   })
 })
 
+describe('startAt', () => {
+  const bounds = { startMs: 10_000, endMs: 55_000 }
+
+  it('moves only the start when the playhead is inside the fragment, on the grid', () => {
+    expect(startAt(bounds, 20_049, LIMITS)).toEqual({ startMs: 20_000, endMs: 55_000 })
+    expect(startAt(bounds, 20_050, LIMITS)).toEqual({ startMs: 20_100, endMs: 55_000 })
+  })
+
+  it('moves the start earlier and grows the fragment', () => {
+    expect(startAt(bounds, 4000, LIMITS)).toEqual({ startMs: 4000, endMs: 55_000 })
+  })
+
+  it('keeps the previous length when the start lands at or after the end', () => {
+    expect(startAt(bounds, 55_000, LIMITS)).toEqual({ startMs: 55_000, endMs: 100_000 })
+    expect(startAt(bounds, 80_000, LIMITS)).toEqual({ startMs: 80_000, endMs: 125_000 })
+  })
+
+  it('clips the carried length to the track end', () => {
+    expect(startAt(bounds, 190_000, LIMITS)).toEqual({ startMs: 190_000, endMs: 200_000 })
+  })
+
+  it('lets the start win over the maximum length by moving the end', () => {
+    const wide = { startMs: 80_000, endMs: 200_000 }
+
+    expect(startAt(wide, 10_000, LIMITS)).toEqual({ startMs: 10_000, endMs: 130_000 })
+  })
+
+  it('keeps the start inside the track', () => {
+    expect(startAt(bounds, -50, LIMITS).startMs).toBe(0)
+    expect(startAt(bounds, 999_999, LIMITS)).toEqual({ startMs: 199_999, endMs: 200_000 })
+  })
+
+  it('always returns bounds the rule accepts', () => {
+    for (const ms of [-5, 0, 49, 10_000, 54_999, 55_000, 120_001, 199_950, 200_000, 400_000]) {
+      expect(isWithinRules(startAt(bounds, ms, LIMITS), LIMITS)).toBe(true)
+    }
+  })
+})
+
+describe('endAt', () => {
+  const bounds = { startMs: 10_000, endMs: 55_000 }
+
+  it('moves only the end when the playhead is after the start, on the grid', () => {
+    expect(endAt(bounds, 30_049, LIMITS)).toEqual({ startMs: 10_000, endMs: 30_000 })
+    expect(endAt(bounds, 70_000, LIMITS)).toEqual({ startMs: 10_000, endMs: 70_000 })
+  })
+
+  it('keeps the previous length when the end lands at or before the start', () => {
+    expect(endAt(bounds, 10_000, LIMITS)).toEqual({ startMs: 0, endMs: 10_000 })
+    expect(endAt({ startMs: 50_000, endMs: 95_000 }, 40_000, LIMITS)).toEqual({
+      startMs: 0,
+      endMs: 40_000,
+    })
+    expect(endAt({ startMs: 50_000, endMs: 80_000 }, 70_000, LIMITS)).toEqual({
+      startMs: 50_000,
+      endMs: 70_000,
+    })
+  })
+
+  it('carries the previous length backwards without crossing zero', () => {
+    expect(endAt({ startMs: 50_000, endMs: 95_000 }, 60_000, LIMITS).startMs).toBe(50_000)
+    expect(endAt({ startMs: 50_000, endMs: 95_000 }, 49_000, LIMITS)).toEqual({
+      startMs: 4000,
+      endMs: 49_000,
+    })
+  })
+
+  it('lets the end win over the maximum length by moving the start', () => {
+    expect(endAt(bounds, 150_000, LIMITS)).toEqual({ startMs: 30_000, endMs: 150_000 })
+  })
+
+  it('reaches the end of a track that is off the grid', () => {
+    const odd: Limits = { durationMs: 215_342, maxLengthMs: 120_000 }
+
+    expect(endAt({ startMs: 150_000, endMs: 200_000 }, 215_320, odd).endMs).toBe(215_342)
+    expect(endAt({ startMs: 150_000, endMs: 200_000 }, 300_000, odd).endMs).toBe(215_342)
+  })
+
+  it('always returns bounds the rule accepts', () => {
+    for (const ms of [-5, 0, 49, 10_000, 10_001, 54_999, 120_001, 199_950, 200_000, 400_000]) {
+      expect(isWithinRules(endAt(bounds, ms, LIMITS), LIMITS)).toBe(true)
+    }
+  })
+})
+
 describe('nudge', () => {
   const bounds = { startMs: 10_000, endMs: 55_000 }
 
@@ -251,6 +339,11 @@ describe('themeColorsOf', () => {
 })
 
 describe('waveform', () => {
+  it('plays quieter than full volume, and is audible', () => {
+    expect(PLAYBACK_VOLUME).toBeGreaterThan(0)
+    expect(PLAYBACK_VOLUME).toBeLessThan(1)
+  })
+
   it('scales the server peaks to 0..1 and clamps strays', () => {
     const channel = peakChannelOf([0, PEAK_MAX, 300, -4])
 

@@ -3,6 +3,8 @@
 // the height is part of the `<style>` text wavesurfer writes, so the CSP hash depends on it
 export const WAVEFORM_HEIGHT_PX = 96
 export const PEAK_MAX = 255
+// the share of full volume the editor plays at
+export const PLAYBACK_VOLUME = 0.6
 export const FLAT_LEVEL = 0.05
 export const FLAT_VALUES_PER_SECOND = 20
 

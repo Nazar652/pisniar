@@ -18,7 +18,8 @@ import {
   type ThemeColors,
 } from './bounds'
 import type { FragmentEditorState } from './useFragmentEditor'
-import { WAVEFORM_HEIGHT_PX, waveformOf } from './waveform'
+import { shouldStopFragment, type PlayMode } from './playback'
+import { PLAYBACK_VOLUME, WAVEFORM_HEIGHT_PX, waveformOf } from './waveform'
 
 const props = defineProps<{
   editor: FragmentEditorState
@@ -41,9 +42,11 @@ const waveformElement = ref<HTMLElement | null>(null)
 const audioElement = ref<HTMLAudioElement | null>(null)
 const surfer = shallowRef<WaveSurfer | null>(null)
 const regionReady = ref(false)
-const playing = ref(false)
+const audioLoaded = ref(false)
+const mode = ref<PlayMode>('idle')
 
 let region: Region | null = null
+let fragmentEndMs = 0
 let restoreSwipes: () => void = () => undefined
 
 const waveform = computed(() =>
@@ -115,8 +118,16 @@ function mount(): void {
   surfer.value = markRaw(instance)
 
   instance.on('ready', () => addRegion(regions, colors.region))
-  instance.on('play', () => (playing.value = true))
-  instance.on('pause', () => (playing.value = false))
+  instance.setVolume(PLAYBACK_VOLUME)
+  instance.on('pause', () => (mode.value = 'idle'))
+  instance.on('finish', () => (mode.value = 'idle'))
+  // a tap on the waveform seeks, and a seek ends the fragment-only play
+  instance.on('interaction', () => {
+    if (mode.value === 'fragment') mode.value = 'track'
+  })
+  instance.on('timeupdate', (seconds) => {
+    if (shouldStopFragment(mode.value, fragmentEndMs, seconds)) instance.pause()
+  })
   instance.on('error', () => void recoverMedia())
   regions.on('region-update', (changed, side) =>
     props.editor.moveTo(boundsOf(changed), side ?? 'both', false),
@@ -132,7 +143,8 @@ function unmount(): void {
   surfer.value = null
   region = null
   regionReady.value = false
-  playing.value = false
+  audioLoaded.value = false
+  mode.value = 'idle'
 }
 
 // one fresh signed URL is fetched; a second failure leaves the sentence the editor has set
@@ -145,11 +157,36 @@ async function recoverMedia(): Promise<void> {
   await instance
     .load(props.editor.audioUrl.value, [data.channel], view.audio_duration_ms / 1000)
     .catch(() => undefined)
+  instance.setVolume(PLAYBACK_VOLUME)
 }
 
-function togglePlay(): void {
-  if (playing.value) surfer.value?.pause()
-  else region?.play(true)
+function playFragment(): void {
+  const instance = surfer.value
+  if (instance === null) return
+  if (mode.value === 'fragment') {
+    instance.pause()
+    return
+  }
+  const { startMs, endMs } = props.editor.bounds.value
+  fragmentEndMs = endMs
+  mode.value = 'fragment'
+  instance.play(startMs / 1000).catch(() => (mode.value = 'idle'))
+}
+
+function playTrack(): void {
+  const instance = surfer.value
+  if (instance === null) return
+  if (mode.value === 'track') {
+    instance.pause()
+    return
+  }
+  mode.value = 'track'
+  instance.play().catch(() => (mode.value = 'idle'))
+}
+
+function setEdgeHere(edge: Edge): void {
+  const instance = surfer.value
+  if (instance !== null) props.editor.setEdgeAt(edge, instance.getCurrentTime())
 }
 
 function applyTheme(): void {
@@ -207,7 +244,12 @@ onBeforeUnmount(() => {
     </template>
     <template v-else>
       <div ref="waveformElement" class="fragment__wave"></div>
-      <audio ref="audioElement" preload="metadata" @canplay="editor.mediaPlayable()"></audio>
+      <audio
+        ref="audioElement"
+        preload="metadata"
+        @loadedmetadata="audioLoaded = true"
+        @canplay="editor.mediaPlayable()"
+      ></audio>
       <p v-if="waveform?.flat" class="muted">{{ FLAT_SENTENCE }}</p>
 
       <p class="fragment__summary">
@@ -218,18 +260,36 @@ onBeforeUnmount(() => {
         </span>
       </p>
 
-      <button
-        type="button"
-        class="btn fragment__play"
-        :disabled="!regionReady"
-        @click="togglePlay()"
-      >
-        {{ playing ? 'Зупинити' : 'Програти фрагмент' }}
-      </button>
+      <div class="fragment__players">
+        <button
+          type="button"
+          class="btn fragment__play"
+          :disabled="!regionReady"
+          @click="playFragment()"
+        >
+          {{ mode === 'fragment' ? 'Зупинити' : 'Програти фрагмент' }}
+        </button>
+        <button
+          type="button"
+          class="btn btn--quiet fragment__track"
+          :disabled="!regionReady"
+          @click="playTrack()"
+        >
+          {{ mode === 'track' ? 'Пауза' : 'Грати трек' }}
+        </button>
+      </div>
 
       <div v-for="edge in EDGES" :key="edge.key" class="fragment__edge">
         <span class="fragment__time">{{ edge.label }}: {{ edgeTime(edge.key) }}</span>
         <span class="fragment__steps">
+          <button
+            type="button"
+            class="btn btn--small fragment__here"
+            :disabled="idle || !audioLoaded"
+            @click="setEdgeHere(edge.key)"
+          >
+            {{ edge.key === 'start' ? 'Початок тут' : 'Кінець тут' }}
+          </button>
           <button
             v-for="step in STEPS"
             :key="step.label"
@@ -296,7 +356,13 @@ onBeforeUnmount(() => {
 
 .fragment__steps {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
+}
+
+.fragment__players {
+  display: flex;
+  gap: 8px;
 }
 
 .fragment__submit {

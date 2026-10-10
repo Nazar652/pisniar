@@ -3,9 +3,11 @@ import type { ApiClient } from '../api/client'
 import { outcomeOf, type Failure, type Schemas } from '../api/outcome'
 import {
   clampToRules,
+  endAt,
   isWithinRules,
   nudge,
   snapBounds,
+  startAt,
   type Bounds,
   type Edge,
   type Limits,
@@ -89,6 +91,15 @@ export function useFragmentEditor(client: ApiClient, postId: number, onSubmitted
     bounds.value = nudge(bounds.value, edge, deltaMs, current)
   }
 
+  // the playhead sets an edge; the position is the audio's, in seconds
+  function setEdgeAt(edge: Edge, seconds: number): void {
+    const current = limits.value
+    if (current === null || status.value !== 'ready') return
+    const ms = Math.round(seconds * 1000)
+    bounds.value =
+      edge === 'start' ? startAt(bounds.value, ms, current) : endAt(bounds.value, ms, current)
+  }
+
   async function fail(failure: Failure): Promise<void> {
     if (failure.code === 'stale_data') {
       if (await load()) message.value = failure.message
@@ -153,6 +164,7 @@ export function useFragmentEditor(client: ApiClient, postId: number, onSubmitted
     load,
     moveTo,
     nudgeEdge,
+    setEdgeAt,
     submit,
     refreshMedia,
     mediaPlayable,
