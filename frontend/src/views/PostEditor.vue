@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, watchEffect } from 'vue'
+import { computed, inject, onBeforeUnmount, onMounted, watch, watchEffect } from 'vue'
 import type { ApiClient } from '../api/client'
+import { LEAVE_GUARD } from '../app/leaveGuard'
 import ArtistsEditor from '../components/ArtistsEditor.vue'
 import CaptionPreview from '../components/CaptionPreview.vue'
 import FieldBlock from '../components/FieldBlock.vue'
@@ -12,6 +13,7 @@ import { inputValue } from '../editor/dom'
 import { FIELD_LABELS, releaseTypeOptions } from '../editor/form'
 import FragmentSection from '../fragment/FragmentSection.vue'
 import { usePostEditor } from '../editor/usePostEditor'
+import LyricsSection from '../lyrics/LyricsSection.vue'
 import { applyMainButton, confirmWith, hapticWith } from '../telegram/actions'
 import type { WebApp } from '../telegram/useTelegram'
 
@@ -26,6 +28,14 @@ const editor = usePostEditor(props.client, props.postId, {
   haptic: hapticWith(props.webApp),
 })
 const { form, detail, meta } = editor
+const leaveGuard = inject(LEAVE_GUARD, null)
+
+// unsaved field edits count as unsaved work for the back button
+watch(
+  () => editor.dirty.value,
+  (dirty) => leaveGuard?.setDirty('fields', dirty),
+  { immediate: true },
+)
 
 const locked = computed(() => !editor.editable.value || editor.busy.value)
 const releaseTypes = computed(() =>
@@ -44,6 +54,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  leaveGuard?.setDirty('fields', false)
   editor.dispose()
   props.webApp?.MainButton.offClick(saveFromButton)
   props.webApp?.MainButton.hide()
@@ -215,6 +226,14 @@ watchEffect(() => {
         @submitted="editor.reloadIfClean()"
         @prepared="editor.reloadIfClean()"
         @cancelled="editor.reloadIfClean()"
+      />
+
+      <LyricsSection
+        v-if="detail.fragment.choosable"
+        :client="client"
+        :post-id="postId"
+        :web-app="webApp"
+        @saved="editor.reloadIfClean()"
       />
 
       <div v-if="editor.canApplyToChannel.value" class="card">

@@ -38,6 +38,30 @@ async function loaded(server: FakeServer) {
   return editor
 }
 
+describe('useFragmentEditor dirty', () => {
+  it('is dirty only while the bounds differ from the server and nothing is submitted', async () => {
+    const server = serverWith([makeFragmentView({ start_ms: 10_000, end_ms: 50_000 })])
+    const editor = await loaded(server)
+    expect(editor.dirty.value).toBe(false)
+
+    editor.nudgeEdge('end', 1000)
+    expect(editor.dirty.value).toBe(true)
+    editor.nudgeEdge('end', -1000)
+    expect(editor.dirty.value).toBe(false)
+
+    editor.nudgeEdge('end', 1000)
+    await editor.submit()
+    expect(editor.status.value).toBe('submitted')
+    expect(editor.dirty.value).toBe(false)
+  })
+
+  it('is clean before the view has loaded', () => {
+    const editor = useFragmentEditor(serverWith([makeFragmentView()]).client, 7)
+
+    expect(editor.dirty.value).toBe(false)
+  })
+})
+
 describe('useFragmentEditor load', () => {
   it('starts loading and becomes ready with the bounds and the audio of the server', async () => {
     const server = serverWith([makeFragmentView({ start_ms: 5000, end_ms: 50_000 })])

@@ -54,6 +54,14 @@ export function useFragmentEditor(client: ApiClient, postId: number, onSubmitted
       isWithinRules(bounds.value, limits.value),
   )
 
+  // chosen bounds that differ from the server's, before anything is submitted
+  const dirty = computed(
+    () =>
+      status.value === 'ready' &&
+      view.value !== null &&
+      (bounds.value.startMs !== view.value.start_ms || bounds.value.endMs !== view.value.end_ms),
+  )
+
   function fetchView() {
     return outcomeOf(
       client.GET('/api/posts/{post_id}/fragment', { params: { path: { post_id: postId } } }),
@@ -161,6 +169,7 @@ export function useFragmentEditor(client: ApiClient, postId: number, onSubmitted
     audioUrl,
     limits,
     canSubmit,
+    dirty,
     load,
     moveTo,
     nudgeEdge,

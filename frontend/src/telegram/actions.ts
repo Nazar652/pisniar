@@ -24,6 +24,12 @@ export function lockVerticalSwipes(webApp: TelegramWebApp | undefined): () => vo
   return () => webApp.enableVerticalSwipes?.()
 }
 
+// closing the app with unsaved work asks first while the confirmation is on
+export function setClosingConfirmation(webApp: TelegramWebApp | undefined, wanted: boolean): void {
+  if (wanted) webApp?.enableClosingConfirmation?.()
+  else webApp?.disableClosingConfirmation?.()
+}
+
 export interface MainButtonState {
   text: string
   visible: boolean

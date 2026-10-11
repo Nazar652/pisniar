@@ -191,6 +191,36 @@ export function makeFragmentView(overrides: Partial<FragmentView> = {}): Fragmen
   }
 }
 
+export type LyricsView = Schemas['LyricsView']
+export type LyricsProposal = Schemas['LyricsProposal']
+
+export function makeLyricsView(overrides: Partial<LyricsView> = {}): LyricsView {
+  return {
+    lines: [],
+    lyrics_version: 'v1',
+    edited_by_admin: false,
+    other_post_ids: [],
+    max_lines: 300,
+    max_line_length: 500,
+    max_total_characters: 20000,
+    ...overrides,
+  }
+}
+
+export function makeProposal(overrides: Partial<LyricsProposal> = {}): LyricsProposal {
+  return {
+    kind: 'synced',
+    source: 'lrclib',
+    lines: [
+      { text: 'Перший', start_ms: 1000 },
+      { text: 'Другий', start_ms: 5000 },
+    ],
+    dropped_line_count: 0,
+    truncated_line_count: 0,
+    ...overrides,
+  }
+}
+
 // a server with the editor's three reads wired to the given detail
 export function editorServer(detail: PostDetail, extra: Record<string, Handler> = {}): FakeServer {
   return fakeServer({

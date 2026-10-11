@@ -42,6 +42,8 @@ interface TelegramWebApp {
   offEvent: (eventType: string, handler: () => void) => void
   showAlert: (message: string, callback?: () => void) => void
   showConfirm: (message: string, callback?: (confirmed: boolean) => void) => void
+  enableClosingConfirmation?: () => void
+  disableClosingConfirmation?: () => void
   disableVerticalSwipes?: () => void
   enableVerticalSwipes?: () => void
   BackButton: TelegramBackButton

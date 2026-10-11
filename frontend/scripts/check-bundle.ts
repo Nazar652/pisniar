@@ -7,6 +7,8 @@ export const EDITOR_JS_BUDGET_BYTES = 40 * 1024
 export const DEV_SHIM_MARKER = '__PISNIAR_DEV_SHIM__'
 // a line of the style wavesurfer writes into its shadow root: present wherever the library is
 export const WAVESURFER_MARKER = ':host .noScrollbar'
+// a class name only the lyrics editor component writes into its render function
+export const LYRICS_MARKER = 'lyrics-editor__slot'
 
 const INLINE_SCRIPT = /<script\b(?![^>]*\bsrc=)[^>]*>/i
 const INLINE_STYLE = /<style\b|\sstyle=/i
@@ -52,6 +54,12 @@ export interface BundleSizes {
   editorBytes: number
   initialWithWavesurfer: string[]
   editorChunks: string[]
+  // the lazy chunks of the lyrics editor, which must not carry or load wavesurfer
+  lyricsChunks: string[]
+  lyricsBytes: number
+  initialWithLyrics: string[]
+  lyricsWithWavesurfer: string[]
+  lyricsLoadingWavesurfer: string[]
 }
 
 // the initial set is computed once; a script is wavesurfer's when it carries the marker
@@ -63,18 +71,40 @@ export function measureDist(distDirectory: string): BundleSizes {
     editorBytes: 0,
     initialWithWavesurfer: [],
     editorChunks: [],
+    lyricsChunks: [],
+    lyricsBytes: 0,
+    initialWithLyrics: [],
+    lyricsWithWavesurfer: [],
+    lyricsLoadingWavesurfer: [],
   }
+  const lyricsSources = new Map<string, string>()
   for (const name of readdirSync(join(distDirectory, 'assets'))) {
     if (!name.endsWith('.js')) continue
     const content = readFileSync(join(distDirectory, 'assets', name))
-    const bytes = gzipBytes(content)
-    const hasWavesurfer = content.toString('utf-8').includes(WAVESURFER_MARKER)
+    const source = content.toString('utf-8')
+    const hasWavesurfer = source.includes(WAVESURFER_MARKER)
+    const hasLyrics = source.includes(LYRICS_MARKER)
     if (initial.has(name)) {
-      sizes.initialBytes += bytes
+      sizes.initialBytes += gzipBytes(content)
       if (hasWavesurfer) sizes.initialWithWavesurfer.push(name)
-    } else if (hasWavesurfer) {
-      sizes.editorBytes += bytes
-      sizes.editorChunks.push(name)
+      if (hasLyrics) sizes.initialWithLyrics.push(name)
+    } else {
+      if (hasWavesurfer) {
+        sizes.editorBytes += gzipBytes(content)
+        sizes.editorChunks.push(name)
+      }
+      if (hasLyrics) {
+        sizes.lyricsChunks.push(name)
+        sizes.lyricsBytes += gzipBytes(content)
+        lyricsSources.set(name, source)
+        if (hasWavesurfer) sizes.lyricsWithWavesurfer.push(name)
+      }
+    }
+  }
+  // a lyrics chunk that names a wavesurfer chunk imports it, so the library would download with it
+  for (const [name, source] of lyricsSources) {
+    if (sizes.editorChunks.some((editor) => editor !== name && source.includes(editor))) {
+      sizes.lyricsLoadingWavesurfer.push(name)
     }
   }
   return sizes
@@ -86,6 +116,20 @@ export function sizeProblems(sizes: BundleSizes): string[] {
   )
   if (sizes.editorChunks.length === 0) {
     problems.push('no lazy script contains wavesurfer: the editor or the marker is gone')
+  }
+  problems.push(
+    ...sizes.initialWithLyrics.map(
+      (name) => `${name} is an initial script and contains the lyrics editor`,
+    ),
+    ...sizes.lyricsWithWavesurfer.map(
+      (name) => `${name} is the lyrics editor chunk and contains wavesurfer`,
+    ),
+    ...sizes.lyricsLoadingWavesurfer.map(
+      (name) => `${name} is the lyrics editor chunk and loads the wavesurfer chunk`,
+    ),
+  )
+  if (sizes.lyricsChunks.length === 0) {
+    problems.push('no lazy script contains the lyrics editor: the editor or the marker is gone')
   }
   if (sizes.initialBytes > INITIAL_JS_BUDGET_BYTES) {
     problems.push(
@@ -120,10 +164,11 @@ function main(): void {
   if (distDirectory === undefined) {
     throw new Error('usage: check-bundle.ts <dist directory>')
   }
-  const { initialBytes, editorBytes } = measureDist(distDirectory)
+  const { initialBytes, editorBytes, lyricsBytes } = measureDist(distDirectory)
   console.log(
     `initial JS ${initialBytes} bytes gzip (budget ${INITIAL_JS_BUDGET_BYTES}), ` +
-      `wavesurfer chunk ${editorBytes} bytes gzip (budget ${EDITOR_JS_BUDGET_BYTES})`,
+      `wavesurfer chunk ${editorBytes} bytes gzip (budget ${EDITOR_JS_BUDGET_BYTES}), ` +
+      `lyrics chunk ${lyricsBytes} bytes gzip`,
   )
   const problems = checkDist(distDirectory)
   for (const problem of problems) console.error(problem)

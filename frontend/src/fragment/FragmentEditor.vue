@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, markRaw, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
+import { computed, inject, markRaw, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import WaveSurfer from 'wavesurfer.js'
 import RegionsPlugin, { type Region } from 'wavesurfer.js/plugins/regions'
+import { LEAVE_GUARD } from '../app/leaveGuard'
 import NoticeBanner from '../components/NoticeBanner.vue'
 import type { Notice } from '../editor/usePostEditor'
-import { lockVerticalSwipes } from '../telegram/actions'
+import { lockVerticalSwipes, setClosingConfirmation } from '../telegram/actions'
 import type { WebApp } from '../telegram/useTelegram'
 import {
   COARSE_NUDGE_MS,
@@ -47,6 +48,8 @@ const mode = ref<PlayMode>('idle')
 
 let region: Region | null = null
 let fragmentEndMs = 0
+const leaveGuard = inject(LEAVE_GUARD, null)
+
 let restoreSwipes: () => void = () => undefined
 
 const waveform = computed(() =>
@@ -219,6 +222,16 @@ function syncRegion(): void {
 
 watch([() => props.editor.bounds.value, () => props.editor.status.value], syncRegion)
 
+watch(
+  () => props.editor.dirty.value,
+  (dirty) => {
+    // with a guard the closing confirmation follows all sources together
+    if (leaveGuard === null) setClosingConfirmation(props.webApp, dirty)
+    else leaveGuard.setDirty('fragment', dirty)
+  },
+  { immediate: true },
+)
+
 onMounted(() => {
   restoreSwipes = lockVerticalSwipes(props.webApp)
   props.webApp?.onEvent('themeChanged', applyTheme)
@@ -227,6 +240,8 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  if (leaveGuard === null) setClosingConfirmation(props.webApp, false)
+  else leaveGuard.setDirty('fragment', false)
   restoreSwipes()
   props.webApp?.offEvent('themeChanged', applyTheme)
   unmount()

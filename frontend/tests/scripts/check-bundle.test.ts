@@ -11,6 +11,7 @@ import {
   htmlProblems,
   INITIAL_JS_BUDGET_BYTES,
   initialScriptPaths,
+  LYRICS_MARKER,
   measureDist,
   scriptProblems,
   styleProblems,
@@ -101,6 +102,8 @@ describe('gzipBytes', () => {
 })
 
 const LAZY_EDITOR = { 'FragmentEditor-xyz.js': `export const style = "${WAVESURFER_MARKER}"` }
+const LAZY_LYRICS = { 'LyricsEditor-qrs.js': `export const slot = "${LYRICS_MARKER}"` }
+const LAZY = { ...LAZY_EDITOR, ...LAZY_LYRICS }
 
 describe('measureDist', () => {
   it('counts the entry and its preloads as initial and budgets only the wavesurfer chunk', () => {
@@ -135,7 +138,7 @@ describe('checkDist', () => {
       'index-abc.js': 'console.log(1)',
       'vendor-def.js': 'export {}',
       'index-abc.css': 'a{}',
-      ...LAZY_EDITOR,
+      ...LAZY,
     })
 
     expect(checkDist(dist)).toEqual([])
@@ -145,7 +148,7 @@ describe('checkDist', () => {
     const dist = makeDist({
       'index-abc.js': 'eval("1")',
       'vendor-def.js': 'export {}',
-      ...LAZY_EDITOR,
+      ...LAZY,
     })
 
     expect(checkDist(dist)).toEqual(['index-abc.js uses eval or new Function'])
@@ -155,7 +158,7 @@ describe('checkDist', () => {
     const dist = makeDist({
       'index-abc.js': randomBytes(INITIAL_JS_BUDGET_BYTES + 5000),
       'vendor-def.js': '',
-      ...LAZY_EDITOR,
+      ...LAZY,
     })
 
     expect(checkDist(dist).join(' ')).toContain('initial JS is')
@@ -165,7 +168,7 @@ describe('checkDist', () => {
     const dist = makeDist({
       'index-abc.js': `console.log("${WAVESURFER_MARKER}")`,
       'vendor-def.js': 'export {}',
-      ...LAZY_EDITOR,
+      ...LAZY,
     })
 
     expect(checkDist(dist)).toEqual(['index-abc.js is an initial script and contains wavesurfer'])
@@ -188,5 +191,69 @@ describe('checkDist', () => {
     })
 
     expect(checkDist(dist).join(' ')).toContain('the wavesurfer chunk is')
+  })
+
+  it('reports a bundle where the lyrics editor is nowhere', () => {
+    const dist = makeDist({
+      'index-abc.js': 'console.log(1)',
+      'vendor-def.js': 'export {}',
+      ...LAZY_EDITOR,
+    })
+
+    expect(checkDist(dist)).toEqual([
+      'no lazy script contains the lyrics editor: the editor or the marker is gone',
+    ])
+  })
+
+  it('reports the lyrics editor inside an initial script', () => {
+    const dist = makeDist({
+      'index-abc.js': `console.log("${LYRICS_MARKER}")`,
+      'vendor-def.js': 'export {}',
+      ...LAZY,
+    })
+
+    expect(checkDist(dist)).toEqual([
+      'index-abc.js is an initial script and contains the lyrics editor',
+    ])
+  })
+
+  it('reports wavesurfer inside the lyrics editor chunk', () => {
+    const dist = makeDist({
+      'index-abc.js': 'console.log(1)',
+      'vendor-def.js': 'export {}',
+      ...LAZY_EDITOR,
+      'LyricsEditor-qrs.js': `${LYRICS_MARKER}${WAVESURFER_MARKER}`,
+    })
+
+    expect(checkDist(dist).join(' ')).toContain(
+      'LyricsEditor-qrs.js is the lyrics editor chunk and contains wavesurfer',
+    )
+  })
+
+  it('reports a lyrics chunk that imports the wavesurfer chunk, as a shared module can make it', () => {
+    const dist = makeDist({
+      'index-abc.js': 'console.log(1)',
+      'vendor-def.js': 'export {}',
+      ...LAZY_EDITOR,
+      'LyricsEditor-qrs.js': `import "./FragmentEditor-xyz.js";${LYRICS_MARKER}`,
+    })
+
+    expect(checkDist(dist)).toEqual([
+      'LyricsEditor-qrs.js is the lyrics editor chunk and loads the wavesurfer chunk',
+    ])
+  })
+
+  it('measures the lyrics chunk apart from the wavesurfer budget', () => {
+    const dist = makeDist({
+      'index-abc.js': 'a',
+      'vendor-def.js': 'b',
+      ...LAZY,
+    })
+
+    const sizes = measureDist(dist)
+
+    expect(sizes.lyricsChunks).toEqual(['LyricsEditor-qrs.js'])
+    expect(sizes.lyricsBytes).toBe(gzipBytes(LAZY_LYRICS['LyricsEditor-qrs.js']))
+    expect(sizes.editorChunks).toEqual(['FragmentEditor-xyz.js'])
   })
 })

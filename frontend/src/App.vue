@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, watch } from 'vue'
+import { onBeforeUnmount, onMounted, provide, watch } from 'vue'
+import { LEAVE_GUARD, createLeaveGuard, singleFlight } from './app/leaveGuard'
 import { useNavigation } from './app/useNavigation'
 import { useTheme } from './app/useTheme'
 import SessionStatus from './components/SessionStatus.vue'
 import { useSession } from './session/useSession'
+import { confirmWith, setClosingConfirmation } from './telegram/actions'
 import { startTelegram, telegramWebAppOf } from './telegram/useTelegram'
 import PostEditor from './views/PostEditor.vue'
 import PostList from './views/PostList.vue'
@@ -20,10 +22,15 @@ const session = useSession({
 })
 const navigation = useNavigation(window.location.search)
 
-function backToList(): void {
+const leaveGuard = createLeaveGuard((dirty) => setClosingConfirmation(webApp, dirty))
+provide(LEAVE_GUARD, leaveGuard)
+
+// unsaved work asks first, once even on a double tap; «no» stays in the editor
+const onBack = singleFlight(async () => {
+  if (!(await leaveGuard.leave(confirmWith(webApp)))) return
   navigation.openList()
   window.history.replaceState(null, '', window.location.pathname)
-}
+})
 
 // the Telegram back button exists only inside the editor and leads to the list
 watch(
@@ -36,12 +43,12 @@ watch(
 )
 
 onMounted(() => {
-  webApp?.BackButton.onClick(backToList)
+  webApp?.BackButton.onClick(onBack)
   void session.signIn()
 })
 
 onBeforeUnmount(() => {
-  webApp?.BackButton.offClick(backToList)
+  webApp?.BackButton.offClick(onBack)
   stopTheme()
 })
 </script>

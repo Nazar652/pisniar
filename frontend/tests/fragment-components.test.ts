@@ -1,6 +1,7 @@
 import { createSSRApp } from 'vue'
 import { renderToString } from 'vue/server-renderer'
 import { describe, expect, it, vi } from 'vitest'
+import { LEAVE_GUARD } from '../src/app/leaveGuard'
 import FragmentEditor from '../src/fragment/FragmentEditor.vue'
 import FragmentSection from '../src/fragment/FragmentSection.vue'
 import { useFragmentEditor } from '../src/fragment/useFragmentEditor'
@@ -50,6 +51,33 @@ describe('FragmentEditor', () => {
     expect(html).toContain('Зробити відео з цим фрагментом')
     expect(html).toContain('class="fragment__wave"')
     expect(html).toContain('<audio')
+  })
+
+  it('reports chosen-but-unsubmitted bounds to the leave guard and not before', async () => {
+    const guard = { setDirty: vi.fn(), leave: vi.fn() }
+    const clean = await loadedEditor()
+    const cleanApp = createSSRApp(FragmentEditor, { editor: clean.editor, webApp: undefined })
+    cleanApp.provide(LEAVE_GUARD, guard)
+    await renderToString(cleanApp)
+    expect(guard.setDirty).toHaveBeenLastCalledWith('fragment', false)
+
+    const moved = await loadedEditor()
+    moved.editor.nudgeEdge('end', 1000)
+    const movedApp = createSSRApp(FragmentEditor, { editor: moved.editor, webApp: undefined })
+    movedApp.provide(LEAVE_GUARD, guard)
+    await renderToString(movedApp)
+    expect(guard.setDirty).toHaveBeenLastCalledWith('fragment', true)
+  })
+
+  it('turns the closing confirmation on for moved bounds when there is no guard', async () => {
+    const webApp = { enableClosingConfirmation: vi.fn(), disableClosingConfirmation: vi.fn() }
+    const { editor } = await loadedEditor()
+    await render(FragmentEditor, { editor, webApp })
+    expect(webApp.enableClosingConfirmation).not.toHaveBeenCalled()
+
+    editor.nudgeEdge('end', 1000)
+    await render(FragmentEditor, { editor, webApp })
+    expect(webApp.enableClosingConfirmation).toHaveBeenCalledOnce()
   })
 
   it('offers the fragment, the whole track and an edge at the playhead', async () => {
