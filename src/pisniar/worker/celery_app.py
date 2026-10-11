@@ -16,6 +16,8 @@ DOWNLOAD_POST_AUDIO_TASK_NAME = "pisniar.worker.download_post_audio"
 PREPARE_POST_AUDIO_TASK_NAME = "pisniar.worker.prepare_post_audio"
 RENDER_POST_VIDEO_TASK_NAME = "pisniar.worker.render_post_video"
 
+RENDER_QUEUE = "render"
+
 # queued by the render after its preview, never by the bot or the Mini App.
 FETCH_PLAIN_LYRICS_TASK_NAME = "pisniar.worker.fetch_plain_lyrics"
 
@@ -34,6 +36,8 @@ def build_celery_app(redis_url: str, *, name: str = "pisniar") -> Celery:
         task_time_limit=TASK_TIME_LIMIT_SECONDS,
         timezone="UTC",
         enable_utc=True,
+        # only the render waits in its own queue; everything else stays on the default one
+        task_routes={RENDER_POST_VIDEO_TASK_NAME: {"queue": RENDER_QUEUE}},
         task_serializer="json",
         accept_content=["json"],
         result_serializer="json",

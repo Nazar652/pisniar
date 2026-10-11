@@ -8,6 +8,34 @@ x-app-environment: &app-environment
   DATABASE_URL: *database-url
   REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0
 
+# shared by `worker` and `worker-render`: they differ in the command and the node name only.
+# `timeout` is generous: importing `pisniar.worker.tasks` alone takes ~16 s on a loaded dev stack.
+x-worker-base: &worker-base
+  build:
+    context: .
+    target: worker
+  env_file:
+    - .env
+  environment:
+    <<: *app-environment
+  # named, not a bind mount: heavy media stays off the Windows host filesystem.
+  # Only the workers write media; the webapp mounts the same volume read-only.
+  volumes:
+    - media-data:/data
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+    migrate:
+      condition: service_completed_successfully
+
+x-worker-healthcheck: &worker-healthcheck
+  interval: 10s
+  timeout: 30s
+  retries: 10
+  start_period: 60s
+
 services:
   postgres:
     image: postgres:17
@@ -82,32 +110,27 @@ services:
       start_period: 5s
 
   worker:
-    build:
-      context: .
-      target: worker
-    env_file:
-      - .env
-    environment:
-      <<: *app-environment
-    # named, not a bind mount: heavy media stays off the Windows host filesystem.
-    # Only the worker writes media; the webapp mounts the same volume read-only.
-    volumes:
-      - media-data:/data
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
+    <<: *worker-base
     healthcheck:
-      # `timeout` is generous: a fresh Celery bootstrap plus the 3s broker
-      # round-trip fails spuriously under a tighter one.
-      test: ["CMD", "celery", "-A", "pisniar.worker.tasks", "inspect", "ping", "--timeout", "3"]
-      interval: 10s
-      timeout: 15s
-      retries: 10
-      start_period: 10s
+      <<: *worker-healthcheck
+      # `-d`: without it every worker on the broker answers, so one healthy node hides a dead one.
+      test:
+        [
+          "CMD-SHELL",
+          "celery -A pisniar.worker.tasks inspect ping -d default@$$HOSTNAME --timeout 3",
+        ]
+
+  # the render alone, one at a time: a minutes-long ffmpeg never holds the default worker's slot.
+  worker-render:
+    <<: *worker-base
+    command: ["celery", "-A", "pisniar.worker.tasks", "worker", "-Q", "render", "-c", "1", "-n", "render@%h", "--loglevel=INFO"]
+    healthcheck:
+      <<: *worker-healthcheck
+      test:
+        [
+          "CMD-SHELL",
+          "celery -A pisniar.worker.tasks inspect ping -d render@$$HOSTNAME --timeout 3",
+        ]
 
   # `make bench-render`: no env_file, no volume and no network, so the synthetic renders
   # cannot reach the app's secrets, the media volume or the broker.

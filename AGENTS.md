@@ -559,6 +559,10 @@ suggest or introduce either.
   the truth is "таймаут". Both media tasks catch it separately, in the async
   body *and* around `run_async()` in the sync wrapper, because Celery raises it
   in the main thread, i.e. out of the event loop rather than out of an `await`.
+- **The render has its own queue and service.** `build_celery_app` routes `RENDER_POST_VIDEO_TASK_NAME`
+  alone to `render`; `worker` takes `celery`, `worker-render` (`-c 1`, same image, env and volume) takes
+  `render`, each healthcheck pings its own node with `-d`. `claim_post_for_rendering` restamps
+  `updated_at`, so the `/retry` window counts from the real start.
 - **The media tasks carry their own time limits** from `Settings`
   (`download_task_*`, `render_task_*`). `TASK_SOFT_TIME_LIMIT_SECONDS` /
   `TASK_TIME_LIMIT_SECONDS` in `worker/celery_app.py` are the resolve's, and
@@ -808,6 +812,9 @@ suggest or introduce either.
 - A migration runs with `bot` and `worker` stopped: stop them, run the one-shot
   `migrate` service, start the new image. There is no rolling window in which
   old code meets the new schema.
+- Deploying the render queue: `make up` does not build, so run
+  `docker compose up -d --build worker worker-render` (a stale image has the old CMD and node name).
+  Drain the queue first: a render already waiting on `celery` would run on the default worker.
 - Autogenerate never emits a `CHECK` constraint on an existing table, so such
   a constraint is written into the revision by hand.
 - A `NOT NULL` column added to a table that already holds rows takes three

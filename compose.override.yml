@@ -49,6 +49,27 @@ services:
       LOG_FORMAT: console
       WATCHFILES_FORCE_POLLING: "1"
 
+  worker-render:
+    build:
+      target: worker-dev
+    # the dev image's CMD is the default queue, so the render queue is spelled out
+    command:
+      - watchfiles
+      - --filter
+      - python
+      - celery -A pisniar.worker.tasks worker -Q render -c 1 -n render@%h --loglevel=INFO
+      - /app/src
+    volumes:
+      - ./src:/app/src
+      - ./alembic:/app/alembic
+      - ./alembic.ini:/app/alembic.ini
+      - ./tests:/app/tests
+      - ./pyproject.toml:/app/pyproject.toml
+    environment:
+      ENVIRONMENT: dev
+      LOG_FORMAT: console
+      WATCHFILES_FORCE_POLLING: "1"
+
   webapp:
     build:
       target: webapp-dev

@@ -5,6 +5,7 @@ file that actually exists, how a failure is worded, and who may start the chain.
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -1238,6 +1239,33 @@ async def test_a_post_without_a_preview_is_still_claimed(
     assert claim is not None
     assert post.status is claimed_status
     assert sum(session.commits for session in sessions) == 1
+
+
+@pytest.mark.parametrize("status", [PostStatus.RENDERING, PostStatus.DOWNLOADED])
+async def test_the_render_claim_restamps_updated_at(status: PostStatus) -> None:
+    """the stale window of `/retry` counts from the real start, also for the self-edge."""
+    post, _, session_factory = claim_fixtures(status, preview_message_id=None)
+    stale = datetime(2020, 1, 1, tzinfo=UTC)
+    post.updated_at = stale
+    before = datetime.now(UTC)
+
+    claim = await worker_tasks.claim_post_for_rendering(session_factory, 7)
+
+    assert claim is not None
+    assert post.updated_at >= before
+
+
+async def test_a_duplicate_render_finding_rendered_or_failed_leaves_the_stamp_alone() -> None:
+    for status in (PostStatus.RENDERED, PostStatus.FAILED):
+        post, sessions, session_factory = claim_fixtures(status, preview_message_id=None)
+        stale = datetime(2020, 1, 1, tzinfo=UTC)
+        post.updated_at = stale
+
+        claim = await worker_tasks.claim_post_for_rendering(session_factory, 7)
+
+        assert claim is None
+        assert post.updated_at == stale
+        assert sum(session.commits for session in sessions) == 0
 
 
 async def test_the_render_claim_carries_the_lyrics_query_as_plain_values() -> None:

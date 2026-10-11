@@ -10,6 +10,13 @@ from celery.app.log import Logging
 
 from pisniar.logging import configure_logging
 from pisniar.worker.celery_app import (
+    DOWNLOAD_POST_AUDIO_TASK_NAME,
+    FETCH_PLAIN_LYRICS_TASK_NAME,
+    PING_TASK_NAME,
+    PREPARE_POST_AUDIO_TASK_NAME,
+    PUBLISH_POST_TASK_NAME,
+    RENDER_POST_VIDEO_TASK_NAME,
+    RESOLVE_POST_TASK_NAME,
     TASK_SOFT_TIME_LIMIT_SECONDS,
     TASK_TIME_LIMIT_SECONDS,
     build_celery_app,
@@ -40,6 +47,25 @@ def test_celery_logging_bootstrap_does_not_wipe_our_handler(
         setattr(Logging, "_setup", False)  # noqa: B010
 
     assert root_logger.handlers == [our_handler]
+
+
+def test_only_the_render_is_routed_to_its_own_queue() -> None:
+    app = build_celery_app("redis://localhost:6379/0")
+    routes = app.conf.task_routes
+
+    assert routes == {RENDER_POST_VIDEO_TASK_NAME: {"queue": "render"}}
+    names = (
+        PING_TASK_NAME,
+        RESOLVE_POST_TASK_NAME,
+        PUBLISH_POST_TASK_NAME,
+        DOWNLOAD_POST_AUDIO_TASK_NAME,
+        PREPARE_POST_AUDIO_TASK_NAME,
+        FETCH_PLAIN_LYRICS_TASK_NAME,
+    )
+    queue_of = app.amqp.router.route
+    assert queue_of({}, RENDER_POST_VIDEO_TASK_NAME)["queue"].name == "render"
+    for name in names:
+        assert queue_of({}, name)["queue"].name == "celery", name
 
 
 def test_tasks_have_both_a_soft_and_a_hard_time_limit() -> None:

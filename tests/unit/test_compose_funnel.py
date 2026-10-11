@@ -102,6 +102,48 @@ def test_webapp_gets_the_authenticated_broker_and_the_media_volume_read_only(
     assert webapp["build"]["target"] == "webapp"
 
 
+def test_worker_render_is_a_single_slot_consumer_of_the_render_queue_alone(compose: dict[str, Any]) -> None:
+    worker = compose["services"]["worker"]
+    render = compose["services"]["worker-render"]
+
+    assert "ports" not in render
+    differing = {key for key in worker.keys() | render.keys() if worker.get(key) != render.get(key)}
+    assert differing == {"command", "healthcheck"}
+    assert {k: v for k, v in worker["healthcheck"].items() if k != "test"} == {
+        k: v for k, v in render["healthcheck"].items() if k != "test"
+    }
+    assert worker["healthcheck"]["timeout"] == "30s"
+    assert worker["healthcheck"]["start_period"] == "60s"
+    command = render["command"]
+    assert command[command.index("-Q") + 1] == "render"
+    assert command[command.index("-c") + 1] == "1"
+    assert "--max-tasks-per-child" not in command
+    assert "mem_limit" not in render
+
+
+def test_the_dev_override_keeps_the_render_queue_and_node_name() -> None:
+    override = yaml.safe_load((REPOSITORY_ROOT / "compose.override.yml").read_text(encoding="utf-8"))
+    command = " ".join(override["services"]["worker-render"]["command"])
+
+    assert "-Q render -c 1" in command
+    assert "-n render@" in command
+
+
+def test_the_default_worker_consumes_the_default_queue_in_the_image() -> None:
+    dockerfile = (REPOSITORY_ROOT / "Dockerfile").read_text(encoding="utf-8")
+
+    assert dockerfile.count("-Q celery -n default@%h") == 1
+    assert dockerfile.count('"-Q", "celery", "-n", "default@%h"') == 1
+
+
+def test_each_worker_healthcheck_pings_its_own_node_without_the_password(compose: dict[str, Any]) -> None:
+    for service, node in (("worker", "default"), ("worker-render", "render")):
+        test = compose["services"][service]["healthcheck"]["test"]
+        assert test[0] == "CMD-SHELL"
+        assert f"inspect ping -d {node}@$HOSTNAME" in test[1].replace("$$", "$")
+        assert "REDIS_PASSWORD" not in test[1]
+
+
 def test_the_serve_config_proxies_only_to_the_webapp() -> None:
     serve = json.loads(SERVE_FILE.read_text(encoding="utf-8"))
 

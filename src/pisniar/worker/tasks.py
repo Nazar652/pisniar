@@ -1485,6 +1485,8 @@ async def claim_post_for_rendering(
         preconditions = await read_render_preconditions(session, track, post)
 
         set_post_status(post, PostStatus.RENDERING)
+        # the RENDERING self-edge changes no column, so onupdate never fires
+        post.updated_at = datetime.now(UTC)
         await session.commit()
 
     if preconditions.error is not None:
