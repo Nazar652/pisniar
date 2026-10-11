@@ -20,7 +20,7 @@ logger = get_logger(__name__)
 DATABASE_UNAVAILABLE_MESSAGE = "База даних зараз недоступна. Спробуйте за хвилину."
 POST_BUSY_MESSAGE = "Пост зараз змінюється іншою дією. Спробуйте за кілька секунд."
 
-# `lock_not_available` (NOWAIT refused) and `query_canceled` (the connection's `lock_timeout` hit)
+# `lock_not_available` (NOWAIT refused or `lock_timeout` hit) and `query_canceled` (`statement_timeout`, a cancel)
 LOCK_FAILURE_SQLSTATES = frozenset({"55P03", "57014"})
 
 

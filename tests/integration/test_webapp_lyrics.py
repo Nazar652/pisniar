@@ -20,7 +20,7 @@ from test_webapp_fragment_render import make_previewed_post
 
 from pisniar.config import Settings
 from pisniar.db.models import Lyric, Post, Track
-from pisniar.db.session import LOCK_TIMEOUT_MS, build_engine, build_session_factory
+from pisniar.db.session import build_engine, build_session_factory
 from pisniar.db.states import PostStatus
 from pisniar.resolve.lyrics_lookup import SourceAnswer
 from pisniar.resolve.sources.lrclib import LyricsLine, LyricsOutcome, LyricsResult
@@ -63,7 +63,7 @@ class Environment:
 
 
 @pytest_asyncio.fixture
-async def environment(migrated_test_database_url: str) -> AsyncIterator[Environment]:
+async def environment(migrated_test_database_url: str, test_lock_timeout_ms: int) -> AsyncIterator[Environment]:
     settings = Settings(
         _env_file=None,
         bot_token=BOT_TOKEN,
@@ -74,18 +74,28 @@ async def environment(migrated_test_database_url: str) -> AsyncIterator[Environm
         spotify_client_id="id",
         spotify_client_secret="secret",
     )
-    engine = build_engine(migrated_test_database_url, lock_timeout_ms=LOCK_TIMEOUT_MS)
-    session_factory = build_session_factory(engine)
-    app = create_webapp(
-        settings,
-        clock=lambda: float(NOW),
-        session_factory=session_factory,
-        http_client=httpx.AsyncClient(),
-    )
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as http:
-        yield Environment(http=http, session_factory=session_factory)
-    await engine.dispose()
+    contacted_hosts: list[str] = []
+
+    def refuse_source_request(request: httpx.Request) -> httpx.Response:
+        contacted_hosts.append(request.url.host)
+        raise httpx.ConnectError("a lyrics source was asked over HTTP", request=request)
+
+    engine = build_engine(migrated_test_database_url, lock_timeout_ms=test_lock_timeout_ms)
+    try:
+        session_factory = build_session_factory(engine)
+        async with httpx.AsyncClient(transport=httpx.MockTransport(refuse_source_request)) as sources_client:
+            app = create_webapp(
+                settings,
+                clock=lambda: float(NOW),
+                session_factory=session_factory,
+                http_client=sources_client,
+            )
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as http:
+                yield Environment(http=http, session_factory=session_factory)
+    finally:
+        await engine.dispose()
+    assert not contacted_hosts, f"a lyrics source was asked over HTTP: {contacted_hosts}"
 
 
 async def stored_lines(environment: Environment, track_id: int) -> list[tuple[int, int | None, str, str]]:
@@ -274,6 +284,7 @@ async def test_a_track_held_by_another_transaction_makes_the_save_post_busy_and_
 
     assert (response.status_code, response.json()["code"]) == (409, "post_busy")
     assert await stored_lines(environment, track.id) == [(0, 500, "старий", "lrclib")]
+    assert (await track_of(environment, post_id)).lyrics_edited_at is None
 
 
 async def test_two_saves_from_one_version_leave_one_whole_text(environment: Environment, previewed: Any) -> None:
@@ -291,6 +302,8 @@ async def test_two_saves_from_one_version_leave_one_whole_text(environment: Envi
     )
 
     assert sorted(response.status_code for response in (first, second)) == [200, 409]
+    loser = first if first.status_code == 409 else second
+    assert loser.json()["code"] in {"stale_data", "post_busy"}
     lines = await stored_lines(environment, track.id)
     assert lines in (
         [(0, 1_000, "перший", "manual"), (1, None, "ще", "manual")],

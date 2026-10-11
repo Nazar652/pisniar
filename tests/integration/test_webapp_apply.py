@@ -34,7 +34,6 @@ pytestmark = pytest.mark.integration
 BOT_TOKEN = "123456:integration-token"
 ADMIN_ID = 111
 NOW = 1_800_000_000
-LOCK_TIMEOUT_MS = 400
 WEBAPP_URL = "https://pisniar.example.ts.net"
 ALBUM_ID = "4yYXqedvSKuJlgI2IWsB0j"
 SPOTIFY_URL = "https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT"
@@ -123,7 +122,7 @@ class Seeded:
 
 
 @pytest_asyncio.fixture
-async def environment(migrated_test_database_url: str) -> AsyncIterator[Environment]:
+async def environment(migrated_test_database_url: str, test_lock_timeout_ms: int) -> AsyncIterator[Environment]:
     settings = Settings(
         _env_file=None,
         bot_token=BOT_TOKEN,
@@ -135,7 +134,7 @@ async def environment(migrated_test_database_url: str) -> AsyncIterator[Environm
         spotify_client_secret="secret",
         webapp_public_url=WEBAPP_URL,
     )
-    engine = build_engine(migrated_test_database_url, lock_timeout_ms=LOCK_TIMEOUT_MS)
+    engine = build_engine(migrated_test_database_url, lock_timeout_ms=test_lock_timeout_ms)
     session_factory = build_session_factory(engine)
     bot = FakeBot()
     app = create_webapp(settings, clock=lambda: float(NOW), session_factory=session_factory, bot=cast(Bot, bot))

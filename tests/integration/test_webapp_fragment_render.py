@@ -23,7 +23,7 @@ from test_render_lyrics import COVER_URL, StubRenderer, make_downloaded_post
 
 from pisniar.bot.handlers import handle_callback, handle_retry
 from pisniar.db.models import AudioAsset, Lyric, Post, Render, Track
-from pisniar.db.session import LOCK_TIMEOUT_MS, build_engine, build_session_factory
+from pisniar.db.session import build_engine, build_session_factory
 from pisniar.db.states import PostStatus, set_post_status
 from pisniar.dispatch import RENDER_DISPATCH_FAILED_ERROR
 from pisniar.webapp.database import is_lock_failure
@@ -45,8 +45,8 @@ STAMP = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 @pytest_asyncio.fixture
-async def session_factory(migrated_test_database_url: str) -> AsyncIterator[Any]:
-    engine = build_engine(migrated_test_database_url, lock_timeout_ms=LOCK_TIMEOUT_MS)
+async def session_factory(migrated_test_database_url: str, test_lock_timeout_ms: int) -> AsyncIterator[Any]:
+    engine = build_engine(migrated_test_database_url, lock_timeout_ms=test_lock_timeout_ms)
     yield build_session_factory(engine)
     await engine.dispose()
 

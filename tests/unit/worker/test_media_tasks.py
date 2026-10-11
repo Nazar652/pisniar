@@ -914,7 +914,7 @@ async def test_ffmpeg_runs_with_no_session_and_no_lock_open(tmp_path: Path, monk
         )
 
     monkeypatch.setattr(worker_tasks, "render_video_off_transaction", spy_render)
-    monkeypatch.setattr(worker_tasks, "finish_render", AsyncMock())
+    monkeypatch.setattr(worker_tasks, "finish_render", AsyncMock(return_value=None))
 
     await worker_tasks.perform_render_post_video(7)
 

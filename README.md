@@ -215,7 +215,7 @@ round-trip at a time.
 
 ```
 make check        # sync + lock-check + fmt-check + lint + typecheck + test, then the frontend checks (host, no Docker); use `make -k check` to see every failure at once
-make test-int      # full test suite (unit + integration) inside the bot container
+make test-int      # integration tests and the Linux-only bench test inside the bot container
 make test-fonts    # the subtitle font and its glyph-width table, inside the worker container
 make migrate       # alembic upgrade head
 make revision m="add lyric table"   # alembic revision --autogenerate

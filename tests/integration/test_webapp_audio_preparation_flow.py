@@ -47,7 +47,6 @@ pytestmark = pytest.mark.integration
 BOT_TOKEN = "123456:integration-token"
 ADMIN_ID = 111
 NOW = 1_800_000_000
-LOCK_TIMEOUT_MS = 400
 VIDEO_ID = "n4bPzdIs_nc"
 DURATION_MS = 212_000
 DRAFT_CHAT_ID = ADMIN_ID
@@ -108,7 +107,7 @@ class Environment:
 
 
 @pytest_asyncio.fixture
-async def environment(migrated_test_database_url: str) -> AsyncIterator[Environment]:
+async def environment(migrated_test_database_url: str, test_lock_timeout_ms: int) -> AsyncIterator[Environment]:
     settings = Settings(
         _env_file=None,
         bot_token=BOT_TOKEN,
@@ -119,7 +118,7 @@ async def environment(migrated_test_database_url: str) -> AsyncIterator[Environm
         spotify_client_id="id",
         spotify_client_secret="secret",
     )
-    engine = build_engine(migrated_test_database_url, lock_timeout_ms=LOCK_TIMEOUT_MS)
+    engine = build_engine(migrated_test_database_url, lock_timeout_ms=test_lock_timeout_ms)
     session_factory = build_session_factory(engine)
     bot = FakeBot()
     queue = MagicMock()

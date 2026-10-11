@@ -1,18 +1,24 @@
-"""Integration test fixtures. Two databases: `pisniar_test` (shared, recreated and migrated once per session) for
-`test_constraints.py`, `pisniar_test_migrations` (disposable, per-test) for `test_migrations.py`'s destructive cycle —
-never `pisniar`, which the live `bot`/`worker` containers use.
+"""Integration test fixtures. Two databases: `pisniar_test` (shared by the integration tests, recreated and
+migrated once per session), `pisniar_test_migrations` (disposable, per-test) for `test_migrations.py`'s
+destructive cycle — never `pisniar`, which the live `bot`/`worker` containers use.
 """
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import logging.config
 import os
-import subprocess
-from collections.abc import AsyncIterator, Callable
+import socket
+import sys
+from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
 
 import asyncpg
 import pytest
 import pytest_asyncio
+from alembic import command
+from alembic.config import Config
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -40,6 +46,36 @@ def to_asyncpg_maintenance_dsn(database_url: str) -> str:
     # asyncpg needs a plain DSN, and CREATE/DROP DATABASE needs some *other* database first — "postgres" always exists.
     maintenance_url = make_url(database_url).set(drivername="postgresql", database="postgres")
     return maintenance_url.render_as_string(hide_password=False)
+
+
+TEST_LOCK_TIMEOUT_MS = 400
+
+
+@pytest.fixture(scope="session")
+def test_lock_timeout_ms() -> int:
+    """the `lock_timeout` of the engines whose tests wait for a lock on purpose; production keeps 5000."""
+    return TEST_LOCK_TIMEOUT_MS
+
+
+@pytest.fixture(scope="session")
+def database_host_names() -> frozenset[str]:
+    """the database host and its addresses, resolved once before any guard patches the lookup."""
+    host = make_url(get_settings().database_url).host
+    names: set[str] = set()
+    if host:
+        names.add(host)
+        with contextlib.suppress(OSError):
+            names.update(str(entry[4][0]) for entry in socket.getaddrinfo(host, None))
+    return frozenset(names)
+
+
+@pytest.fixture
+def outside_access_allowed_hosts(
+    outside_access_allowed_hosts: frozenset[str],
+    database_host_names: frozenset[str],
+) -> frozenset[str]:
+    """loopback and the database, nothing else."""
+    return outside_access_allowed_hosts | database_host_names
 
 
 @pytest_asyncio.fixture(scope="session", loop_scope="session")
@@ -85,27 +121,26 @@ async def migrations_test_database_url() -> AsyncIterator[str]:
 
 
 @pytest.fixture(scope="session")
-def run_alembic() -> Callable[..., subprocess.CompletedProcess[str]]:
+def run_alembic() -> Callable[..., Awaitable[None]]:
+    """runs an `alembic.command` function in a worker thread, because `env.py` calls `asyncio.run`; a failure raises."""
 
-    def run(*args: str, database_url: str) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
-            ["alembic", *args],
-            cwd=REPOSITORY_ROOT,
-            env={**os.environ, "DATABASE_URL": database_url},
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+    async def run(alembic_command: Callable[..., None], *arguments: str, database_url: str) -> None:
+        def execute() -> None:
+            # fileConfig would disable pytest's loggers; `prepend_sys_path = .` is undone with the copy of `sys.path`.
+            with pytest.MonkeyPatch.context() as patch:
+                patch.setenv("DATABASE_URL", database_url)
+                patch.setattr(logging.config, "fileConfig", lambda *args, **kwargs: None)
+                patch.setattr(sys, "path", list(sys.path))
+                alembic_command(Config(str(REPOSITORY_ROOT / "alembic.ini")), *arguments)
+
+        await asyncio.to_thread(execute)
 
     return run
 
 
-@pytest.fixture(scope="session")
-def migrated_test_database_url(
-    test_database_url: str, run_alembic: Callable[..., subprocess.CompletedProcess[str]]
-) -> str:
-    result = run_alembic("upgrade", "head", database_url=test_database_url)
-    assert result.returncode == 0, result.stdout + result.stderr
+@pytest_asyncio.fixture(scope="session", loop_scope="session")
+async def migrated_test_database_url(test_database_url: str, run_alembic: Callable[..., Awaitable[None]]) -> str:
+    await run_alembic(command.upgrade, "head", database_url=test_database_url)
     return test_database_url
 
 

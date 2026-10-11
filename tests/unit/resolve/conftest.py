@@ -3,33 +3,26 @@
 
 from __future__ import annotations
 
+import importlib
+import pkgutil
 from collections.abc import Awaitable, Callable
 from unittest.mock import AsyncMock
 
 import pytest
 
+import pisniar.resolve.sources
 from pisniar.resolve.cache import SourceCache
-from pisniar.resolve.sources import (
-    deezer,
-    genius,
-    itunes,
-    lrclib,
-    musicbrainz,
-    songlink,
-    spotify,
-    ytmusic,
-)
+from pisniar.resolve.http import Throttler
+from pisniar.resolve.sources import lrclib
 
 
 @pytest.fixture(autouse=True)
 def zero_throttle_intervals(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(songlink.THROTTLE, "min_interval_seconds", 0.0)
-    monkeypatch.setattr(deezer.THROTTLE, "min_interval_seconds", 0.0)
-    monkeypatch.setattr(itunes.THROTTLE, "min_interval_seconds", 0.0)
-    monkeypatch.setattr(spotify.THROTTLE, "min_interval_seconds", 0.0)
-    monkeypatch.setattr(ytmusic.THROTTLE, "min_interval_seconds", 0.0)
-    monkeypatch.setattr(genius.THROTTLE, "min_interval_seconds", 0.0)
-    monkeypatch.setattr(musicbrainz.THROTTLE, "min_interval_seconds", 0.0)
+    for module_info in pkgutil.iter_modules(pisniar.resolve.sources.__path__):
+        module = importlib.import_module(f"pisniar.resolve.sources.{module_info.name}")
+        throttle = getattr(module, "THROTTLE", None)
+        if isinstance(throttle, Throttler):
+            monkeypatch.setattr(throttle, "min_interval_seconds", 0.0)
 
     # the backoff too, not only the throttle: `lrclib` retries the "did not answer" class three times, and the sleeps
     # are the test suite's time.

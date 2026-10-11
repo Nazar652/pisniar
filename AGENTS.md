@@ -34,9 +34,10 @@ Canonical commands are `make` targets (`make help` lists all of them).
 ```
 make check       # uv sync --frozen + uv lock --check + ruff format --check + ruff check + ty check + unit tests,
                  # then the frontend: vue-tsc, ESLint, Prettier, Vitest, API type drift, bundle check
+make test         # unit tests in parallel (pytest-xdist -n 4, one worker per file); `pytest path::test` stays serial
 make up           # docker compose up -d --wait
 make ps            # docker compose ps
-make test-int      # full test suite (unit + integration) inside the bot container
+make test-int      # integration tests and the Linux-only bench test inside the bot container
 make test-fonts    # the subtitle font and the glyph-width table, inside the worker container
 make migrate       # alembic upgrade head inside the bot container
 make revision m="add lyric table"   # alembic revision --autogenerate
@@ -328,8 +329,8 @@ suggest or introduce either.
   (`db.locks.lock_post_without_waiting` / `lock_track_for_write`, the lock the resolve and the
   `lyric` writers take), then a comparison of both `updated_at` values with the
   `expected_*_updated_at` the editor was opened with; a mismatch is a 409 `stale_data`. A refused
-  NOWAIT (`55P03`) or a hit `lock_timeout` (`57014`), read from `error.orig.sqlstate`, is a 409
-  `post_busy`; any other database failure is a 503. Validation is the pure `webapp.fields.plan_fields`,
+  NOWAIT or a hit `lock_timeout` (both `55P03`) or a cancelled statement (`57014`), read from
+  `error.orig.sqlstate`, is a 409 `post_busy`; any other database failure is a 503. Validation is the pure `webapp.fields.plan_fields`,
   shared by the save and by `POST /api/posts/{id}/preview` (which writes nothing), and a bad edit is a
   422 `invalid_fields` listing every field in `errors[{field, message}]`. `assign_if_changed` skips an
   equal value, so a save without changes writes nothing and leaves `updated_at` alone. A name joins

@@ -37,7 +37,7 @@ typecheck: ## ty check, strict rules from pyproject.toml
 	uv run ty check src tests
 
 test: ## unit tests only, no DB
-	uv run pytest -m "not integration" -q
+	uv run pytest -m "not integration" -q -n 4 --dist loadfile
 
 # `check`'s prerequisites stop at the first failure (like `&&`); run
 # `make -k check` (a make-invocation flag, not something `verify` sets for you) to see all of them.
@@ -109,8 +109,9 @@ restart: ## restart bot + worker (hot-reload sanity check)
 clean: ## docker compose down -v (also drops the postgres volume)
 	$(COMPOSE) down -v
 
-test-int: ## full test suite (unit + integration) inside the bot container
-	$(COMPOSE) run --rm bot pytest -q -m "not fonts"
+# the unit suite runs on the host in `make check`; test_bench.py is Linux-only, so it runs here as well.
+test-int: ## integration tests and the Linux-only bench test inside the bot container
+	$(COMPOSE) run --rm bot pytest -q -m "not fonts" tests/integration tests/unit/worker/test_bench.py
 
 # separate from `test-int`: the fonts live only in the worker image, and a missing font family
 # falls back silently, so this is what stops a typo in `ass.FONT_FAMILY` reaching a video.

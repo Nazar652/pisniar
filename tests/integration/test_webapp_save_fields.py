@@ -30,7 +30,6 @@ pytestmark = pytest.mark.integration
 BOT_TOKEN = "123456:integration-token"
 ADMIN_ID = 111
 NOW = 1_800_000_000
-LOCK_TIMEOUT_MS = 400
 ALBUM_ID = "4yYXqedvSKuJlgI2IWsB0j"
 SPOTIFY_URL = "https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT"
 TIDAL_URL = "https://listen.tidal.com/track/1"
@@ -90,7 +89,7 @@ class Seeded:
 
 
 @pytest_asyncio.fixture
-async def environment(migrated_test_database_url: str) -> AsyncIterator[Environment]:
+async def environment(migrated_test_database_url: str, test_lock_timeout_ms: int) -> AsyncIterator[Environment]:
     settings = Settings(
         _env_file=None,
         bot_token=BOT_TOKEN,
@@ -101,7 +100,7 @@ async def environment(migrated_test_database_url: str) -> AsyncIterator[Environm
         spotify_client_id="id",
         spotify_client_secret="secret",
     )
-    engine = build_engine(migrated_test_database_url, lock_timeout_ms=LOCK_TIMEOUT_MS)
+    engine = build_engine(migrated_test_database_url, lock_timeout_ms=test_lock_timeout_ms)
     session_factory = build_session_factory(engine)
     app = create_webapp(settings, clock=lambda: float(NOW), session_factory=session_factory)
     transport = httpx.ASGITransport(app=app)
@@ -240,7 +239,11 @@ async def test_a_stale_track_version_is_a_409_and_nothing_is_written(environment
     assert (await stored_track(environment, seeded.track_id)).title == "Тема"
 
 
-async def test_a_post_locked_elsewhere_is_refused_at_once(environment: Environment, seeded: Seeded) -> None:
+async def test_a_post_locked_elsewhere_is_refused_at_once(
+    environment: Environment,
+    seeded: Seeded,
+    test_lock_timeout_ms: int,
+) -> None:
     body = await environment.form_of(seeded.post_id, title="Нова")
 
     async with environment.session_factory() as holder:
@@ -251,7 +254,7 @@ async def test_a_post_locked_elsewhere_is_refused_at_once(environment: Environme
 
     assert response.status_code == 409
     assert response.json()["code"] == "post_busy"
-    assert elapsed < LOCK_TIMEOUT_MS / 1000
+    assert elapsed < test_lock_timeout_ms / 1000
     assert (await stored_track(environment, seeded.track_id)).title == "Тема"
 
 
