@@ -1575,16 +1575,22 @@ async def render_video_off_transaction(
     text_version = video_render.text_version_of(subtitles_text)
     lyrics_reason = worker_lyrics.reason_after_subtitles(claim.lyrics_query.track_id, lyrics, subtitles_text)
 
+    expected_duration_ms = claim.fragment_end_ms - claim.fragment_start_ms
+    display_text = ass_subtitles.build_display_subtitles(
+        claim.lyrics_query.title, claim.lyrics_query.artist_names, expected_duration_ms
+    )
+    display_version = video_render.text_digest(display_text)
+
     params_hash = video_render.compute_params_hash(
         video_id=claim.video_id,
         audio_duration_ms=claim.audio_duration_ms,
         cover_url=claim.cover_url or "",
         fragment_start_ms=claim.fragment_start_ms,
         fragment_end_ms=claim.fragment_end_ms,
+        display_version=display_version,
         text_version=text_version,
     )
     final_path = media_storage.render_file_path(settings.media_root, claim.post_id, params_hash)
-    expected_duration_ms = claim.fragment_end_ms - claim.fragment_start_ms
 
     thumbnail_path = media_storage.thumbnail_file_path(settings.media_root, claim.post_id, params_hash)
 
@@ -1630,7 +1636,18 @@ async def render_video_off_transaction(
         cover_path=cover_path,
         fragment_start_ms=claim.fragment_start_ms,
         fragment_end_ms=claim.fragment_end_ms,
-        subtitles_path=write_subtitles(claim.post_id, subtitles_text),
+        display_subtitles_path=write_subtitles(
+            media_storage.display_subtitles_file_path(settings.media_root, claim.post_id),
+            display_text,
+        ),
+        subtitles_path=(
+            None
+            if subtitles_text is None
+            else write_subtitles(
+                media_storage.subtitles_file_path(settings.media_root, claim.post_id),
+                subtitles_text,
+            )
+        ),
     )
     staging = media_storage.staging_path(temporary_directory, final_path)
 
@@ -1663,6 +1680,7 @@ async def render_video_off_transaction(
         crf=quality.crf,
         maxrate=quality.maxrate,
         has_thumbnail=staged_thumbnail is not None,
+        display_version=display_version,
         text_version=text_version,
         lyrics_reason=lyrics_reason,
     )
@@ -1692,12 +1710,8 @@ async def prepare_lyrics_off_transaction(
         await http_client.aclose()
 
 
-def write_subtitles(post_id: int, subtitles_text: str | None) -> Path | None:
-    """`None` is «no text», never an empty file: the filtergraph then has no `subtitles=` step at all."""
-    if subtitles_text is None:
-        return None
-
-    path = media_storage.subtitles_file_path(settings.media_root, post_id)
+def write_subtitles(path: Path, subtitles_text: str) -> Path:
+    """«No text» never reaches here: the caller then passes no `subtitles_path` and the filtergraph has no such step."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(subtitles_text, encoding="utf-8")
     return path

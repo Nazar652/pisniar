@@ -10,7 +10,8 @@ COMPOSE := docker compose
 	frontend-sync frontend-typecheck frontend-lint frontend-format frontend-test frontend-bundle \
 	api-types api-types-check frontend-build frontend-watch \
 	build up down ps logs restart clean test-int test-fonts migrate revision downgrade \
-	alembic-check psql shell verify funnel-init funnel-up funnel-down dev-token peaks
+	alembic-check psql shell verify funnel-init funnel-up funnel-down dev-token peaks \
+	bench-render
 
 help: ## Show this list of targets
 	@grep -h -E '^[a-zA-Z0-9_-]+:.*##' $(MAKEFILE_LIST) | sed 's/:.*##/\t/' | sort
@@ -133,6 +134,12 @@ alembic-check: ## alembic check: model/migration drift
 
 peaks: ## write the waveform file for every audio on the volume that lacks the current version, inside the worker
 	$(COMPOSE) exec worker python -m pisniar.worker.peaks
+
+# the `bench` service has no env_file, volume or network: synthetic inputs under /tmp only.
+# Prints the render time limits that fit this machine as ready `.env` lines.
+bench-render: ## render 45 s and 120 s fragments in an isolated worker container and print the .env time limits
+	$(COMPOSE) build bench
+	$(COMPOSE) run --rm bench
 
 psql: ## interactive psql in the postgres container
 	$(COMPOSE) exec postgres psql -U pisniar -d pisniar

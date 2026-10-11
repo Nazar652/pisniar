@@ -109,6 +109,16 @@ services:
       retries: 10
       start_period: 10s
 
+  # `make bench-render`: no env_file, no volume and no network, so the synthetic renders
+  # cannot reach the app's secrets, the media volume or the broker.
+  bench:
+    profiles: ["bench"]
+    build:
+      context: .
+      target: worker
+    network_mode: none
+    command: ["python", "-m", "pisniar.worker.bench"]
+
   # no `ports:`: the only way in is the Funnel below. The healthcheck is strict: `/` must answer 200,
   # so a missing frontend build (503) leaves the container unhealthy and the Funnel waiting.
   webapp:

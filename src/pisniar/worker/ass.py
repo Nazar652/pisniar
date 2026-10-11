@@ -1,5 +1,7 @@
-"""Pure `.ass` generator: stored lyric lines in, subtitle file text out. Song text is untrusted and ASS has no escapes
-inside a line, so `{`/`}` become `(`/`)` and `\\` is dropped: override blocks like `{\\an7\\fs90}` cannot be spelled."""
+"""Pure `.ass` generators: stored lyric lines for the glass screen, and the title and
+artists for the display. Song text is untrusted and ASS has no escapes inside a line, so
+`{`/`}` become `(`/`)` and `\\` is dropped: override blocks like `{\\an7\\fs90}` cannot be spelled.
+"""
 
 from __future__ import annotations
 
@@ -8,55 +10,69 @@ from dataclasses import dataclass
 
 from pisniar.logging import get_logger
 from pisniar.post.sanitize import sanitize_metadata_text
-from pisniar.worker.text_metrics import fits_within, longest_prefix_within
+from pisniar.worker import layout
+from pisniar.worker.text_metrics import fits_within, longest_prefix_within, text_width_px
 
 logger = get_logger(__name__)
 
 # without these libass assumes a 384x288 script and scales every coordinate by
 # the wrong factor. The subtitles are drawn onto the finished frame.
-PLAY_RES_X = 720
-PLAY_RES_Y = 1280
+PLAY_RES_X = layout.FRAME_WIDTH_PX
+PLAY_RES_Y = layout.FRAME_HEIGHT_PX
 
 # the only family verified to carry Ukrainian in the worker image. A missing name
 # falls back silently, which is why `tests/integration/test_ass_font.py` exists.
 FONT_FAMILY = "Noto Sans"
 
-# the lyric band starts under the raised cover (`render.COVER_TOP_OFFSET_PX`);
-# `tests/unit/worker/test_ass.py` pins the two against each other.
-TEXT_BAND_TOP_PX = 820
-
-# `Alignment=5` plus an explicit `\pos` makes the three slots symmetric by
-# construction rather than by `MarginV`, which `\an5` ignores anyway.
-SLOT_CENTER_X = PLAY_RES_X // 2
-CURRENT_SLOT_Y = 1050
+# `\an5` plus an explicit `\pos` places the slots (`MarginV` is ignored); they sit
+# on the glass screen, and `test_ass.py` pins them inside it.
+SLOT_CENTER_X = layout.FRAME_CENTER_X_PX
+CURRENT_SLOT_Y = 1035
 # the tightest case is a current line wrapped to two; `test_ass.py` measures that
 # block against its neighbours rather than trusting the number.
-SLOT_SPACING_PX = 95
+SLOT_SPACING_PX = 130
 PREVIOUS_SLOT_Y = CURRENT_SLOT_Y - SLOT_SPACING_PX
 NEXT_SLOT_Y = CURRENT_SLOT_Y + SLOT_SPACING_PX
 
-FONT_SIZE_CURRENT_PX = 44
-FONT_SIZE_ADJACENT_PX = 32
-HORIZONTAL_MARGIN_PX = 40
+FONT_SIZE_CURRENT_PX = 52
+FONT_SIZE_ADJACENT_PX = 38
+HORIZONTAL_MARGIN_PX = (PLAY_RES_X - layout.LYRICS_TEXT_WIDTH_PX) // 2
+
+CURRENT_RGB = (255, 255, 255)
+ADJACENT_RGB = (150, 156, 170)
+LYRICS_OUTLINE_PX = 2
+
+# the display: one line each, centred on the display pane
+DISPLAY_TITLE_Y = 746
+DISPLAY_ARTISTS_Y = 775
+FONT_SIZE_DISPLAY_TITLE_PX = 28
+FONT_SIZE_DISPLAY_ARTISTS_PX = 19
+DISPLAY_TITLE_RGB = (255, 196, 110)
+DISPLAY_ARTISTS_RGB = (190, 140, 80)
+DISPLAY_GLOW_BLUR = 6
+DISPLAY_GLOW_OUTLINE_PX = 3
+DISPLAY_GLOW_ALPHA = "&H90&"
+ARTIST_SEPARATOR = ", "
 
 # `WrapStyle: 2` turns libass' own wrapping off, so the break points are ours,
 # measured against the font's real advance widths (`text_metrics`).
-USABLE_TEXT_WIDTH_PX = PLAY_RES_X - 2 * HORIZONTAL_MARGIN_PX
+USABLE_TEXT_WIDTH_PX = layout.LYRICS_TEXT_WIDTH_PX
 MAX_CURRENT_WRAPPED_LINES = 2
 # one, not two: a second wrapped line in a side slot is exactly how a long line climbs into the neighbouring one.
 MAX_ADJACENT_WRAPPED_LINES = 1
 ELLIPSIS = "…"
 
-# without a ceiling the last line of a fragment hangs for the rest of it, and a
-# 60-second gap in the source hangs for a minute.
+# without a ceiling the last line of a fragment hangs for the rest of it, and a 60-second gap hangs for a minute.
 MAX_LINE_MS = 8_000
-# a 45-second fragment with more than this many lines is a broken LRC or an attempt to spend ffmpeg's CPU, not a song.
+# a 45-second fragment with more than this many lines is a broken LRC or an attempt to spend ffmpeg's CPU.
 MAX_RENDERED_LINES = 120
 # mirrors `models.MAX_LYRIC_TEXT_LENGTH`: past it the wrapper would be word-splitting a payload, not a lyric.
 MAX_SOURCE_TEXT_CHARACTERS = 500
 
 STYLE_CURRENT = "current"
 STYLE_ADJACENT = "adjacent"
+STYLE_DISPLAY_TITLE = "display_title"
+STYLE_DISPLAY_ARTISTS = "display_artists"
 
 # the `Format:` line each `Style:` row is positional against; rows look every
 # field up in this order, so they cannot drift out of step with the header.
@@ -146,7 +162,7 @@ def wrap_for_slot(
 
     if len(wrapped) > max_lines:
         wrapped = wrapped[:max_lines]
-        wrapped[-1] = with_ellipsis(wrapped[-1], font_size_px)
+        wrapped[-1] = with_ellipsis(wrapped[-1], font_size_px, USABLE_TEXT_WIDTH_PX)
 
     return "\\N".join(wrapped)
 
@@ -157,8 +173,7 @@ def build_ass_subtitles(
     fragment_start_ms: int,
     fragment_end_ms: int,
 ) -> str | None:
-    """`None` when the fragment has nothing to draw: «no text» is a state
-    (`text_version=None`), not an empty file."""
+    """`None` when the fragment has nothing to draw: «no text» is a state (`text_version=None`), not an empty file."""
     if fragment_end_ms <= fragment_start_ms:
         raise AssGenerationError(f"межі фрагмента невалідні: [{fragment_start_ms}, {fragment_end_ms})")
 
@@ -171,12 +186,77 @@ def build_ass_subtitles(
         return None
 
     logger.info("ass_generated", line_count=len(lines), event_count=len(events))
-    return "\n".join([*script_info_section(), "", *styles_section(), "", *events_section(events)]) + "\n"
+    return document_text(lyric_style_rows(), events)
+
+
+def build_display_subtitles(
+    title: str,
+    artist_names: Sequence[str],
+    length_ms: int,
+) -> str:
+    """the title and the artists on the display for the whole fragment: each line is a glow
+    event under a crisp one. An empty field draws nothing, so the result may hold no events."""
+    if length_ms <= 0:
+        raise AssGenerationError(f"тривалість фрагмента невалідна: {length_ms}")
+
+    title_text = display_text(title, FONT_SIZE_DISPLAY_TITLE_PX)
+    artist_texts = (escape_ass_text(name[:MAX_SOURCE_TEXT_CHARACTERS]) for name in artist_names)
+    artists_text = display_text(
+        ARTIST_SEPARATOR.join(text for text in artist_texts if text), FONT_SIZE_DISPLAY_ARTISTS_PX
+    )
+    end_ms = length_ms
+    events = [
+        *display_events(title_text, DISPLAY_TITLE_Y, STYLE_DISPLAY_TITLE, DISPLAY_TITLE_RGB, end_ms),
+        *display_events(artists_text, DISPLAY_ARTISTS_Y, STYLE_DISPLAY_ARTISTS, DISPLAY_ARTISTS_RGB, end_ms),
+    ]
+    logger.info("ass_display_generated", event_count=len(events))
+    return document_text(display_style_rows(), events)
+
+
+def document_text(style_rows: Sequence[str], events: Sequence[dict[str, str]]) -> str:
+    sections = [
+        *script_info_section(),
+        "",
+        *styles_section(style_rows),
+        "",
+        *events_section(events),
+    ]
+    return "\n".join(sections) + "\n"
+
+
+def display_text(value: str, font_size_px: int) -> str:
+    """cut to the input limit before escaping, then to the display width with an ellipsis."""
+    escaped = escape_ass_text(value[:MAX_SOURCE_TEXT_CHARACTERS])
+    if fits_text_width(escaped, font_size_px, layout.DISPLAY_TEXT_WIDTH_PX):
+        return escaped
+
+    room_px = layout.DISPLAY_TEXT_WIDTH_PX - text_width_px(ELLIPSIS, font_size_px)
+    head = longest_prefix_within(escaped, font_size_px=font_size_px, available_px=room_px)
+    return head.rstrip() + ELLIPSIS
+
+
+def display_events(
+    text: str,
+    slot_y: int,
+    style: str,
+    rgb: tuple[int, int, int],
+    end_ms: int,
+) -> list[dict[str, str]]:
+    """a blurred, translucent outline in the text colour under the crisp text."""
+    if not text:
+        return []
+
+    position = f"\\pos({SLOT_CENTER_X},{slot_y})"
+    glow = (
+        f"{position}\\blur{DISPLAY_GLOW_BLUR}\\alpha{DISPLAY_GLOW_ALPHA}"
+        f"\\bord{DISPLAY_GLOW_OUTLINE_PX}\\shad0\\3c{tag_colour(rgb)}"
+    )
+    crisp = f"{position}\\bord0\\shad0"
+    return [dialogue_event(layer, 0, end_ms, style, f"{{{tags}}}{text}") for layer, tags in ((0, glow), (1, crisp))]
 
 
 def place_lines(lines: Sequence[LyricLine], fragment_start_ms: int) -> list[PlacedLine]:
-    """ordered by `line_index`, never by `start_ms`: sorting by time would leave
-    untimed lines nowhere to stand."""
+    """ordered by `line_index`, never by `start_ms`: sorting by time would leave untimed lines nowhere to stand."""
     timed = [line for line in lines if line.start_ms is not None]
     ordered = sorted(timed, key=lambda line: line.line_index)
 
@@ -264,21 +344,29 @@ def slot_events(
 
         max_lines = MAX_CURRENT_WRAPPED_LINES if style == STYLE_CURRENT else MAX_ADJACENT_WRAPPED_LINES
         wrapped = wrap_for_slot(text, font_size_px=font_size_px, max_lines=max_lines)
-        events.append(
-            {
-                "Layer": "0",
-                "Start": ass_timestamp(start_ms),
-                "End": ass_timestamp(end_ms),
-                "Style": style,
-                "Name": "",
-                "MarginL": "0",
-                "MarginR": "0",
-                "MarginV": "0",
-                "Effect": "",
-                "Text": f"{{\\pos({SLOT_CENTER_X},{slot_y})}}{wrapped}",
-            }
-        )
+        events.append(dialogue_event(0, start_ms, end_ms, style, f"{{\\pos({SLOT_CENTER_X},{slot_y})}}{wrapped}"))
     return events
+
+
+def dialogue_event(
+    layer: int,
+    start_ms: int,
+    end_ms: int,
+    style: str,
+    text: str,
+) -> dict[str, str]:
+    return {
+        "Layer": str(layer),
+        "Start": ass_timestamp(start_ms),
+        "End": ass_timestamp(end_ms),
+        "Style": style,
+        "Name": "",
+        "MarginL": "0",
+        "MarginR": "0",
+        "MarginV": "0",
+        "Effect": "",
+        "Text": text,
+    }
 
 
 def neighbour_text(
@@ -316,12 +404,60 @@ def script_info_section() -> list[str]:
     ]
 
 
-def styles_section() -> list[str]:
+def styles_section(rows: Sequence[str]) -> list[str]:
+    return ["[V4+ Styles]", "Format: " + ", ".join(STYLE_FORMAT_FIELDS), *rows]
+
+
+def ass_colour(rgb: tuple[int, int, int]) -> str:
+    """the `Style:` form, `&HAABBGGRR` with a zero alpha."""
+    red, green, blue = rgb
+    return f"&H00{blue:02X}{green:02X}{red:02X}"
+
+
+def tag_colour(rgb: tuple[int, int, int]) -> str:
+    """the override-tag form, `&HBBGGRR&`."""
+    red, green, blue = rgb
+    return f"&H{blue:02X}{green:02X}{red:02X}&"
+
+
+def lyric_style_rows() -> list[str]:
+    outline = ass_colour(layout.GLASS_RGB)
     return [
-        "[V4+ Styles]",
-        "Format: " + ", ".join(STYLE_FORMAT_FIELDS),
-        style_row(STYLE_CURRENT, FONT_SIZE_CURRENT_PX, "&H00FFFFFF", "&H00101010"),
-        style_row(STYLE_ADJACENT, FONT_SIZE_ADJACENT_PX, "&H80FFFFFF", "&H80101010"),
+        style_row(
+            STYLE_CURRENT,
+            FONT_SIZE_CURRENT_PX,
+            ass_colour(CURRENT_RGB),
+            outline,
+            LYRICS_OUTLINE_PX,
+        ),
+        style_row(
+            STYLE_ADJACENT,
+            FONT_SIZE_ADJACENT_PX,
+            ass_colour(ADJACENT_RGB),
+            outline,
+            LYRICS_OUTLINE_PX,
+        ),
+    ]
+
+
+def display_style_rows() -> list[str]:
+    """the outline is set per event (the glow), so the style itself has none."""
+    outline = ass_colour(layout.GLASS_RGB)
+    return [
+        style_row(
+            STYLE_DISPLAY_TITLE,
+            FONT_SIZE_DISPLAY_TITLE_PX,
+            ass_colour(DISPLAY_TITLE_RGB),
+            outline,
+            0,
+        ),
+        style_row(
+            STYLE_DISPLAY_ARTISTS,
+            FONT_SIZE_DISPLAY_ARTISTS_PX,
+            ass_colour(DISPLAY_ARTISTS_RGB),
+            outline,
+            0,
+        ),
     ]
 
 
@@ -330,6 +466,7 @@ def style_row(
     font_size_px: int,
     primary_colour: str,
     outline_colour: str,
+    outline_px: int,
 ) -> str:
     """a forgotten field is a `KeyError` here, not a style libass silently ignores."""
     values: dict[str, object] = {
@@ -349,7 +486,7 @@ def style_row(
         "Spacing": 0,
         "Angle": 0,
         "BorderStyle": 1,
-        "Outline": 2,
+        "Outline": outline_px,
         "Shadow": 0,
         "Alignment": ALIGNMENT_MIDDLE_CENTER,
         "MarginL": HORIZONTAL_MARGIN_PX,
@@ -379,7 +516,7 @@ def wrap_words(text: str, font_size_px: int) -> list[str]:
 
     for word in text.split():
         remainder = word
-        while not fits_text_width(remainder, font_size_px):
+        while not fits_text_width(remainder, font_size_px, USABLE_TEXT_WIDTH_PX):
             head = longest_prefix_within(remainder, font_size_px=font_size_px, available_px=USABLE_TEXT_WIDTH_PX)
             if current:
                 wrapped.append(current)
@@ -389,7 +526,7 @@ def wrap_words(text: str, font_size_px: int) -> list[str]:
             remainder = remainder[len(head) :]
 
         candidate = f"{current} {remainder}".strip()
-        if fits_text_width(candidate, font_size_px):
+        if fits_text_width(candidate, font_size_px, USABLE_TEXT_WIDTH_PX):
             current = candidate
             continue
 
@@ -402,11 +539,19 @@ def wrap_words(text: str, font_size_px: int) -> list[str]:
     return wrapped or [""]
 
 
-def fits_text_width(text: str, font_size_px: int) -> bool:
-    return fits_within(text, font_size_px=font_size_px, available_px=USABLE_TEXT_WIDTH_PX)
+def fits_text_width(
+    text: str,
+    font_size_px: int,
+    available_px: float,
+) -> bool:
+    return fits_within(text, font_size_px=font_size_px, available_px=available_px)
 
 
-def with_ellipsis(line: str, font_size_px: int) -> str:
-    while line and not fits_text_width(line + ELLIPSIS, font_size_px):
+def with_ellipsis(
+    line: str,
+    font_size_px: int,
+    available_px: float,
+) -> str:
+    while line and not fits_text_width(line + ELLIPSIS, font_size_px, available_px):
         line = line[:-1].rstrip()
     return line + ELLIPSIS

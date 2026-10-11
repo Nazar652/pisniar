@@ -377,6 +377,7 @@ def test_write_layers_writes_the_five_files_under_fixed_names(
     assert {path.name for path in layers.background.parent.iterdir()} == LAYER_FILE_NAMES
     assert all(path.stat().st_size > 0 for path in paths)
     assert (layers.overlay_x, layers.overlay_y) == (60, 60)
+    assert (layers.overlay_width, layers.overlay_height) == (644, 616)
 
 
 def test_a_second_drawing_gives_the_same_pixels(background: Image.Image, overlay: Image.Image) -> None:
@@ -399,6 +400,7 @@ def test_write_layers_replaces_files_already_there(tmp_path: Path, monkeypatch: 
     with Image.open(written.background) as replaced:
         assert replaced.size == (4, 2)
     assert (written.overlay_x, written.overlay_y) == (10, 20)
+    assert (written.overlay_width, written.overlay_height) == (6, 4)
 
 
 # ---------------------------------------------------------------- helpers: frame

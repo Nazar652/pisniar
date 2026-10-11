@@ -1,22 +1,41 @@
-"""The filtergraph, the required encoder flags, the size ceiling with its single retry, and `params_hash`, the input
-that decides whether ffmpeg runs at all.
+"""The filtergraph, the required encoder flags, the size ceiling with its single
+retry, and `params_hash`, the input that decides whether ffmpeg runs at all.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 from itertools import pairwise
 from pathlib import Path
 from typing import Any
+from unittest.mock import MagicMock
 
 import httpx
 import pytest
 
 from pisniar.worker import ffmpeg as media_tools
+from pisniar.worker import layout, turntable
 from pisniar.worker import render as video_render
 
 AUDIO_PATH = Path("/data/audio/1/n4bPzdIs_nc.opus")
 COVER_PATH = Path("/data/tmp/7/cover.img")
 OUTPUT_PATH = Path("/data/tmp/7/abc.mp4.partial")
+
+
+DISPLAY_PATH = Path("/data/tmp/7/display.ass")
+LYRICS_PATH = Path("/data/tmp/7/lyrics.ass")
+LAYERS = turntable.TurntableLayers(
+    background=Path("/data/tmp/7/bg.png"),
+    vinyl=Path("/data/tmp/7/vinyl.png"),
+    label_mask=Path("/data/tmp/7/label-mask.png"),
+    hub=Path("/data/tmp/7/hub.png"),
+    overlay=Path("/data/tmp/7/overlay.png"),
+    overlay_x=60,
+    overlay_y=60,
+    overlay_width=644,
+    overlay_height=616,
+)
 
 
 def parameters(subtitles_path: Path | None = None) -> video_render.RenderParameters:
@@ -25,56 +44,128 @@ def parameters(subtitles_path: Path | None = None) -> video_render.RenderParamet
         cover_path=COVER_PATH,
         fragment_start_ms=0,
         fragment_end_ms=45_000,
+        display_subtitles_path=DISPLAY_PATH,
         subtitles_path=subtitles_path,
     )
 
 
-def test_the_scale_filter_converts_the_range_instead_of_only_naming_the_format() -> None:
-    """measured: the cover arrives from the Spotify CDN as full-range JPEG, and a naive `format=yuv420p` yields
-    `yuvj420p` every time."""
-    graph = video_render.build_filter_complex()
-
-    assert "in_range=pc:out_range=tv" in graph
-    assert "flags=lanczos" in graph
-    assert "format=yuv420p" in graph
+def graph_of(subtitles_path: Path | None = None) -> str:
+    return video_render.build_filter_complex(LAYERS, DISPLAY_PATH, subtitles_path)
 
 
-def test_the_frame_is_seven_twenty_by_twelve_eighty_with_square_pixels() -> None:
-    graph = video_render.build_filter_complex()
+def test_the_cover_is_read_full_range_into_the_label_and_nowhere_else() -> None:
+    """measured: the cover arrives from the Spotify CDN as full-range JPEG, and a
+    naive `format=yuv420p` yields `yuvj420p` every time."""
+    graph = graph_of()
 
-    assert "scale=720:1280:force_original_aspect_ratio=decrease" in graph
-    assert "pad=720:1280:(ow-iw)/2:100:color=black" in graph
-    assert "setsar=1" in graph
-
-
-def test_the_cover_is_lifted_instead_of_centred_so_the_text_band_is_black() -> None:
-    """centred, the cover sits under the side lines; lifted, the bottom band stays empty frame, at a constant offset
-    rather than `(oh-ih)/2`."""
-    graph = video_render.build_filter_complex()
-
-    assert video_render.COVER_TOP_OFFSET_PX == 100
-    assert "(oh-ih)/2" not in graph
+    assert graph.count("in_range=pc") == 1
+    assert graph.startswith(
+        "[0:v]scale=300:300:force_original_aspect_ratio=increase:flags=lanczos:in_range=pc,"
+        "crop=300:300,format=rgba[cover]"
+    )
+    assert "[cover][mask]alphamerge[label]" in graph
 
 
-def test_no_subtitle_filter_exists_in_4a() -> None:
-    assert "subtitles=" not in video_render.build_filter_complex()
+def test_every_pixel_is_converted_to_yuv_once_in_one_of_two_separate_areas() -> None:
+    """the still floor once, the square the disc moves in on every frame; both with the
+    tv range, and the square is laid back over the floor without a second conversion."""
+    graph = graph_of()
+
+    assert graph.count("out_range=tv") == 2
+    assert "[floor_source]scale=out_range=tv,format=yuv420p," in graph
+    assert "[square]scale=out_range=tv,format=yuv420p[square_yuv]" in graph
+    assert "[floor][square_yuv]overlay=60:60:format=yuv420,setsar=1" in graph
 
 
-def test_a_subtitle_path_handed_in_from_outside_is_appended() -> None:
-    """subtitles come in as a path, not a flag flipped inside, so text is an addition to a verified filtergraph."""
-    graph = video_render.build_filter_complex(Path("/data/tmp/7/lyrics.ass"))
+def test_the_disc_square_is_the_even_box_around_the_disc_and_the_overlay() -> None:
+    assert video_render.disc_square(LAYERS) == (60, 60, 644, 638)
+    wider = turntable.TurntableLayers(
+        background=LAYERS.background,
+        vinyl=LAYERS.vinyl,
+        label_mask=LAYERS.label_mask,
+        hub=LAYERS.hub,
+        overlay=LAYERS.overlay,
+        overlay_x=50,
+        overlay_y=70,
+        overlay_width=700,
+        overlay_height=700,
+    )
 
-    assert "subtitles=/data/tmp/7/lyrics.ass" in graph
+    assert video_render.disc_square(wider) == (50, 70, 700, 700)
+    for layers in (LAYERS, wider):
+        assert all(number % 2 == 0 for number in video_render.disc_square(layers))
+
+
+def test_the_disc_turns_once_from_rgba_with_transparent_corners() -> None:
+    graph = graph_of()
+
+    assert graph.count("rotate=") == 1
+    assert "rotate=a=2*PI*t*100/180:c=none:ow=600:oh=600" in graph
+    assert "[seated][hub]overlay=0:0:format=auto,loop=loop=-1:size=1,setpts=N/30/TB,rotate" in graph
+    assert "[2:v]format=rgba[vinyl]" in graph
+    assert "[3:v]format=rgba[hub]" in graph
+    assert "[vinyl][label]overlay=(W-w)/2:(H-h)/2:format=auto[seated]" in graph
+
+
+def test_the_square_is_cropped_looped_and_composed_in_planar_rgb() -> None:
+    graph = graph_of()
+
+    assert "[4:v]split[floor_source][square_source]" in graph
+    assert "[square_source]crop=644:638:60:60,format=gbrp,loop=loop=-1:size=1,setpts=N/30/TB[ground]" in graph
+    assert "[ground][spin]overlay=0:38:format=gbrp[disc]" in graph
+    assert "[disc][top]overlay=0:0:format=gbrp[square]" in graph
+    assert "[5:v]format=rgba[top]" in graph
+
+
+def test_the_overlay_sits_where_the_drawing_said() -> None:
+    moved = turntable.TurntableLayers(
+        background=LAYERS.background,
+        vinyl=LAYERS.vinyl,
+        label_mask=LAYERS.label_mask,
+        hub=LAYERS.hub,
+        overlay=LAYERS.overlay,
+        overlay_x=62,
+        overlay_y=64,
+        overlay_width=642,
+        overlay_height=612,
+    )
+
+    graph = video_render.build_filter_complex(moved, DISPLAY_PATH)
+
+    assert "[disc][top]overlay=2:0:format=gbrp[square]" in graph
+    assert "[floor][square_yuv]overlay=60:64:format=yuv420" in graph
+
+
+def test_the_display_is_drawn_once_on_the_still_floor_and_the_song_text_comes_last() -> None:
+    plain = graph_of()
+    floor = "[floor_source]scale=out_range=tv,format=yuv420p,subtitles=/data/tmp/7/display.ass,loop"
+
+    assert floor in plain
+    assert plain.count("subtitles=") == 1
+    assert plain.endswith("setsar=1[v]")
+    both = graph_of(LYRICS_PATH)
+
+    assert floor in both
+    assert both.endswith("setsar=1,subtitles=/data/tmp/7/lyrics.ass[v]")
+    assert both.count("subtitles=") == 2
 
 
 def test_a_colon_in_a_subtitle_path_is_escaped_not_left_to_split_the_option() -> None:
-    graph = video_render.build_filter_complex(Path("/data/tmp/7/a:b.ass"))
+    graph = video_render.build_filter_complex(LAYERS, Path("/data/tmp/7/a:b.ass"), Path("/c:d.ass"))
 
     assert "a\\:b.ass" in graph
+    assert "c\\:d.ass" in graph
+
+
+def test_the_old_padded_cover_is_gone() -> None:
+    graph = graph_of()
+
+    assert "pad=" not in graph
+    assert not hasattr(video_render, "COVER_TOP_OFFSET_PX")
 
 
 def test_the_arguments_are_a_list_of_strings_with_the_output_last() -> None:
-    arguments = video_render.build_ffmpeg_arguments(parameters(), OUTPUT_PATH)
+    arguments = video_render.build_ffmpeg_arguments(parameters(), LAYERS, OUTPUT_PATH)
 
     assert isinstance(arguments, list)
     assert all(isinstance(argument, str) for argument in arguments)
@@ -85,8 +176,28 @@ def pairs(arguments: list[str]) -> set[tuple[str, str]]:
     return set(pairwise(arguments))
 
 
+def test_six_stills_then_the_seeked_audio_are_the_inputs_and_none_is_looped() -> None:
+    arguments = video_render.build_ffmpeg_arguments(parameters(), LAYERS, OUTPUT_PATH)
+    inputs = [arguments[index + 1] for index, value in enumerate(arguments) if value == "-i"]
+
+    assert inputs == [
+        str(COVER_PATH),
+        str(LAYERS.label_mask),
+        str(LAYERS.vinyl),
+        str(LAYERS.hub),
+        str(LAYERS.background),
+        str(LAYERS.overlay),
+        str(AUDIO_PATH),
+    ]
+    assert "-loop" not in arguments
+    assert arguments.index("-ss") == arguments.index(str(AUDIO_PATH)) - 3
+    assert arguments.count("-ss") == 1
+    assert ("-map", "[v]") in pairs(arguments)
+    assert ("-map", "6:a") in pairs(arguments)
+
+
 def test_every_encoder_flag_the_acceptance_criteria_name_is_present() -> None:
-    arguments = video_render.build_ffmpeg_arguments(parameters(), OUTPUT_PATH)
+    arguments = video_render.build_ffmpeg_arguments(parameters(), LAYERS, OUTPUT_PATH)
     argument_pairs = pairs(arguments)
 
     assert ("-c:v", "libx264") in argument_pairs
@@ -107,7 +218,9 @@ def test_the_audio_is_seeked_to_the_absolute_fragment_start() -> None:
             cover_path=COVER_PATH,
             fragment_start_ms=30_000,
             fragment_end_ms=75_000,
+            display_subtitles_path=DISPLAY_PATH,
         ),
+        LAYERS,
         OUTPUT_PATH,
     )
     argument_pairs = pairs(arguments)
@@ -117,26 +230,26 @@ def test_the_audio_is_seeked_to_the_absolute_fragment_start() -> None:
 
 
 def test_a_reduced_quality_pass_lowers_the_bitrate_ceiling() -> None:
-    arguments = video_render.build_ffmpeg_arguments(parameters(), OUTPUT_PATH, quality=video_render.REDUCED_QUALITY)
+    arguments = video_render.build_ffmpeg_arguments(
+        parameters(), LAYERS, OUTPUT_PATH, quality=video_render.REDUCED_QUALITY
+    )
 
     assert ("-maxrate", "1200k") in pairs(arguments)
 
 
+HASH_INPUTS: dict[str, Any] = {
+    "video_id": "n4bPzdIs_nc",
+    "audio_duration_ms": 212_000,
+    "cover_url": "https://cdn/cover.jpg",
+    "fragment_start_ms": 0,
+    "fragment_end_ms": 45_000,
+    "display_version": "0123456789abcdef",
+}
+
+
 def test_the_hash_is_stable_for_identical_inputs() -> None:
-    first = video_render.compute_params_hash(
-        video_id="n4bPzdIs_nc",
-        audio_duration_ms=212_000,
-        cover_url="https://cdn/cover.jpg",
-        fragment_start_ms=0,
-        fragment_end_ms=45_000,
-    )
-    second = video_render.compute_params_hash(
-        video_id="n4bPzdIs_nc",
-        audio_duration_ms=212_000,
-        cover_url="https://cdn/cover.jpg",
-        fragment_start_ms=0,
-        fragment_end_ms=45_000,
-    )
+    first = video_render.compute_params_hash(**HASH_INPUTS)
+    second = video_render.compute_params_hash(**HASH_INPUTS)
 
     assert first == second
 
@@ -148,29 +261,26 @@ def test_the_hash_is_stable_for_identical_inputs() -> None:
         {"cover_url": "https://cdn/other.jpg"},
         {"video_id": "dQw4w9WgXcQ"},
         {"text_version": "lrclib:1"},
+        {"display_version": "fedcba9876543210"},
     ],
 )
 def test_every_input_the_frames_depend_on_changes_the_hash(overrides: dict[str, Any]) -> None:
-    """`text_version` is an input even when it is `None`, so a render with text never reuses one without."""
-    baseline: dict[str, Any] = {
-        "video_id": "n4bPzdIs_nc",
-        "audio_duration_ms": 212_000,
-        "cover_url": "https://cdn/cover.jpg",
-        "fragment_start_ms": 0,
-        "fragment_end_ms": 45_000,
-    }
+    """`text_version` is an input even when it is `None`, so a render with text
+    never reuses one without; a new title or artist list changes `display_version`."""
+    assert video_render.compute_params_hash(**HASH_INPUTS) != video_render.compute_params_hash(
+        **{**HASH_INPUTS, **overrides}
+    )
 
-    assert video_render.compute_params_hash(**baseline) != video_render.compute_params_hash(**{**baseline, **overrides})
+
+def test_the_renderer_version_is_an_input_to_the_hash(monkeypatch: pytest.MonkeyPatch) -> None:
+    before = video_render.compute_params_hash(**HASH_INPUTS)
+    monkeypatch.setattr(video_render, "RENDERER_VERSION", "another")
+
+    assert video_render.compute_params_hash(**HASH_INPUTS) != before
 
 
 def test_the_hash_is_a_filename_safe_hex_digest() -> None:
-    params_hash = video_render.compute_params_hash(
-        video_id="n4bPzdIs_nc",
-        audio_duration_ms=212_000,
-        cover_url="https://cdn/cover.jpg",
-        fragment_start_ms=0,
-        fragment_end_ms=45_000,
-    )
+    params_hash = video_render.compute_params_hash(**HASH_INPUTS)
 
     assert len(params_hash) == 64
     assert set(params_hash) <= set("0123456789abcdef")
@@ -186,6 +296,19 @@ def make_probe(size_bytes: int, duration_ms: int = 45_000) -> media_tools.MediaP
             media_tools.StreamInfo("audio", "aac", None, None, None, None),
         ),
     )
+
+
+@pytest.fixture(autouse=True)
+def drawn_layers(monkeypatch: pytest.MonkeyPatch) -> list[Path]:
+    """the drawing is not under test here: it is replaced and its calls are recorded."""
+    directories: list[Path] = []
+
+    def fake_write_layers(directory: Path) -> turntable.TurntableLayers:
+        directories.append(directory)
+        return LAYERS
+
+    monkeypatch.setattr(video_render.turntable, "write_layers", fake_write_layers)
+    return directories
 
 
 def stub_ffmpeg(monkeypatch: pytest.MonkeyPatch, probes: list[media_tools.MediaProbe]) -> list[list[str]]:
@@ -208,15 +331,15 @@ def stub_ffmpeg(monkeypatch: pytest.MonkeyPatch, probes: list[media_tools.MediaP
 def test_a_render_is_verified_by_ffprobe_not_by_the_exit_code(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     calls = stub_ffmpeg(monkeypatch, [make_probe(2_260_000)])
 
-    probe = video_render.render_fragment(parameters(), tmp_path / "out.mp4.partial", timeout_seconds=180)
+    probe = video_render.render_fragment(parameters(), LAYERS, tmp_path / "out.mp4.partial", timeout_seconds=180)
 
     assert probe.size_bytes == 2_260_000
     assert calls[0][0] == video_render.FFMPEG_BINARY
+    assert str(LAYERS.overlay) in calls[0]
 
 
 def test_a_render_ffprobe_refuses_fails_the_whole_call(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """ffmpeg can exit 0 on an unusable file, so the verdict comes from
-    `verify_media`, not from the exit code."""
+    """ffmpeg can exit 0 on an unusable file, so the verdict comes from `verify_media`, not from the exit code."""
     monkeypatch.setattr(video_render, "run_media_tool_checked", lambda binary, arguments, **kwargs: None)
 
     def refuse(path: Path, **kwargs: Any) -> media_tools.MediaProbe:
@@ -225,10 +348,28 @@ def test_a_render_ffprobe_refuses_fails_the_whole_call(tmp_path: Path, monkeypat
     monkeypatch.setattr(video_render, "verify_media", refuse)
 
     with pytest.raises(media_tools.MediaProbeError):
-        video_render.render_fragment(parameters(), tmp_path / "out.mp4.partial", timeout_seconds=180)
+        video_render.render_fragment(parameters(), LAYERS, tmp_path / "out.mp4.partial", timeout_seconds=180)
 
 
-def test_a_render_under_the_ceiling_runs_ffmpeg_exactly_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_layer_drawing_time_is_logged_once_for_both_attempts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_logger = MagicMock()
+    monkeypatch.setattr(video_render, "logger", fake_logger)
+    stub_ffmpeg(monkeypatch, [make_probe(60 * 1024 * 1024), make_probe(20 * 1024 * 1024)])
+
+    video_render.render_fragment_within_size_limit(parameters(), tmp_path / "out.mp4.partial", timeout_seconds=180)
+
+    drawn = [call.kwargs for call in fake_logger.info.call_args_list if call.args == ("render_layers_drawn",)]
+    assert len(drawn) == 1
+    assert drawn[0]["seconds"] >= 0
+
+
+def test_a_render_under_the_ceiling_runs_ffmpeg_exactly_once(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    drawn_layers: list[Path],
+) -> None:
     calls = stub_ffmpeg(monkeypatch, [make_probe(4_440_000)])
 
     probe, quality = video_render.render_fragment_within_size_limit(
@@ -236,12 +377,15 @@ def test_a_render_under_the_ceiling_runs_ffmpeg_exactly_once(tmp_path: Path, mon
     )
 
     assert len(calls) == 1
+    assert drawn_layers == [COVER_PATH.parent]
     assert quality is video_render.DEFAULT_QUALITY
     assert probe.size_bytes == 4_440_000
 
 
 def test_an_oversized_render_gets_exactly_one_lower_bitrate_attempt(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    drawn_layers: list[Path],
 ) -> None:
     calls = stub_ffmpeg(monkeypatch, [make_probe(60 * 1024 * 1024), make_probe(20 * 1024 * 1024)])
 
@@ -250,6 +394,7 @@ def test_an_oversized_render_gets_exactly_one_lower_bitrate_attempt(
     )
 
     assert len(calls) == 2
+    assert len(drawn_layers) == 1
     assert "1200k" in calls[1]
     assert quality is video_render.REDUCED_QUALITY
     assert probe.size_bytes == 20 * 1024 * 1024
@@ -322,8 +467,8 @@ async def test_a_failed_cover_request_propagates_rather_than_being_isolated(
 
 
 def test_the_thumbnail_is_taken_from_the_rendered_file_itself(tmp_path: Path) -> None:
-    """from the video, not the raw cover: the frame it shows is the padded 720x1280 one the subscriber sees,
-    letterboxing included."""
+    """from the video, not the raw cover: the frame it shows is the padded
+    720x1280 one the subscriber sees, letterboxing included."""
     arguments = video_render.build_thumbnail_arguments(tmp_path / "a.mp4", tmp_path / "a.jpg")
 
     assert arguments[arguments.index("-i") + 1] == str(tmp_path / "a.mp4")
@@ -340,8 +485,8 @@ def test_the_thumbnail_stays_inside_telegrams_320_pixel_cap(tmp_path: Path) -> N
 
 
 def test_a_failing_thumbnail_returns_none_instead_of_raising(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """cosmetic: Telegram builds its own preview, and losing the custom one is never a reason to fail a post whose
-    video is already verified."""
+    """cosmetic: Telegram builds its own preview, and losing the custom one is
+    never a reason to fail a post whose video is already verified."""
 
     def refuse(*args: object, **kwargs: object) -> object:
         raise media_tools.MediaToolFailedError("ffmpeg", 1, "boom")
@@ -354,8 +499,8 @@ def test_a_failing_thumbnail_returns_none_instead_of_raising(tmp_path: Path, mon
 def test_a_thumbnail_that_came_out_empty_is_reported_as_missing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """the exit code is never the verdict here either — a zero-byte JPEG attached to `send_video` is a 400 from
-    Telegram, not a preview."""
+    """the exit code is never the verdict here either — a zero-byte JPEG
+    attached to `send_video` is a 400 from Telegram, not a preview."""
     output_path = tmp_path / "a.jpg"
 
     def write_nothing(*args: object, **kwargs: object) -> object:
@@ -390,3 +535,56 @@ def test_the_text_version_is_a_short_digest_of_the_subtitle_file() -> None:
     assert len(version) == video_render.TEXT_VERSION_LENGTH
     assert version == video_render.text_version_of("[Script Info]\nDialogue: раз\n")
     assert version != video_render.text_version_of("[Script Info]\nDialogue: два\n")
+
+
+def test_text_digest_is_short_stable_and_follows_the_text() -> None:
+    digest = video_render.text_digest("[Script Info]\nDialogue: раз\n")
+
+    assert len(digest) == video_render.TEXT_VERSION_LENGTH
+    assert digest == video_render.text_digest("[Script Info]\nDialogue: раз\n")
+    assert digest != video_render.text_digest("[Script Info]\nDialogue: два\n")
+
+
+# the digest of the graph, the encoder arguments and every `layout` constant. A change to any of
+# them, or to the drawing in `turntable`, needs a new `RENDERER_VERSION` and a new digest here.
+PINNED_RENDERER_VERSION = "turntable-1"
+PINNED_DIGEST = "76e7a25e0488bd148832a5cb12a197830ac557623be2d9da27b7568e45d1853f"
+
+
+def renderer_material() -> str:
+    constants = {name: value for name, value in vars(layout).items() if name.isupper()}
+    return json.dumps(
+        {
+            "graph": video_render.build_filter_complex(LAYERS, DISPLAY_PATH, LYRICS_PATH),
+            "arguments": [
+                argument.replace("\\", "/")
+                for argument in video_render.build_ffmpeg_arguments(parameters(LYRICS_PATH), LAYERS, OUTPUT_PATH)
+            ],
+            "layout": constants,
+        },
+        sort_keys=True,
+        ensure_ascii=False,
+    )
+
+
+def test_the_renderer_version_is_pinned_to_the_graph_the_encoder_and_the_layout() -> None:
+    digest = hashlib.sha256(renderer_material().encode("utf-8")).hexdigest()
+
+    assert video_render.RENDERER_VERSION == PINNED_RENDERER_VERSION
+    assert digest == PINNED_DIGEST
+
+
+def test_changing_a_layout_constant_changes_the_pinned_material(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    before = renderer_material()
+    monkeypatch.setattr(layout, "GLASS_RGB", (6, 8, 11))
+
+    assert renderer_material() != before
+
+
+def test_changing_the_graph_changes_the_pinned_material(monkeypatch: pytest.MonkeyPatch) -> None:
+    before = renderer_material()
+    monkeypatch.setattr(video_render, "DISC_REVOLUTIONS_PER_SECOND", "101/180")
+
+    assert renderer_material() != before

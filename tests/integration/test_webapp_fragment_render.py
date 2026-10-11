@@ -30,6 +30,7 @@ from pisniar.webapp.database import is_lock_failure
 from pisniar.webapp.errors import ApiProblem
 from pisniar.webapp.fragment_choice import choose_fragment, enqueue_render
 from pisniar.webapp.schemas import FragmentRequest
+from pisniar.worker import ass
 from pisniar.worker import tasks as worker_tasks
 from pisniar.worker.celery_app import PUBLISH_POST_TASK_NAME, RENDER_POST_VIDEO_TASK_NAME
 
@@ -394,8 +395,8 @@ async def test_a_new_choice_renders_a_new_preview_and_only_its_button_publishes(
     assert (second.preview_chat_id, second.preview_message_id) != old_preview
     assert second.preview_params_hash not in (None, first.preview_params_hash)
     assert renderer.subtitles[0] is not None and renderer.subtitles[1] is not None
-    assert "current,,0,0,0,,{\\pos(360,1050)}Рано" in renderer.subtitles[0]
-    assert "current,,0,0,0,,{\\pos(360,1050)}Пізно" in renderer.subtitles[1]
+    assert f"current,,0,0,0,,{{\\pos(360,{ass.CURRENT_SLOT_Y})}}Рано" in renderer.subtitles[0]
+    assert f"current,,0,0,0,,{{\\pos(360,{ass.CURRENT_SLOT_Y})}}Пізно" in renderer.subtitles[1]
     async with session_factory() as session:
         renders = await session.scalar(select(func.count()).select_from(Render).where(Render.post_id == post_id))
     assert renders == 2

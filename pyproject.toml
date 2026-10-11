@@ -51,6 +51,8 @@ known-first-party = ["pisniar"]
 
 [tool.ty.environment]
 python-version = "3.13"
+# the code runs in Linux containers whatever host checks it; `resource` exists only there.
+python-platform = "linux"
 root = ["src", "tests"]
 
 [tool.pytest.ini_options]

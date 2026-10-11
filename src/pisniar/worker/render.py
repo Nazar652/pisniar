@@ -1,27 +1,29 @@
-"""The 720x1280 filtergraph and the assertions that make its output trustworthy. `in_range=pc:out_range=tv` plus
-`-color_range tv` is required: Spotify covers are full-range JPEG, and a plain `format=yuv420p` yields `yuvj420p`.
+"""The 720x1280 turntable filtergraph and the assertions that make its output trustworthy.
+The cover is read full range (`in_range=pc`), every YUV conversion is `out_range=tv`, and
+`-color_range tv` is set: a plain `format=yuv420p` on a full-range JPEG yields `yuvj420p`.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
 import httpx
 
 from pisniar.logging import get_logger
+from pisniar.worker import layout, turntable
 from pisniar.worker.ffmpeg import FFMPEG_BINARY, MediaProbe, run_media_tool_checked, verify_media
 
 logger = get_logger(__name__)
 
-VIDEO_WIDTH = 720
-VIDEO_HEIGHT = 1280
-# the cover sits high, not centred: the band below holds the lyrics, so a long
-# line overflows into black, not onto a face. `ass.TEXT_BAND_TOP_PX` builds on it.
-COVER_TOP_OFFSET_PX = 100
+VIDEO_WIDTH = layout.FRAME_WIDTH_PX
+VIDEO_HEIGHT = layout.FRAME_HEIGHT_PX
 VIDEO_FPS = 30
+# 33 1/3 rpm, clockwise: the angle is `2*PI*t*100/180` radians at t seconds.
+DISC_REVOLUTIONS_PER_SECOND = "100/180"
 VIDEO_CODEC = "libx264"
 AUDIO_CODEC = "aac"
 AUDIO_BITRATE = "192k"
@@ -38,13 +40,13 @@ COVER_MAX_BYTES = 8 * 1024 * 1024
 COVER_FILE_NAME = "cover.img"
 
 # telegram caps a custom `thumbnail` at 320 px per edge. Cut from the rendered
-# file, so it shows the padded frame subscribers see, not the raw square cover.
+# file, so it shows the turntable frame subscribers see, not the raw square cover.
 THUMBNAIL_MAX_EDGE = 320
 THUMBNAIL_TIMEOUT_SECONDS = 30.0
 
-# bumped whenever the filtergraph or the encoder settings change: it is an
-# input to `params_hash`, so an old artifact stops being reused.
-RENDERER_VERSION = "4B.1"
+# bumped with any change to the graph, encoder, `layout` or `turntable` drawing; it is an
+# input to `params_hash`, and `test_video_render.py` pins it to a digest of graph and layout.
+RENDERER_VERSION = "turntable-1"
 
 
 class RenderError(RuntimeError):
@@ -78,7 +80,9 @@ class RenderParameters:
     cover_path: Path
     fragment_start_ms: int
     fragment_end_ms: int
-    # passed in from outside, never decided here: subtitles stay an optional layer over the same filtergraph.
+    # the title and artists: the display is always drawn, even for a song without text.
+    display_subtitles_path: Path
+    # passed in from outside, never decided here: the song text stays an optional layer over the same filtergraph.
     subtitles_path: Path | None = None
 
     @property
@@ -93,6 +97,7 @@ def compute_params_hash(
     cover_url: str,
     fragment_start_ms: int,
     fragment_end_ms: int,
+    display_version: str,
     text_version: str | None = None,
     quality: EncoderQuality = DEFAULT_QUALITY,
 ) -> str:
@@ -104,6 +109,7 @@ def compute_params_hash(
         "cover_url": cover_url,
         "fragment_start_ms": fragment_start_ms,
         "fragment_end_ms": fragment_end_ms,
+        "display_version": display_version,
         "text_version": text_version,
         "width": VIDEO_WIDTH,
         "height": VIDEO_HEIGHT,
@@ -123,59 +129,105 @@ def compute_params_hash(
 TEXT_VERSION_LENGTH = 16
 
 
+def text_digest(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:TEXT_VERSION_LENGTH]
+
+
 def text_version_of(subtitles_text: str | None) -> str | None:
     """a digest of the `.ass` file itself, so a change to the lines, their timing,
     the fragment offset, the wrapping or the styles all change the hash."""
     if subtitles_text is None:
         return None
-    return hashlib.sha256(subtitles_text.encode("utf-8")).hexdigest()[:TEXT_VERSION_LENGTH]
+    return text_digest(subtitles_text)
 
 
-def build_filter_complex(subtitles_path: Path | None = None) -> str:
-    """`in_range=pc:out_range=tv` handles full-range covers; `setsar=1` gives
-    square pixels, so players do not stretch the frame."""
-    steps = [
-        f"scale={VIDEO_WIDTH}:{VIDEO_HEIGHT}:force_original_aspect_ratio=decrease"
-        f":flags=lanczos:in_range=pc:out_range=tv",
-        "format=yuv420p",
-        f"pad={VIDEO_WIDTH}:{VIDEO_HEIGHT}:(ow-iw)/2:{COVER_TOP_OFFSET_PX}:color=black",
-        "setsar=1",
+def build_filter_complex(
+    layers: turntable.TurntableLayers,
+    display_subtitles_path: Path,
+    subtitles_path: Path | None = None,
+) -> str:
+    """the still floor is converted to YUV once with the static display drawn on it; only
+    `disc_square`, everything that moves, is composed in `gbrp` and converted per frame."""
+    label = layout.LABEL_DIAMETER_PX
+    disc = layout.VINYL_DIAMETER_PX
+    square_x, square_y, square_width, square_height = disc_square(layers)
+    still = f"loop=loop=-1:size=1,setpts=N/{VIDEO_FPS}/TB"
+    angle = f"2*PI*t*{DISC_REVOLUTIONS_PER_SECOND}"
+    display = f"subtitles={escape_filter_path(display_subtitles_path)}"
+    lyrics = [] if subtitles_path is None else [f"subtitles={escape_filter_path(subtitles_path)}"]
+    chains = [
+        f"[0:v]scale={label}:{label}:force_original_aspect_ratio=increase:flags=lanczos"
+        f":in_range=pc,crop={label}:{label},format=rgba[cover]",
+        "[1:v]format=gray[mask]",
+        "[cover][mask]alphamerge[label]",
+        "[2:v]format=rgba[vinyl]",
+        "[3:v]format=rgba[hub]",
+        "[vinyl][label]overlay=(W-w)/2:(H-h)/2:format=auto[seated]",
+        f"[seated][hub]overlay=0:0:format=auto,{still},rotate=a={angle}:c=none:ow={disc}:oh={disc}[spin]",
+        "[4:v]split[floor_source][square_source]",
+        f"[floor_source]scale=out_range=tv,format=yuv420p,{display},{still}[floor]",
+        f"[square_source]crop={square_width}:{square_height}:{square_x}:{square_y},format=gbrp,{still}[ground]",
+        f"[ground][spin]overlay={layout.VINYL_OVERLAY_X_PX - square_x}"
+        f":{layout.VINYL_OVERLAY_Y_PX - square_y}:format=gbrp[disc]",
+        "[5:v]format=rgba[top]",
+        f"[disc][top]overlay={layers.overlay_x - square_x}:{layers.overlay_y - square_y}:format=gbrp[square]",
+        "[square]scale=out_range=tv,format=yuv420p[square_yuv]",
+        "[floor][square_yuv]"
+        f"overlay={square_x}:{square_y}:format=yuv420,setsar=1" + "".join(f",{item}" for item in lyrics) + "[v]",
     ]
-    if subtitles_path is not None:
-        steps.append(f"subtitles={escape_filter_path(subtitles_path)}")
-    return "[0:v]" + ",".join(steps) + "[v]"
+    return ";".join(chains)
+
+
+def disc_square(layers: turntable.TurntableLayers) -> tuple[int, int, int, int]:
+    """(left, top, width, height) of the area the turning disc and the overlay cover; every
+    number is even, so the chroma samples of the square line up with those of the frame."""
+    left = min(layout.VINYL_OVERLAY_X_PX, layers.overlay_x)
+    top = min(layout.VINYL_OVERLAY_Y_PX, layers.overlay_y)
+    right = max(
+        layout.VINYL_OVERLAY_X_PX + layout.VINYL_DIAMETER_PX,
+        layers.overlay_x + layers.overlay_width,
+    )
+    bottom = max(
+        layout.VINYL_OVERLAY_Y_PX + layout.VINYL_DIAMETER_PX,
+        layers.overlay_y + layers.overlay_height,
+    )
+    return left, top, right - left, bottom - top
 
 
 def build_ffmpeg_arguments(
     parameters: RenderParameters,
+    layers: turntable.TurntableLayers,
     output_path: Path,
     *,
     quality: EncoderQuality = DEFAULT_QUALITY,
 ) -> list[str]:
-    """`-f mp4` is explicit because the output is written under a `.partial`
-    name, which no muxer would recognize from the extension."""
+    """`-f mp4` is explicit: the `.partial` name hides the format. The stills are single
+    frames that `loop` repeats, so no input carries `-loop 1`."""
+    still_inputs = [
+        parameters.cover_path,
+        layers.label_mask,
+        layers.vinyl,
+        layers.hub,
+        layers.background,
+        layers.overlay,
+    ]
     return [
         "-nostdin",
         "-hide_banner",
         "-loglevel",
         "error",
         "-y",
-        "-loop",
-        "1",
-        "-framerate",
-        str(VIDEO_FPS),
-        "-i",
-        str(parameters.cover_path),
+        *(argument for still in still_inputs for argument in ("-i", str(still))),
         "-ss",
         format_seconds(parameters.fragment_start_ms),
         "-i",
         str(parameters.audio_path),
         "-filter_complex",
-        build_filter_complex(parameters.subtitles_path),
+        build_filter_complex(layers, parameters.display_subtitles_path, parameters.subtitles_path),
         "-map",
         "[v]",
         "-map",
-        "1:a",
+        "6:a",
         "-t",
         format_seconds(parameters.length_ms),
         "-c:v",
@@ -218,6 +270,7 @@ def build_ffmpeg_arguments(
 
 def render_fragment(
     parameters: RenderParameters,
+    layers: turntable.TurntableLayers,
     output_path: Path,
     *,
     timeout_seconds: float,
@@ -234,7 +287,7 @@ def render_fragment(
     )
     run_media_tool_checked(
         FFMPEG_BINARY,
-        build_ffmpeg_arguments(parameters, output_path, quality=quality),
+        build_ffmpeg_arguments(parameters, layers, output_path, quality=quality),
         timeout_seconds=timeout_seconds,
     )
 
@@ -263,8 +316,12 @@ def render_fragment_within_size_limit(
     timeout_seconds: float,
     size_limit_bytes: int = TELEGRAM_VIDEO_SIZE_LIMIT_BYTES,
 ) -> tuple[MediaProbe, EncoderQuality]:
-    """one lower-bitrate retry, then the post fails: an oversized render is never sent."""
-    probe = render_fragment(parameters, output_path, timeout_seconds=timeout_seconds)
+    """one lower-bitrate retry, then the post fails: an oversized render is never sent.
+    The layers are drawn once, beside the cover, and serve both attempts."""
+    drawing_started = time.perf_counter()
+    layers = turntable.write_layers(parameters.cover_path.parent)
+    logger.info("render_layers_drawn", seconds=round(time.perf_counter() - drawing_started, 2))
+    probe = render_fragment(parameters, layers, output_path, timeout_seconds=timeout_seconds)
     if probe.size_bytes <= size_limit_bytes:
         return probe, DEFAULT_QUALITY
 
@@ -274,7 +331,7 @@ def render_fragment_within_size_limit(
         size_limit_bytes=size_limit_bytes,
         attempt="default",
     )
-    probe = render_fragment(parameters, output_path, timeout_seconds=timeout_seconds, quality=REDUCED_QUALITY)
+    probe = render_fragment(parameters, layers, output_path, timeout_seconds=timeout_seconds, quality=REDUCED_QUALITY)
     if probe.size_bytes <= size_limit_bytes:
         return probe, REDUCED_QUALITY
 

@@ -1,5 +1,6 @@
-"""The `.ass` generator, read back the way libass reads it: positional `Style:` rows against their own `Format:`, an
-explicit `PlayRes`, three slots placed by `\\pos`, the shift into fragment time, the line boundaries, and the
+"""The `.ass` generator, read back the way libass reads it: positional
+`Style:` rows against their own `Format:`, an explicit `PlayRes`, three slots
+placed by `\\pos`, the shift into fragment time, the line boundaries, and the
 substitution that makes an override block unspellable.
 """
 
@@ -7,8 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from pisniar.worker import ass, noto_sans_widths, text_metrics
-from pisniar.worker import render as video_render
+from pisniar.worker import ass, layout, noto_sans_widths, text_metrics
 
 FRAGMENT_START_MS = 0
 FRAGMENT_END_MS = 45_000
@@ -18,7 +18,7 @@ FRAGMENT_END_MS = 45_000
 LINE_HEIGHT_RATIO = 1.2
 
 # measured on the worker image: libass stacks lines one `Fontsize` apart, so a
-# two-line 44 px block inks 75 px where this model claims 88, the safe direction.
+# two-line 52 px block inks about 89 px where this model claims 104, the safe direction.
 MEASURED_LINE_HEIGHT_RATIO = 1.0
 
 # a 123-character line, too long for one line of the band.
@@ -26,8 +26,8 @@ LONG_LINE_OF_123_CHARACTERS = (
     "Цей рядок навмисно довгий, бо гейт показав, що стовідсотково "
     "не влізе в один рядок і його доведеться таки розбивати надвоє."
 )
-# 640 usable px / (44 px * 0.52 em): the budget of an average glyph width.
-CHARACTERS_AT_AN_AVERAGE_GLYPH_WIDTH = 27
+# 576 usable px / (52 px * 0.52 em): the budget of an average glyph width.
+CHARACTERS_AT_AN_AVERAGE_GLYPH_WIDTH = 21
 
 
 def lines_of(*pairs: tuple[int, str]) -> list[ass.LyricLine]:
@@ -152,19 +152,54 @@ def test_the_first_and_last_lines_have_one_neighbour_each() -> None:
     assert len(opening) == 2
 
 
-def test_the_text_band_starts_where_the_lifted_cover_ends() -> None:
-    """the `pad` offset and the slot geometry are one decision in two files, so they are pinned against each other."""
-    assert ass.TEXT_BAND_TOP_PX == video_render.COVER_TOP_OFFSET_PX + video_render.VIDEO_WIDTH
+def test_the_slots_are_the_screen_slots_centred_on_the_frame() -> None:
+    assert (ass.PREVIOUS_SLOT_Y, ass.CURRENT_SLOT_Y, ass.NEXT_SLOT_Y) == (905, 1035, 1165)
+    assert ass.SLOT_CENTER_X == 360
+    assert (ass.FONT_SIZE_CURRENT_PX, ass.FONT_SIZE_ADJACENT_PX) == (52, 38)
+    assert ass.USABLE_TEXT_WIDTH_PX == layout.LYRICS_TEXT_WIDTH_PX == 576
+    assert ass.PLAY_RES_X == layout.FRAME_WIDTH_PX
+    assert ass.PLAY_RES_Y == layout.FRAME_HEIGHT_PX
 
 
-def test_no_slot_reaches_into_its_neighbour_or_out_of_the_frame() -> None:
+def glass_pane() -> tuple[int, int, int, int]:
+    """the inner pane of the screen: the box less the 4 px bezel `turntable` draws."""
+    left, top, right, bottom = layout.SCREEN_BOX_PX
+    return left + 4, top + 4, right - 4, bottom - 5
+
+
+def test_no_slot_reaches_into_its_neighbour_or_out_of_the_glass() -> None:
     current_half_height = ass.MAX_CURRENT_WRAPPED_LINES * ass.FONT_SIZE_CURRENT_PX * (LINE_HEIGHT_RATIO / 2)
     adjacent_half_height = ass.MAX_ADJACENT_WRAPPED_LINES * ass.FONT_SIZE_ADJACENT_PX * (LINE_HEIGHT_RATIO / 2)
+    pane_left, pane_top, pane_right, pane_bottom = glass_pane()
 
-    assert ass.PREVIOUS_SLOT_Y - adjacent_half_height > ass.TEXT_BAND_TOP_PX
+    assert ass.PREVIOUS_SLOT_Y - adjacent_half_height > pane_top
     assert ass.PREVIOUS_SLOT_Y + adjacent_half_height < ass.CURRENT_SLOT_Y - current_half_height
     assert ass.CURRENT_SLOT_Y + current_half_height < ass.NEXT_SLOT_Y - adjacent_half_height
-    assert ass.NEXT_SLOT_Y + adjacent_half_height < ass.PLAY_RES_Y
+    assert ass.NEXT_SLOT_Y + adjacent_half_height < pane_bottom
+    half_width = ass.USABLE_TEXT_WIDTH_PX / 2
+    assert ass.SLOT_CENTER_X - half_width - ass.LYRICS_OUTLINE_PX > pane_left
+    assert ass.SLOT_CENTER_X + half_width + ass.LYRICS_OUTLINE_PX < pane_right
+
+
+def test_the_lyrics_styles_use_the_screen_colours_and_a_glass_coloured_outline() -> None:
+    rows = {
+        row.removeprefix("Style: ").split(",")[0]: row.removeprefix("Style: ").split(",")
+        for row in style_rows(build(lines_of((1_000, "рядок"))))
+    }
+    colour = ass.STYLE_FORMAT_FIELDS.index("PrimaryColour")
+    outline_colour = ass.STYLE_FORMAT_FIELDS.index("OutlineColour")
+    outline = ass.STYLE_FORMAT_FIELDS.index("Outline")
+    size = ass.STYLE_FORMAT_FIELDS.index("Fontsize")
+
+    assert set(rows) == {ass.STYLE_CURRENT, ass.STYLE_ADJACENT}
+    assert rows[ass.STYLE_CURRENT][colour] == "&H00FFFFFF"
+    assert rows[ass.STYLE_ADJACENT][colour] == "&H00AA9C96"
+    assert rows[ass.STYLE_CURRENT][size] == "52"
+    assert rows[ass.STYLE_ADJACENT][size] == "38"
+    for values in rows.values():
+        assert values[outline_colour] == "&H000B0805"
+        assert values[outline] == "2"
+    assert ass.ass_colour(layout.GLASS_RGB) == "&H000B0805"
 
 
 def block_extent(
@@ -179,7 +214,7 @@ def block_extent(
 
 def test_a_current_line_that_wraps_to_two_still_clears_its_smaller_neighbours() -> None:
     """the tightest case: the current block doubles while the side slots stay one
-    smaller line; 35 px of black is left on each side, 23 px under the 1.2x reading."""
+    smaller line; 59 px of glass is left on each side, 45 px under the 1.2x reading."""
     current_top, current_bottom = block_extent(
         ass.CURRENT_SLOT_Y,
         wrapped_lines=ass.MAX_CURRENT_WRAPPED_LINES,
@@ -198,8 +233,9 @@ def test_a_current_line_that_wraps_to_two_still_clears_its_smaller_neighbours() 
 
     assert current_top - previous_bottom > 0
     assert next_top - current_bottom > 0
-    assert previous_top > ass.TEXT_BAND_TOP_PX
-    assert next_bottom < ass.PLAY_RES_Y
+    pane = glass_pane()
+    assert previous_top > pane[1]
+    assert next_bottom < pane[3]
 
 
 def test_the_two_line_case_is_the_one_the_frame_has_to_show() -> None:
@@ -353,7 +389,7 @@ def test_no_override_block_survives_into_a_dialogue_body() -> None:
 
     assert "{" not in body
     assert "}" not in body
-    assert "\\" not in body
+    assert "\\" not in body.replace("\\N", "")
 
 
 def test_our_own_position_tag_is_still_the_only_brace_in_the_row() -> None:
@@ -466,3 +502,264 @@ def test_a_single_glyph_wider_than_the_whole_band_still_gets_a_line() -> None:
     wrapped = ass.wrap_for_slot("щщщ", font_size_px=10_000, max_lines=2)
 
     assert wrapped.split("\\N")[0] == "щ"
+
+
+def test_fits_text_width_and_with_ellipsis_take_the_width_they_are_given() -> None:
+    word = "рядок тексту"
+    size = ass.FONT_SIZE_CURRENT_PX
+    width = text_metrics.text_width_px(word, size)
+
+    assert ass.fits_text_width(word, size, width)
+    assert not ass.fits_text_width(word, size, width - 1)
+    assert ass.with_ellipsis(word, size, width + 100) == word + ass.ELLIPSIS
+    cut = ass.with_ellipsis(word, size, width / 2)
+    assert cut.endswith(ass.ELLIPSIS)
+    assert text_metrics.text_width_px(cut, size) <= width / 2
+
+
+# ---------------------------------------------------------------- colours, styles, documents
+
+
+def test_colours_are_written_blue_first_in_both_forms() -> None:
+    assert ass.ass_colour((255, 196, 110)) == "&H006EC4FF"
+    assert ass.tag_colour((255, 196, 110)) == "&H6EC4FF&"
+    assert ass.ass_colour(ass.ADJACENT_RGB) == "&H00AA9C96"
+
+
+def test_the_style_row_uses_the_given_colours_and_outline() -> None:
+    values = ass.style_row("probe", 33, "&H00010203", "&H00040506", 7).removeprefix("Style: ")
+    fields = values.split(",")
+
+    assert fields[ass.STYLE_FORMAT_FIELDS.index("Name")] == "probe"
+    assert fields[ass.STYLE_FORMAT_FIELDS.index("Fontsize")] == "33"
+    assert fields[ass.STYLE_FORMAT_FIELDS.index("PrimaryColour")] == "&H00010203"
+    assert fields[ass.STYLE_FORMAT_FIELDS.index("OutlineColour")] == "&H00040506"
+    assert fields[ass.STYLE_FORMAT_FIELDS.index("Outline")] == "7"
+
+
+def test_the_style_sections_hold_their_own_rows_under_one_header() -> None:
+    lyrics = ass.styles_section(ass.lyric_style_rows())
+    display = ass.styles_section(ass.display_style_rows())
+
+    assert lyrics[:2] == display[:2] == ["[V4+ Styles]", "Format: " + ", ".join(ass.STYLE_FORMAT_FIELDS)]
+    assert [row.split(",")[0] for row in lyrics[2:]] == [
+        f"Style: {ass.STYLE_CURRENT}",
+        f"Style: {ass.STYLE_ADJACENT}",
+    ]
+    assert [row.split(",")[0] for row in display[2:]] == [
+        f"Style: {ass.STYLE_DISPLAY_TITLE}",
+        f"Style: {ass.STYLE_DISPLAY_ARTISTS}",
+    ]
+
+
+def test_the_display_styles_have_the_display_sizes_and_colours() -> None:
+    title, artists = (row.removeprefix("Style: ").split(",") for row in ass.display_style_rows())
+    size = ass.STYLE_FORMAT_FIELDS.index("Fontsize")
+    colour = ass.STYLE_FORMAT_FIELDS.index("PrimaryColour")
+
+    assert (title[size], artists[size]) == ("28", "19")
+    assert title[colour] == ass.ass_colour((255, 196, 110))
+    assert artists[colour] == ass.ass_colour((190, 140, 80))
+
+
+def test_every_style_of_both_documents_names_the_proved_font_family() -> None:
+    documents = [
+        build(lines_of((1_000, "рядок"))),
+        ass.build_display_subtitles("Назва", ["Виконавець"], 5_000),
+    ]
+    names = []
+    for document in documents:
+        for row in style_rows(document):
+            values = row.removeprefix("Style: ").split(",")
+            assert values[ass.STYLE_FORMAT_FIELDS.index("Fontname")] == ass.FONT_FAMILY
+            names.append(values[0])
+    assert names == [
+        ass.STYLE_CURRENT,
+        ass.STYLE_ADJACENT,
+        ass.STYLE_DISPLAY_TITLE,
+        ass.STYLE_DISPLAY_ARTISTS,
+    ]
+
+
+def test_dialogue_event_fills_every_declared_field() -> None:
+    event = ass.dialogue_event(1, 1_000, 2_500, "probe", "{\\pos(1,2)}текст")
+
+    assert list(event) == list(ass.EVENT_FORMAT_FIELDS)
+    assert (event["Layer"], event["Start"], event["End"]) == ("1", "0:00:01.00", "0:00:02.50")
+    assert event["Style"] == "probe"
+    assert event["Text"] == "{\\pos(1,2)}текст"
+
+
+def test_document_text_joins_header_styles_and_events() -> None:
+    event = ass.dialogue_event(0, 0, 1_000, "probe", "текст")
+    document = ass.document_text([ass.style_row("probe", 10, "&H00000000", "&H00000000", 0)], [event])
+
+    assert document.startswith("[Script Info]\n")
+    assert document.index("[V4+ Styles]") < document.index("[Events]")
+    assert document.endswith("Dialogue: 0,0:00:00.00,0:00:01.00,probe,,0,0,0,,текст\n")
+
+
+# ---------------------------------------------------------------- the display
+
+
+def display_document(title: str = "Назва", artists: list[str] | None = None) -> str:
+    return ass.build_display_subtitles(title, ["Виконавець"] if artists is None else artists, 12_000)
+
+
+def display_text_of(row: str) -> str:
+    return field_of(row, "Text").split("}", 1)[1]
+
+
+def test_the_display_has_two_events_per_line_at_the_display_positions() -> None:
+    rows = dialogue_rows(display_document())
+
+    assert len(rows) == 4
+    positions = [field_of(row, "Text").split("\\", 2)[1] for row in rows]
+    assert positions == [
+        f"pos({ass.SLOT_CENTER_X},{ass.DISPLAY_TITLE_Y})",
+        f"pos({ass.SLOT_CENTER_X},{ass.DISPLAY_TITLE_Y})",
+        f"pos({ass.SLOT_CENTER_X},{ass.DISPLAY_ARTISTS_Y})",
+        f"pos({ass.SLOT_CENTER_X},{ass.DISPLAY_ARTISTS_Y})",
+    ]
+    assert (ass.DISPLAY_TITLE_Y, ass.DISPLAY_ARTISTS_Y, ass.SLOT_CENTER_X) == (746, 775, 360)
+
+
+def test_each_display_line_is_a_glow_layer_under_a_crisp_layer() -> None:
+    glow, crisp = dialogue_rows(display_document())[:2]
+
+    assert (field_of(glow, "Layer"), field_of(crisp, "Layer")) == ("0", "1")
+    assert "\\blur6" in field_of(glow, "Text")
+    assert "\\alpha&H90&" in field_of(glow, "Text")
+    assert "\\bord3" in field_of(glow, "Text")
+    assert "\\3c&H6EC4FF&" in field_of(glow, "Text")
+    assert "\\bord0" in field_of(crisp, "Text")
+    assert "\\blur" not in field_of(crisp, "Text")
+    assert display_text_of(glow) == display_text_of(crisp) == "Назва"
+
+
+def test_the_display_lasts_the_whole_fragment() -> None:
+    for row in dialogue_rows(display_document()):
+        assert field_of(row, "Start") == "0:00:00.00"
+        assert field_of(row, "End") == "0:00:12.00"
+
+
+def test_the_display_styles_follow_the_lines() -> None:
+    styles = [field_of(row, "Style") for row in dialogue_rows(display_document())]
+
+    assert styles == [ass.STYLE_DISPLAY_TITLE] * 2 + [ass.STYLE_DISPLAY_ARTISTS] * 2
+
+
+def test_override_blocks_in_a_title_do_not_survive() -> None:
+    document = display_document("{\\an7\\fs90}Назва\\Nдруга")
+
+    for row in dialogue_rows(document)[:2]:
+        body = display_text_of(row)
+        assert body == "(an7fs90)НазваNдруга"
+        assert "\\" not in body
+        assert field_of(row, "Text").count("{") == 1
+
+
+def test_line_breaks_and_direction_marks_cannot_split_or_flip_a_display_row() -> None:
+    """a break inside a `Text` would end the event early and turn the rest into a new line
+    of the file; U+202E would reverse what is drawn."""
+    hostile = "пер\nший\r\nдру гий‮третій"
+    document = display_document(hostile, [hostile])
+
+    rows = dialogue_rows(document)
+    assert len(rows) == 4
+    for row in rows:
+        text = field_of(row, "Text")
+        assert not {"\n", "\r", " ", "‮"} & set(text)
+    assert display_text_of(rows[0]) == "пер ший дру гийтретій"
+    assert display_text_of(rows[2]) == "пер ший дру гийтретій"
+
+
+def test_artists_are_joined_with_a_comma_and_a_space() -> None:
+    document = display_document(artists=["Перший", "Другий", "Третій"])
+
+    assert display_text_of(dialogue_rows(document)[2]) == "Перший, Другий, Третій"
+
+
+def test_an_empty_name_among_the_artists_leaves_no_stray_separator() -> None:
+    document = display_document(artists=["Перший", "", "\\", "Другий"])
+
+    assert display_text_of(dialogue_rows(document)[2]) == "Перший, Другий"
+
+
+@pytest.mark.parametrize(
+    ("title", "artists", "expected_events"),
+    [("", ["Виконавець"], 2), ("Назва", [], 2), ("Назва", [""], 2), ("", [], 0), ("\\", ["\\"], 0)],
+)
+def test_an_empty_field_draws_nothing(
+    title: str,
+    artists: list[str],
+    expected_events: int,
+) -> None:
+    assert len(dialogue_rows(display_document(title, artists))) == expected_events
+
+
+def test_a_long_title_is_cut_to_the_display_width_with_an_ellipsis() -> None:
+    title = "Дуже довга назва пісні " * 8
+    row = dialogue_rows(display_document(title))[0]
+    body = display_text_of(row)
+
+    assert body.endswith(ass.ELLIPSIS)
+    assert text_metrics.text_width_px(body, ass.FONT_SIZE_DISPLAY_TITLE_PX) <= layout.DISPLAY_TEXT_WIDTH_PX
+    assert body.startswith("Дуже довга назва")
+
+
+def test_long_artists_are_cut_to_the_display_width_at_the_smaller_size() -> None:
+    names = [f"Виконавець номер {index}" for index in range(30)]
+    body = display_text_of(dialogue_rows(display_document(artists=names))[2])
+
+    assert body.endswith(ass.ELLIPSIS)
+    assert text_metrics.text_width_px(body, ass.FONT_SIZE_DISPLAY_ARTISTS_PX) <= layout.DISPLAY_TEXT_WIDTH_PX
+
+
+def test_a_title_that_fits_is_left_alone() -> None:
+    assert ass.display_text("Коротка", ass.FONT_SIZE_DISPLAY_TITLE_PX) == "Коротка"
+
+
+def test_the_input_is_cut_to_the_source_limit_before_the_width_cut() -> None:
+    """500 blanks in front of a real name: only the cut before escaping leaves nothing to draw."""
+    padded = " " * ass.MAX_SOURCE_TEXT_CHARACTERS
+
+    assert ass.display_text(padded + "Назва", ass.FONT_SIZE_DISPLAY_TITLE_PX) == ""
+    document = ass.build_display_subtitles(padded + "Назва", [padded + "Виконавець"], 5_000)
+    assert dialogue_rows(document) == []
+
+
+def test_display_text_escapes_before_it_measures() -> None:
+    assert ass.display_text("{a}\\b", ass.FONT_SIZE_DISPLAY_TITLE_PX) == "(a)b"
+
+
+def test_display_events_are_empty_for_empty_text_and_a_pair_otherwise() -> None:
+    assert ass.display_events("", 746, ass.STYLE_DISPLAY_TITLE, (1, 2, 3), 1_000) == []
+    pair = ass.display_events("текст", 746, ass.STYLE_DISPLAY_TITLE, (1, 2, 3), 1_000)
+
+    assert [event["Layer"] for event in pair] == ["0", "1"]
+    assert "\\3c&H030201&" in pair[0]["Text"]
+
+
+@pytest.mark.parametrize("length_ms", [0, -1])
+def test_a_display_without_a_duration_is_our_own_error(length_ms: int) -> None:
+    with pytest.raises(ass.AssGenerationError):
+        ass.build_display_subtitles("Назва", ["Виконавець"], length_ms)
+
+
+def test_the_display_lines_sit_inside_the_display_pane() -> None:
+    left, top, right, bottom = layout.DISPLAY_BOX_PX
+    title_half = ass.FONT_SIZE_DISPLAY_TITLE_PX * LINE_HEIGHT_RATIO / 2
+    artists_half = ass.FONT_SIZE_DISPLAY_ARTISTS_PX * LINE_HEIGHT_RATIO / 2
+
+    assert ass.DISPLAY_TITLE_Y - title_half > top + 3
+    assert ass.DISPLAY_TITLE_Y + title_half < ass.DISPLAY_ARTISTS_Y - artists_half
+    assert ass.DISPLAY_ARTISTS_Y + artists_half < bottom - 4
+    half_width = layout.DISPLAY_TEXT_WIDTH_PX / 2
+    assert ass.SLOT_CENTER_X - half_width > left
+    assert ass.SLOT_CENTER_X + half_width < right
+
+
+def test_a_song_without_text_still_gets_a_display_but_no_lyrics_file() -> None:
+    assert ass.build_ass_subtitles([], fragment_start_ms=FRAGMENT_START_MS, fragment_end_ms=45_000) is None
+    assert dialogue_rows(display_document())

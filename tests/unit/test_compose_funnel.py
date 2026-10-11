@@ -30,8 +30,21 @@ def environment_files(service: dict[str, Any]) -> list[str]:
 
 def test_tailscale_runs_only_under_the_funnel_profile(compose: dict[str, Any]) -> None:
     assert compose["services"]["tailscale"]["profiles"] == ["funnel"]
-    others = {name: service for name, service in compose["services"].items() if name != "tailscale"}
+    others = {name: service for name, service in compose["services"].items() if name not in {"tailscale", "bench"}}
     assert all("profiles" not in service for service in others.values())
+
+
+def test_bench_is_a_profile_service_without_env_volumes_or_network(
+    compose: dict[str, Any],
+) -> None:
+    """`make bench-render` runs synthetic renders: nothing of the app is handed to it."""
+    bench = compose["services"]["bench"]
+
+    assert bench["profiles"] == ["bench"]
+    assert bench["network_mode"] == "none"
+    assert bench["command"] == ["python", "-m", "pisniar.worker.bench"]
+    for forbidden in ("env_file", "environment", "volumes", "ports", "depends_on"):
+        assert forbidden not in bench
 
 
 def test_only_tailscale_reads_the_tailscale_env_file(compose: dict[str, Any]) -> None:

@@ -20,7 +20,12 @@ from pisniar.db.states import ALLOWED_TRANSITIONS, PostStatus
 from pisniar.worker import download as audio_download
 from pisniar.worker import ffmpeg as media_tools
 from pisniar.worker import tasks as worker_tasks
-from pisniar.worker.ass import AssGenerationError, LyricLine, build_ass_subtitles
+from pisniar.worker.ass import (
+    AssGenerationError,
+    LyricLine,
+    build_ass_subtitles,
+    build_display_subtitles,
+)
 from pisniar.worker.celery_app import PREPARE_POST_AUDIO_TASK_NAME
 from pisniar.worker.lyrics import (
     LYRICS_ALREADY_STORED,
@@ -354,6 +359,14 @@ def expected_subtitles(claim: worker_tasks.RenderClaim) -> str | None:
     )
 
 
+def expected_display(claim: worker_tasks.RenderClaim) -> str:
+    return build_display_subtitles(
+        claim.lyrics_query.title,
+        claim.lyrics_query.artist_names,
+        claim.fragment_end_ms - claim.fragment_start_ms,
+    )
+
+
 def params_hash_for(claim: worker_tasks.RenderClaim, text_version: str | None) -> str:
     return worker_tasks.video_render.compute_params_hash(
         video_id=claim.video_id,
@@ -361,6 +374,7 @@ def params_hash_for(claim: worker_tasks.RenderClaim, text_version: str | None) -
         cover_url=claim.cover_url or "",
         fragment_start_ms=claim.fragment_start_ms,
         fragment_end_ms=claim.fragment_end_ms,
+        display_version=worker_tasks.video_render.text_digest(expected_display(claim)),
         text_version=text_version,
     )
 
@@ -458,6 +472,7 @@ class RecordingRenderer:
     def __init__(self) -> None:
         self.parameters: list[worker_tasks.video_render.RenderParameters] = []
         self.subtitles: list[str | None] = []
+        self.displays: list[str] = []
 
     def __call__(
         self,
@@ -467,6 +482,7 @@ class RecordingRenderer:
         timeout_seconds: float,
     ) -> tuple[media_tools.MediaProbe, object]:
         self.parameters.append(parameters)
+        self.displays.append(parameters.display_subtitles_path.read_text(encoding="utf-8"))
         subtitles_path = parameters.subtitles_path
         self.subtitles.append(subtitles_path.read_text(encoding="utf-8") if subtitles_path is not None else None)
 
@@ -521,6 +537,74 @@ async def test_lyrics_reach_ffmpeg_as_the_subtitles_file_and_the_hash(
     assert outcome.lyrics_reason == "lyrics_synced"
 
 
+async def test_the_display_file_reaches_ffmpeg_and_the_hash_beside_the_song_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    renderer = install_renderer(monkeypatch, tmp_path)
+    stub_prepared_lyrics(monkeypatch, LYRIC_LINES, "lyrics_synced")
+    claim = render_claim()
+
+    await worker_tasks.render_video_off_transaction(AsyncMock(), claim, tmp_path / "tmp" / "7")
+
+    assert renderer.parameters[0].display_subtitles_path == (
+        worker_tasks.media_storage.display_subtitles_file_path(tmp_path, claim.post_id)
+    )
+    assert renderer.displays == [expected_display(claim)]
+    assert "Покаяння" in renderer.displays[0]
+
+
+async def test_the_layers_cover_and_both_subtitle_files_share_the_directory_the_finally_removes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`render_fragment_within_size_limit` draws the layers beside the cover, so removing the
+    post's tmp directory in the task's `finally` removes them with everything else."""
+    renderer = install_renderer(monkeypatch, tmp_path)
+    stub_prepared_lyrics(monkeypatch, LYRIC_LINES, "lyrics_synced")
+    claim = render_claim()
+    temporary = worker_tasks.media_storage.task_temporary_directory(tmp_path, claim.post_id)
+
+    await worker_tasks.render_video_off_transaction(AsyncMock(), claim, temporary)
+
+    [parameters] = renderer.parameters
+    assert parameters.cover_path.parent == temporary
+    assert parameters.display_subtitles_path.parent == temporary
+    assert parameters.subtitles_path is not None
+    assert parameters.subtitles_path.parent == temporary
+
+
+async def test_a_new_title_makes_a_new_hash_and_no_text_still_draws_the_display(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    renderer = install_renderer(monkeypatch, tmp_path)
+    stub_prepared_lyrics(monkeypatch, (), "lyrics_source_unavailable")
+    claim = render_claim()
+    renamed = replace(claim, lyrics_query=replace(claim.lyrics_query, title="Інша назва"))
+
+    first = await worker_tasks.render_video_off_transaction(AsyncMock(), claim, tmp_path / "tmp" / "7")
+    second = await worker_tasks.render_video_off_transaction(AsyncMock(), renamed, tmp_path / "tmp" / "7")
+
+    assert first.text_version is None
+    assert first.params_hash != second.params_hash
+    assert renderer.parameters[0].subtitles_path is None
+    assert "Інша назва" in renderer.displays[1]
+
+
+async def test_a_track_without_a_title_still_gets_a_display_of_its_artists(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """a NULL `track.title` reaches the claim as an empty string."""
+    renderer = install_renderer(monkeypatch, tmp_path)
+    stub_prepared_lyrics(monkeypatch, (), "lyrics_source_unavailable")
+    claim = render_claim()
+    untitled = replace(claim, lyrics_query=replace(claim.lyrics_query, title=""))
+
+    await worker_tasks.render_video_off_transaction(AsyncMock(), untitled, tmp_path / "tmp" / "7")
+
+    rows = [line for line in renderer.displays[0].splitlines() if line.startswith("Dialogue: ")]
+    assert len(rows) == 2
+    assert all("Burned Time Machine" in row for row in rows)
+
+
 async def test_a_fresh_render_logs_its_track_and_text_version(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     fake_logger = install_fake_logger(monkeypatch)
     install_renderer(monkeypatch, tmp_path)
@@ -531,6 +615,7 @@ async def test_a_fresh_render_logs_its_track_and_text_version(tmp_path: Path, mo
     [rendered] = logged(fake_logger, "render_post_video_rendered")
     assert (rendered["post_id"], rendered["track_id"]) == (7, 3)
     assert rendered["text_version"] == outcome.text_version
+    assert rendered["display_version"] == worker_tasks.video_render.text_digest(expected_display(render_claim()))
     assert rendered["lyrics_reason"] == "lyrics_synced"
 
 

@@ -55,6 +55,20 @@ def test_a_non_positive_post_id_never_becomes_a_subtitle_path(tmp_path: Path, po
         media_storage.subtitles_file_path(tmp_path, post_id)
 
 
+def test_the_display_file_sits_beside_the_lyrics_under_a_constant_name(tmp_path: Path) -> None:
+    path = media_storage.display_subtitles_file_path(tmp_path, 7)
+
+    assert path == tmp_path / "tmp" / "7" / "display.ass"
+    assert path.parent == media_storage.subtitles_file_path(tmp_path, 7).parent
+    assert not set(media_storage.display_subtitles_file_path(tmp_path, 12345).as_posix()) & set(",;[]")
+
+
+@pytest.mark.parametrize("post_id", [0, -1, True])
+def test_a_non_positive_post_id_never_becomes_a_display_path(tmp_path: Path, post_id: Any) -> None:
+    with pytest.raises(media_storage.MediaPathError):
+        media_storage.display_subtitles_file_path(tmp_path, post_id)
+
+
 @pytest.mark.parametrize("track_id", [0, -1, True])
 def test_a_non_positive_id_never_becomes_a_path_component(tmp_path: Path, track_id: Any) -> None:
     with pytest.raises(media_storage.MediaPathError):

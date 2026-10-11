@@ -20,6 +20,7 @@ PEAKS_DIRECTORY_NAME = "peaks"
 RENDER_DIRECTORY_NAME = "render"
 TEMPORARY_DIRECTORY_NAME = "tmp"
 SUBTITLES_FILE_NAME = "lyrics.ass"
+DISPLAY_SUBTITLES_FILE_NAME = "display.ass"
 
 # `.partial` is part of the idempotency guard: no lock is held during a download
 # or render, so "the final name exists" is the only thing left to trust.
@@ -141,6 +142,11 @@ def subtitles_file_path(media_root: Path, post_id: int) -> Path:
     """a numeric id and a constant name keep `,` `;` `[` `]` out of the `subtitles=`
     argument; `escape_filter_path` covers the other three."""
     return task_temporary_directory(media_root, post_id) / SUBTITLES_FILE_NAME
+
+
+def display_subtitles_file_path(media_root: Path, post_id: int) -> Path:
+    """beside `lyrics.ass`, under the same constraints on the name."""
+    return task_temporary_directory(media_root, post_id) / DISPLAY_SUBTITLES_FILE_NAME
 
 
 def staging_path(temporary_directory: Path, final_path: Path) -> Path:

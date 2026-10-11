@@ -34,6 +34,7 @@ from pisniar.webapp.audio_preparation import prepare_audio
 from pisniar.webapp.auth import issue_session_token
 from pisniar.webapp.database import is_lock_failure
 from pisniar.webapp.errors import ApiProblem
+from pisniar.worker import ass
 from pisniar.worker import tasks as worker_tasks
 from pisniar.worker.celery_app import (
     DOWNLOAD_POST_AUDIO_TASK_NAME,
@@ -504,8 +505,8 @@ async def test_the_first_preview_comes_from_the_fragment_chosen_before_any_video
     assert (rendered.fragment_start_ms, rendered.fragment_end_ms) == (60_000, 105_000)
     assert len(worker.subtitles) == 1
     assert worker.subtitles[0] is not None
-    assert "current,,0,0,0,,{\\pos(360,1050)}Пізно" in worker.subtitles[0]
-    assert "current,,0,0,0,,{\\pos(360,1050)}Рано" not in worker.subtitles[0]
+    assert f"current,,0,0,0,,{{\\pos(360,{ass.CURRENT_SLOT_Y})}}Пізно" in worker.subtitles[0]
+    assert f"current,,0,0,0,,{{\\pos(360,{ass.CURRENT_SLOT_Y})}}Рано" not in worker.subtitles[0]
 
 
 async def test_a_render_task_that_finds_ready_audio_does_nothing(

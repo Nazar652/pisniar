@@ -59,6 +59,8 @@ class TurntableLayers:
     overlay: Path
     overlay_x: int
     overlay_y: int
+    overlay_width: int
+    overlay_height: int
 
 
 # ---------------------------------------------------------------- frame helpers (supersampled)
@@ -696,6 +698,8 @@ def write_layers(directory: Path) -> TurntableLayers:
         overlay=directory / OVERLAY_FILE_NAME,
         overlay_x=offset[0],
         overlay_y=offset[1],
+        overlay_width=layers_overlay.width,
+        overlay_height=layers_overlay.height,
     )
     build_background().save(paths.background, format="PNG")
     build_vinyl().save(paths.vinyl, format="PNG")
