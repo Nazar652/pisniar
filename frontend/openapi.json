@@ -942,6 +942,186 @@
         "title": "GenreInput",
         "type": "object"
       },
+      "LyricLineInput": {
+        "additionalProperties": false,
+        "properties": {
+          "start_ms": {
+            "anyOf": [
+              {
+                "maximum": 9.223372036854776e+18,
+                "minimum": -9.223372036854776e+18,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Ms"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "start_ms"
+        ],
+        "title": "LyricLineInput",
+        "type": "object"
+      },
+      "LyricLineView": {
+        "description": "one stored line; `start_ms` is `None` for a line not yet timed.",
+        "properties": {
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "start_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Ms"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "start_ms",
+          "source"
+        ],
+        "title": "LyricLineView",
+        "type": "object"
+      },
+      "LyricsProposal": {
+        "description": "text found by a lookup, written nowhere: the editor shows it and the admin may replace the\nbuffer with it. `source` is the one that answered.",
+        "properties": {
+          "dropped_line_count": {
+            "title": "Dropped Line Count",
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "synced",
+              "plain"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/ProposedLine"
+            },
+            "title": "Lines",
+            "type": "array"
+          },
+          "source": {
+            "enum": [
+              "ytmusic",
+              "lrclib",
+              "genius"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "truncated_line_count": {
+            "title": "Truncated Line Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "kind",
+          "source",
+          "lines",
+          "dropped_line_count",
+          "truncated_line_count"
+        ],
+        "title": "LyricsProposal",
+        "type": "object"
+      },
+      "LyricsUpdate": {
+        "additionalProperties": false,
+        "description": "the whole text the editor shows, replacing the stored one, and the version it was opened\nwith. An empty list removes the text.",
+        "properties": {
+          "expected_lyrics_version": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Expected Lyrics Version",
+            "type": "string"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/LyricLineInput"
+            },
+            "maxItems": 300,
+            "title": "Lines",
+            "type": "array"
+          }
+        },
+        "required": [
+          "lines",
+          "expected_lyrics_version"
+        ],
+        "title": "LyricsUpdate",
+        "type": "object"
+      },
+      "LyricsView": {
+        "description": "the track's text as stored. `lyrics_version` is a digest of it, sent back with a save.",
+        "properties": {
+          "edited_by_admin": {
+            "title": "Edited By Admin",
+            "type": "boolean"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/LyricLineView"
+            },
+            "title": "Lines",
+            "type": "array"
+          },
+          "lyrics_version": {
+            "title": "Lyrics Version",
+            "type": "string"
+          },
+          "max_line_length": {
+            "title": "Max Line Length",
+            "type": "integer"
+          },
+          "max_lines": {
+            "title": "Max Lines",
+            "type": "integer"
+          },
+          "max_total_characters": {
+            "title": "Max Total Characters",
+            "type": "integer"
+          },
+          "other_post_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Other Post Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "lines",
+          "lyrics_version",
+          "edited_by_admin",
+          "other_post_ids",
+          "max_lines",
+          "max_line_length",
+          "max_total_characters"
+        ],
+        "title": "LyricsView",
+        "type": "object"
+      },
       "MeResponse": {
         "additionalProperties": false,
         "properties": {
@@ -1440,6 +1620,31 @@
           "differs_from_stored"
         ],
         "title": "PreviewResponse",
+        "type": "object"
+      },
+      "ProposedLine": {
+        "properties": {
+          "start_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Ms"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "start_ms"
+        ],
+        "title": "ProposedLine",
         "type": "object"
       },
       "ReleaseTypeOption": {
@@ -2474,6 +2679,392 @@
           }
         },
         "summary": "Cancel Audio Preparation"
+      }
+    },
+    "/api/posts/{post_id}/lyrics": {
+      "get": {
+        "operationId": "read_lyrics_api_posts__post_id__lyrics_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "post_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Post Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LyricsView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FieldsInvalid"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Read Lyrics"
+      },
+      "put": {
+        "operationId": "save_lyrics_api_posts__post_id__lyrics_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "post_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Post Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LyricsUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LyricsView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FieldsInvalid"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Save Lyrics"
+      }
+    },
+    "/api/posts/{post_id}/lyrics/plain": {
+      "get": {
+        "operationId": "find_plain_lyrics_api_posts__post_id__lyrics_plain_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "post_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Post Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "source",
+            "required": true,
+            "schema": {
+              "enum": [
+                "ytmusic",
+                "lrclib",
+                "genius"
+              ],
+              "title": "Source",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LyricsProposal"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FieldsInvalid"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Find Plain Lyrics"
+      }
+    },
+    "/api/posts/{post_id}/lyrics/synced": {
+      "get": {
+        "operationId": "find_synced_lyrics_api_posts__post_id__lyrics_synced_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "post_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Post Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LyricsProposal"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FieldsInvalid"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Find Synced Lyrics"
       }
     },
     "/api/posts/{post_id}/preview": {

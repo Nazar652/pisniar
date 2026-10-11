@@ -171,6 +171,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/posts/{post_id}/lyrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Lyrics */
+        get: operations["read_lyrics_api_posts__post_id__lyrics_get"];
+        /** Save Lyrics */
+        put: operations["save_lyrics_api_posts__post_id__lyrics_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/posts/{post_id}/lyrics/plain": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Find Plain Lyrics */
+        get: operations["find_plain_lyrics_api_posts__post_id__lyrics_plain_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/posts/{post_id}/lyrics/synced": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Find Synced Lyrics */
+        get: operations["find_synced_lyrics_api_posts__post_id__lyrics_synced_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/posts/{post_id}/preview": {
         parameters: {
             query?: never;
@@ -544,6 +596,79 @@ export interface components {
             /** Name */
             name: string;
         };
+        /** LyricLineInput */
+        LyricLineInput: {
+            /** Start Ms */
+            start_ms: number | null;
+            /** Text */
+            text: string;
+        };
+        /**
+         * LyricLineView
+         * @description one stored line; `start_ms` is `None` for a line not yet timed.
+         */
+        LyricLineView: {
+            /** Source */
+            source: string;
+            /** Start Ms */
+            start_ms: number | null;
+            /** Text */
+            text: string;
+        };
+        /**
+         * LyricsProposal
+         * @description text found by a lookup, written nowhere: the editor shows it and the admin may replace the
+         *     buffer with it. `source` is the one that answered.
+         */
+        LyricsProposal: {
+            /** Dropped Line Count */
+            dropped_line_count: number;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "synced" | "plain";
+            /** Lines */
+            lines: components["schemas"]["ProposedLine"][];
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "ytmusic" | "lrclib" | "genius";
+            /** Truncated Line Count */
+            truncated_line_count: number;
+        };
+        /**
+         * LyricsUpdate
+         * @description the whole text the editor shows, replacing the stored one, and the version it was opened
+         *     with. An empty list removes the text.
+         */
+        LyricsUpdate: {
+            /** Expected Lyrics Version */
+            expected_lyrics_version: string;
+            /** Lines */
+            lines: components["schemas"]["LyricLineInput"][];
+        };
+        /**
+         * LyricsView
+         * @description the track's text as stored. `lyrics_version` is a digest of it, sent back with a save.
+         */
+        LyricsView: {
+            /** Edited By Admin */
+            edited_by_admin: boolean;
+            /** Lines */
+            lines: components["schemas"]["LyricLineView"][];
+            /** Lyrics Version */
+            lyrics_version: string;
+            /** Max Line Length */
+            max_line_length: number;
+            /** Max Lines */
+            max_lines: number;
+            /** Max Total Characters */
+            max_total_characters: number;
+            /** Other Post Ids */
+            other_post_ids: number[];
+        };
         /** MeResponse */
         MeResponse: {
             /** User Id */
@@ -689,6 +814,13 @@ export interface components {
             differs_from_stored: boolean;
             /** Stored Caption Sha256 */
             stored_caption_sha256: string | null;
+        };
+        /** ProposedLine */
+        ProposedLine: {
+            /** Start Ms */
+            start_ms: number | null;
+            /** Text */
+            text: string;
         };
         /** ReleaseTypeOption */
         ReleaseTypeOption: {
@@ -1455,6 +1587,316 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AudioPreparationCancelled"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FieldsInvalid"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    read_lyrics_api_posts__post_id__lyrics_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                post_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LyricsView"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FieldsInvalid"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    save_lyrics_api_posts__post_id__lyrics_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                post_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LyricsUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LyricsView"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FieldsInvalid"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    find_plain_lyrics_api_posts__post_id__lyrics_plain_get: {
+        parameters: {
+            query: {
+                source: "ytmusic" | "lrclib" | "genius";
+            };
+            header?: never;
+            path: {
+                post_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LyricsProposal"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FieldsInvalid"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    find_synced_lyrics_api_posts__post_id__lyrics_synced_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                post_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LyricsProposal"];
                 };
             };
             /** @description Unauthorized */

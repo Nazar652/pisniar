@@ -1,11 +1,12 @@
 """Previewing and saving an edit of a post's fields.
 
-The preview only reads. The save locks the post `FOR UPDATE NOWAIT`, then the track, checks both versions and writes;
-Telegram is never called here.
+The preview only reads. The save locks the post `FOR UPDATE NOWAIT`, then the track, checks both
+versions and writes; Telegram is never called here.
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import NoReturn
 
 from sqlalchemy import func, select
@@ -143,9 +144,13 @@ async def preview_fields(
     return preview
 
 
-async def count_media_posts(session: AsyncSession, track_id: int) -> int:
+async def count_media_posts(
+    session: AsyncSession,
+    track_id: int,
+    statuses: Sequence[PostStatus] = MEDIA_STATUSES,
+) -> int:
     count = await session.scalar(
-        select(func.count()).select_from(Post).where(Post.track_id == track_id, Post.status.in_(MEDIA_STATUSES))
+        select(func.count()).select_from(Post).where(Post.track_id == track_id, Post.status.in_(statuses))
     )
     return count or 0
 
@@ -157,8 +162,8 @@ async def save_fields(
     current_year: int,
     user_id: int,
 ) -> PostDetail | None:
-    """the caller commits. The post is locked first, then the track, and nothing is written unless both rows still carry
-    the `updated_at` the editor was opened with."""
+    """the caller commits. The post is locked first, then the track, and nothing is written
+    unless both rows still carry the `updated_at` the editor was opened with."""
     post = await lock_post_without_waiting(session, post_id)
     if post is None:
         return None

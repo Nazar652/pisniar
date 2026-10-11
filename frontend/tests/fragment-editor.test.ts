@@ -278,7 +278,6 @@ describe('useFragmentEditor submit', () => {
 
   it.each([
     ['invalid_fragment', 422, 'Фрагмент не підходить: довший за 2:00.', 'ready'],
-    ['fragment_unchanged', 409, 'Межі не змінилися.', 'ready'],
     ['post_busy', 409, 'Пост зайнятий, спробуйте за мить.', 'ready'],
     ['queue_unavailable', 503, 'Черга недоступна.', 'ready'],
     ['not_choosable', 409, 'Пост зараз не можна змінити.', 'failed'],

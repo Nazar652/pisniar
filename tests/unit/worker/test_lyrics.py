@@ -14,6 +14,7 @@ from celery.exceptions import SoftTimeLimitExceeded
 from sqlalchemy.exc import OperationalError
 
 from pisniar.db.models import MAX_LYRIC_LINES, MAX_LYRIC_TEXT_LENGTH, MAX_LYRICS_TOTAL_CHARACTERS
+from pisniar.resolve import lyrics_lookup
 from pisniar.resolve.lrc import LrcParseError
 from pisniar.resolve.sources.lrclib import LrclibApiError, LyricsLine, LyricsOutcome, LyricsResult
 from pisniar.worker import lyrics
@@ -240,7 +241,7 @@ class PrepareSpy:
         self.persist_outcome = persist_outcome
 
         monkeypatch.setattr(lyrics, "load_stored_lyrics", self.load)
-        monkeypatch.setattr(lyrics, "fetch_lrclib_lyrics", self.fetch)
+        monkeypatch.setattr(lyrics_lookup, "fetch_lrclib_lyrics", self.fetch)
         monkeypatch.setattr(lyrics, "persist_lyrics_in_own_transaction", self.persist)
 
     async def load(self, session_factory: object, track_id: int) -> lyrics.StoredLyrics:

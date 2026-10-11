@@ -14,7 +14,9 @@ from celery.exceptions import SoftTimeLimitExceeded
 from sqlalchemy.exc import OperationalError
 
 from pisniar.db.models import MAX_LYRIC_LINES, MAX_LYRIC_TEXT_LENGTH, MAX_LYRICS_TOTAL_CHARACTERS
+from pisniar.resolve import lyrics_lookup
 from pisniar.resolve.plain_lyrics import PlainLyricsSource
+from pisniar.resolve.sources import ytmusic_lyrics
 from pisniar.resolve.sources.lrclib import LyricsLine, LyricsOutcome, LyricsResult
 from pisniar.resolve.sources.ytmusic_lyrics import YtmusicLyricsApiError
 from pisniar.worker import lyrics
@@ -52,6 +54,7 @@ OVER_LIMIT_PLAIN = LyricsResult(
 def silent_logger(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
     fake_logger = MagicMock()
     monkeypatch.setattr(lyrics, "logger", fake_logger)
+    monkeypatch.setattr(lyrics_lookup, "logger", fake_logger)
     return fake_logger
 
 
@@ -76,10 +79,10 @@ def test_an_over_limit_answer_is_skipped_for_the_next_one() -> None:
 
 
 def test_an_over_limit_timed_answer_is_not_usable_timed_text() -> None:
-    assert lyrics.has_usable_timed_text(SYNCED) is True
-    assert lyrics.has_usable_timed_text(OVER_LIMIT) is False
-    assert lyrics.has_usable_timed_text(PLAIN) is False
-    assert lyrics.has_usable_timed_text(None) is False
+    assert lyrics_lookup.has_usable_timed_text(SYNCED) is True
+    assert lyrics_lookup.has_usable_timed_text(OVER_LIMIT) is False
+    assert lyrics_lookup.has_usable_timed_text(PLAIN) is False
+    assert lyrics_lookup.has_usable_timed_text(None) is False
 
 
 def test_choosing_and_checking_never_log_the_writer_logs_each_event_once(
@@ -92,7 +95,7 @@ def test_choosing_and_checking_never_log_the_writer_logs_each_event_once(
 
     assert lyrics.is_storable(OVER_LIMIT) is False
     assert lyrics.is_storable(long_line) is True
-    assert lyrics.has_usable_timed_text(OVER_LIMIT) is False
+    assert lyrics_lookup.has_usable_timed_text(OVER_LIMIT) is False
     assert lyrics.choose_answer(OVER_LIMIT, long_line) is not None
     silent_logger.warning.assert_not_called()
 
@@ -243,10 +246,10 @@ async def test_the_soft_limit_and_a_database_error_pass_through(failure: Excepti
 
 async def test_youtube_music_is_asked_with_the_video_id(monkeypatch: pytest.MonkeyPatch) -> None:
     fetch = AsyncMock(return_value=SYNCED)
-    monkeypatch.setattr(lyrics.ytmusic_lyrics, "fetch_lyrics", fetch)
+    monkeypatch.setattr(ytmusic_lyrics, "fetch_lyrics", fetch)
     cache = MagicMock()
 
-    assert await lyrics.ask_youtube_music(cache, QUERY) is SYNCED
+    assert await lyrics_lookup.ask_youtube_music(cache, QUERY) is SYNCED
     fetch.assert_awaited_once_with(cache, video_id="n4bPzdIs_nc")
 
 
@@ -254,18 +257,18 @@ async def test_without_a_video_id_youtube_music_is_not_asked(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fetch = AsyncMock()
-    monkeypatch.setattr(lyrics.ytmusic_lyrics, "fetch_lyrics", fetch)
+    monkeypatch.setattr(ytmusic_lyrics, "fetch_lyrics", fetch)
 
-    assert await lyrics.ask_youtube_music(MagicMock(), replace(QUERY, video_id=None)) is None
+    assert await lyrics_lookup.ask_youtube_music(MagicMock(), replace(QUERY, video_id=None)) is None
     fetch.assert_not_awaited()
 
 
 async def test_lrclib_is_asked_with_the_track_as_the_query(monkeypatch: pytest.MonkeyPatch) -> None:
     fetch = AsyncMock(return_value=ABSENT)
-    monkeypatch.setattr(lyrics, "fetch_lrclib_lyrics", fetch)
+    monkeypatch.setattr(lyrics_lookup, "fetch_lrclib_lyrics", fetch)
     client, cache = MagicMock(), MagicMock()
 
-    assert await lyrics.ask_lrclib(client, cache, QUERY) is ABSENT
+    assert await lyrics_lookup.ask_lrclib(client, cache, QUERY) is ABSENT
     fetch.assert_awaited_once_with(
         client,
         cache,
@@ -273,6 +276,19 @@ async def test_lrclib_is_asked_with_the_track_as_the_query(monkeypatch: pytest.M
         title="Покаяння",
         duration_ms=212_000,
     )
+
+
+async def test_the_render_asks_the_timed_sources_through_the_shared_function(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    spy = AsyncMock(return_value=(None, None))
+    monkeypatch.setattr(lyrics, "ask_timed_sources", spy)
+    monkeypatch.setattr(lyrics, "load_stored_lyrics", AsyncMock(return_value=NOTHING_STORED))
+
+    prepared = await lyrics.prepare_lyrics(MagicMock(), MagicMock(), MagicMock(), QUERY)
+
+    spy.assert_awaited_once()
+    assert prepared.reason == LyricsOutcome.ABSENT.value
 
 
 class LadderSpy:
@@ -295,8 +311,8 @@ class LadderSpy:
         self.persist_outcome = persist_outcome
 
         monkeypatch.setattr(lyrics, "load_stored_lyrics", self.load)
-        monkeypatch.setattr(lyrics.ytmusic_lyrics, "fetch_lyrics", self.ask("ytmusic"))
-        monkeypatch.setattr(lyrics, "fetch_lrclib_lyrics", self.ask("lrclib"))
+        monkeypatch.setattr(ytmusic_lyrics, "fetch_lyrics", self.ask("ytmusic"))
+        monkeypatch.setattr(lyrics_lookup, "fetch_lrclib_lyrics", self.ask("lrclib"))
         monkeypatch.setattr(lyrics, "persist_lyrics_in_own_transaction", self.persist)
 
     async def load(self, session_factory: object, track_id: int) -> lyrics.StoredLyrics:
@@ -545,6 +561,53 @@ async def test_the_soft_limit_and_a_database_error_pass_through_the_plain_lookup
 
     with pytest.raises(type(failure)):
         await lyrics.fetch_plain_lines(MagicMock(), MagicMock(), QUERY)
+
+
+async def test_the_plain_task_takes_its_words_from_the_function_the_mini_app_uses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    spy = MagicMock(wraps=lyrics_lookup.plain_lines_of)
+    monkeypatch.setattr(lyrics, "plain_lines_of", spy)
+    monkeypatch.setattr(lyrics, "PLAIN_LYRICS_SOURCES", (plain_source("genius", PLAIN),))
+
+    found = await lyrics.fetch_plain_lines(MagicMock(), MagicMock(), QUERY)
+
+    spy.assert_called_once_with(PLAIN)
+    assert found == SourceAnswer("genius", PLAIN)
+
+
+async def test_the_plain_task_stores_the_words_the_mini_app_would_offer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    messy = LyricsResult(
+        outcome=LyricsOutcome.UNSYNCED,
+        lines=tuple(LyricsLine(start_ms=None, text=text) for text in ("  раз   два ", "", "♪", "три")),
+    )
+    monkeypatch.setattr(lyrics, "PLAIN_LYRICS_SOURCES", (plain_source("genius", messy),))
+
+    found = await lyrics.fetch_plain_lines(MagicMock(), MagicMock(), QUERY)
+
+    assert found is not None
+    assert [line.text for line in found.result.lines] == ["раз два", "три"]
+    assert {line.start_ms for line in found.result.lines} == {None}
+
+
+async def test_a_plain_source_whose_words_are_all_empty_is_passed_over(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    only_notes = LyricsResult(
+        outcome=LyricsOutcome.UNSYNCED,
+        lines=(LyricsLine(start_ms=None, text="♪"), LyricsLine(start_ms=None, text=" ")),
+    )
+    monkeypatch.setattr(
+        lyrics,
+        "PLAIN_LYRICS_SOURCES",
+        (plain_source("empty", only_notes), plain_source("song", PLAIN)),
+    )
+
+    found = await lyrics.fetch_plain_lines(MagicMock(), MagicMock(), QUERY)
+
+    assert found == SourceAnswer("song", PLAIN)
 
 
 class StoreSpy:

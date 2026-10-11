@@ -7,6 +7,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
+from pisniar.db.models import MAX_LYRIC_LINES
+
 # real `initData` is under 2 KiB; the bound keeps a hostile body cheap to reject.
 INIT_DATA_MAX_LENGTH = 8192
 
@@ -308,3 +310,59 @@ class ApplyResponse(BaseModel):
 class ArchiveResponse(BaseModel):
     post_id: int
     status_label: str
+
+
+class LyricLineView(BaseModel):
+    """one stored line; `start_ms` is `None` for a line not yet timed."""
+
+    text: str
+    start_ms: int | None
+    source: str
+
+
+class LyricsView(BaseModel):
+    """the track's text as stored. `lyrics_version` is a digest of it, sent back with a save."""
+
+    lines: list[LyricLineView]
+    lyrics_version: str
+    edited_by_admin: bool
+    other_post_ids: list[int]
+    max_lines: int
+    max_line_length: int
+    max_total_characters: int
+
+
+class LyricLineInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str
+    start_ms: BigintMs | None
+
+
+class LyricsUpdate(BaseModel):
+    """the whole text the editor shows, replacing the stored one, and the version it was opened
+    with. An empty list removes the text."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    lines: list[LyricLineInput] = Field(max_length=MAX_LYRIC_LINES)
+    expected_lyrics_version: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+LyricsSourceName = Literal["ytmusic", "lrclib", "genius"]
+
+
+class ProposedLine(BaseModel):
+    text: str
+    start_ms: int | None
+
+
+class LyricsProposal(BaseModel):
+    """text found by a lookup, written nowhere: the editor shows it and the admin may replace the
+    buffer with it. `source` is the one that answered."""
+
+    kind: Literal["synced", "plain"]
+    source: LyricsSourceName
+    lines: list[ProposedLine]
+    dropped_line_count: int
+    truncated_line_count: int

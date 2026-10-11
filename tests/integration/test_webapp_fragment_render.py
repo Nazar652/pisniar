@@ -226,6 +226,25 @@ async def test_a_failed_render_is_started_again_from_failed(
     )
 
 
+async def test_the_bounds_the_preview_already_shows_render_again(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    post_id = await make_previewed_post(session_factory)
+    post = await load_post(session_factory, post_id)
+    assert (post.fragment_start_ms, post.fragment_end_ms) == (0, 45_000)
+
+    async with session_factory() as session:
+        choice = await choose_fragment(session, post_id, request_for(post, 0, 45_000), USER_ID)
+        await session.commit()
+
+    assert choice is not None
+    assert choice.superseded_preview == (CHAT_ID, post_id + PREVIEW_MESSAGE_OFFSET)
+    stored = await load_post(session_factory, post_id)
+    assert stored.status is PostStatus.RENDERING
+    assert (stored.fragment_start_ms, stored.fragment_end_ms) == (0, 45_000)
+    assert stored.preview_message_id == post_id + PREVIEW_MESSAGE_OFFSET
+
+
 async def test_audio_of_another_recording_is_audio_missing_and_changes_nothing(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -325,7 +344,7 @@ class CountingPreview:
     async def __call__(self, post: Post, outcome: worker_tasks.RenderOutcome) -> None:
         self.sent += 1
         post.preview_chat_id = CHAT_ID
-        post.preview_message_id = post.id + PREVIEW_MESSAGE_OFFSET + self.sent
+        post.preview_message_id = post.id + PREVIEW_MESSAGE_OFFSET + self.sent * 100_000
 
 
 @pytest.fixture

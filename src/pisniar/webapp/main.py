@@ -11,6 +11,7 @@ import uvicorn
 from pisniar.config import get_settings, redaction_secrets
 from pisniar.db.session import LOCK_TIMEOUT_MS, build_engine, build_session_factory
 from pisniar.logging import configure_logging, get_logger
+from pisniar.resolve.http import build_http_client
 from pisniar.telegram.client import build_bot
 from pisniar.webapp.access_log import install_access_log_filter
 from pisniar.webapp.app import create_webapp
@@ -33,17 +34,20 @@ async def run() -> None:
     engine = build_engine(settings.database_url, lock_timeout_ms=LOCK_TIMEOUT_MS)
     bot = build_bot(settings)
     celery_client = build_celery_app(settings.redis_url)
+    http_client = build_http_client()
     app = create_webapp(
         settings,
         session_factory=build_session_factory(engine),
         bot=bot,
         celery_client=celery_client,
+        http_client=http_client,
     )
     server = uvicorn.Server(uvicorn.Config(app, host=settings.http_host, port=settings.webapp_port, log_config=None))
     try:
         await server.serve()
     finally:
         celery_client.close()
+        await http_client.aclose()
         await bot.session.close()
         await engine.dispose()
 

@@ -1,5 +1,6 @@
-"""Starting a render with the bounds the admin chose. The database part locks the post, then the track, and writes the
-bounds and the status; the queue and then the old preview's keyboard come after the commit, never inside it.
+"""Starting a render with the bounds the admin chose. The database part locks the post, then the
+track, and writes the bounds and the status; the queue and then the old preview's keyboard come
+after the commit, never inside it.
 """
 
 from __future__ import annotations
@@ -28,7 +29,6 @@ from pisniar.worker.fragment import FragmentBounds, FragmentBoundsError, validat
 logger = get_logger(__name__)
 
 INVALID_FRAGMENT_MESSAGE = "Фрагмент не підходить: {reason}."
-FRAGMENT_UNCHANGED_MESSAGE = "Відео вже відрендерено саме з цим фрагментом. Оберіть інші межі, щоб зробити нове."
 DISPATCH_FAILED_MESSAGE = (
     "Не вдалося поставити відео в чергу. Повторіть спробу командою /retry {post_id} у чаті з ботом."
 )
@@ -85,10 +85,6 @@ async def choose_fragment(
     except FragmentBoundsError as error:
         refuse(422, "invalid_fragment", INVALID_FRAGMENT_MESSAGE.format(reason=error), user_id, post_id)
 
-    stored = (post.fragment_start_ms, post.fragment_end_ms)
-    if post.status is PostStatus.RENDERED and stored == (bounds.start_ms, bounds.end_ms):
-        refuse(409, "fragment_unchanged", FRAGMENT_UNCHANGED_MESSAGE, user_id, post_id)
-
     superseded_preview = (
         None
         if post.preview_chat_id is None or post.preview_message_id is None
@@ -106,8 +102,8 @@ async def release_superseded_preview(
     choice: FragmentChoice,
     user_id: int,
 ) -> None:
-    """runs after a successful enqueue, so the old preview stays usable if the render never starts. Cosmetic: a
-    Telegram refusal is logged by `remove_preview_keyboard`, anything else here."""
+    """runs after a successful enqueue, so the old preview stays usable if the render never starts.
+    Cosmetic: a Telegram refusal is logged by `remove_preview_keyboard`, anything else here."""
     if choice.superseded_preview is None:
         return
 

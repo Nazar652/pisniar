@@ -6,10 +6,12 @@ and every other route sits behind `require_admin`. The production CSP lives only
 
 from __future__ import annotations
 
+import re
 import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
+import httpx
 from aiogram import Bot
 from celery import Celery
 from fastapi import FastAPI, Request, Response
@@ -38,6 +40,9 @@ SECURITY_HEADERS = {
 }
 IMMUTABLE_CACHE = "public, max-age=31536000, immutable"
 MAX_BODY_BYTES = 16 * 1024
+# 300 lines of Cyrillic and the JSON around them are about 55 KiB; the ceiling leaves room
+LYRICS_MAX_BODY_BYTES = 96 * 1024
+LYRICS_BODY_PATH = re.compile(r"/api/posts/\d+/lyrics")
 BODY_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
 
@@ -47,6 +52,7 @@ def create_webapp(
     session_factory: async_sessionmaker[AsyncSession] | None = None,
     bot: Bot | None = None,
     celery_client: Celery | None = None,
+    http_client: httpx.AsyncClient | None = None,
 ) -> FastAPI:
     app = FastAPI(title="pisniar webapp", docs_url=None, redoc_url=None, openapi_url=None)
     app.state.context = WebappContext(
@@ -64,6 +70,8 @@ def create_webapp(
     app.state.session_factory = session_factory
     app.state.bot = bot
     app.state.celery_client = celery_client
+    app.state.http_client = http_client
+    app.state.source_fetch_ttl_seconds = settings.source_fetch_ttl_seconds
     app.state.webapp_public_url = settings.webapp_public_url
     register_error_handlers(app)
 
@@ -96,6 +104,13 @@ def create_webapp(
     return app
 
 
+def body_limit_of(method: str, path: str) -> int:
+    """16 KiB everywhere, except the one route that saves a whole song text."""
+    if method == "PUT" and LYRICS_BODY_PATH.fullmatch(path):
+        return LYRICS_MAX_BODY_BYTES
+    return MAX_BODY_BYTES
+
+
 def reject_oversized_body(request: Request) -> Response | None:
     """a body is accepted only with an honest `Content-Length`: chunked uploads get no room."""
     if request.method not in BODY_METHODS:
@@ -103,7 +118,7 @@ def reject_oversized_body(request: Request) -> Response | None:
     declared = request.headers.get("Content-Length")
     if declared is None or not declared.isdecimal():
         return error_response(411, "length_required", "Потрібен заголовок Content-Length.")
-    if int(declared) > MAX_BODY_BYTES:
+    if int(declared) > body_limit_of(request.method, request.url.path):
         return error_response(413, "body_too_large", "Запит завеликий.")
     return None
 

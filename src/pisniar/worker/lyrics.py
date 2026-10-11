@@ -5,22 +5,17 @@ lines of any `source` or a saved text; the plain-text lookup of other sources is
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from enum import StrEnum
 from functools import partial
 
 import httpx
-from celery.exceptions import SoftTimeLimitExceeded
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from pisniar.db.models import (
-    MAX_LYRIC_LINES,
     MAX_LYRIC_TEXT_LENGTH,
-    MAX_LYRICS_TOTAL_CHARACTERS,
     Lyric,
     Track,
     renderable_lyrics_statement,
@@ -28,16 +23,27 @@ from pisniar.db.models import (
 from pisniar.db.session import session_scope
 from pisniar.logging import get_logger
 from pisniar.resolve.cache import SourceCache
+from pisniar.resolve.lyrics_lookup import (
+    LYRICS_OVER_LIMITS,
+    LyricsLookupQuery,
+    SourceAnswer,
+    ask_source,
+    ask_timed_sources,
+    choose_answer,
+    fits_stored_text_limits,
+    is_storable,
+    lines_to_store,
+    no_text_reason,
+    plain_lines_of,
+)
 from pisniar.resolve.plain_lyrics import PLAIN_LYRICS_SOURCES
-from pisniar.resolve.sources import ytmusic_lyrics
 from pisniar.resolve.sources.lrclib import LyricsLine, LyricsOutcome, LyricsResult
-from pisniar.resolve.sources.lrclib import fetch_lyrics as fetch_lrclib_lyrics
 from pisniar.worker.ass import LyricLine
 
 logger = get_logger(__name__)
 
-LRCLIB_SOURCE = "lrclib"
-YTMUSIC_SOURCE = ytmusic_lyrics.SOURCE_NAME
+# the lookup query is the one the Mini App's buttons build, with the render's name for it.
+LyricsQuery = LyricsLookupQuery
 
 # no timed text exists and nothing is stored: only these reasons are worth a lookup of
 # plain text; an instrumental track or a text that merely misses the fragment is not.
@@ -57,8 +63,6 @@ LYRICS_OUTSIDE_FRAGMENT = "lyrics_outside_fragment"
 LYRICS_UNTIMED = "lyrics_untimed"
 # a human saved an empty text: no source is asked.
 LYRICS_REMOVED_BY_ADMIN = "lyrics_removed_by_admin"
-# a source had text, but too much of it to store, and no other source had any.
-LYRICS_OVER_LIMITS = "lyrics_over_limits"
 
 # one sentence per class: "LRCLIB did not answer" and "LRCLIB has no text" call for different things from the admin.
 NO_TEXT_NOTICES = {
@@ -101,19 +105,6 @@ class LyricRow:
     line_index: int
     start_ms: int | None
     text: str
-
-
-def lines_to_store(result: LyricsResult) -> list[LyricsLine]:
-    """synced gives its timed lines, unsynced its plain ones, any other answer none."""
-    if result.outcome is LyricsOutcome.SYNCED:
-        return [line for line in result.lines if line.start_ms is not None]
-    if result.outcome is LyricsOutcome.UNSYNCED:
-        return [LyricsLine(start_ms=None, text=line.text) for line in result.lines]
-    return []
-
-
-def fits_stored_text_limits(line_count: int, character_count: int) -> bool:
-    return line_count <= MAX_LYRIC_LINES and character_count <= MAX_LYRICS_TOTAL_CHARACTERS
 
 
 def rows_to_write(track_id: int, result: LyricsResult) -> tuple[list[LyricRow], int]:
@@ -191,8 +182,7 @@ async def persist_under_track_lock(
     *,
     source: str,
 ) -> LyricsPersistResult:
-    # FOR NO KEY UPDATE, the lock `persist_track_in_own_transaction` takes:
-    # `INSERT INTO post` (FOR KEY SHARE) still passes. Any other lyric writer must take it too.
+    # FOR NO KEY UPDATE, the lock `persist_track_in_own_transaction` takes; any other lyric writer must take it too.
     # populate_existing: a track already in the identity map must not hand back a stale marker.
     track = await session.get(Track, track_id, with_for_update={"key_share": True}, populate_existing=True)
     if track is None:
@@ -239,17 +229,6 @@ async def persist_under_track_lock(
         written_line_count=inserted_count,
         truncated_line_count=truncated_count,
     )
-
-
-@dataclass(frozen=True)
-class LyricsQuery:
-    """`video_id` is the validated `youtubeMusic` id, `None` when the lookup has none."""
-
-    track_id: int
-    artist_names: tuple[str, ...]
-    title: str
-    duration_ms: int | None
-    video_id: str | None
 
 
 @dataclass(frozen=True)
@@ -310,9 +289,7 @@ async def prepare_lyrics(
     if stored_reason is not None:
         return build_prepared_lyrics(query.track_id, stored.renderable_lines, stored_reason)
 
-    youtube = await ask_youtube_music(cache, query)
-    # usable timed YouTube Music text is the first truth: LRCLIB is not asked after it.
-    lrclib = None if has_usable_timed_text(youtube) else await ask_lrclib(http_client, cache, query)
+    youtube, lrclib = await ask_timed_sources(http_client, cache, query)
 
     chosen = choose_answer(youtube, lrclib)
     if chosen is None:
@@ -327,104 +304,6 @@ async def prepare_lyrics(
         reloaded.renderable_lines,
         reason_after_persist(persisted, chosen.result, reloaded),
     )
-
-
-@dataclass(frozen=True)
-class SourceAnswer:
-    source: str
-    result: LyricsResult
-
-
-async def ask_source(
-    source: str,
-    track_id: int,
-    fetch: Callable[[], Awaitable[LyricsResult]],
-) -> LyricsResult:
-    """a failing source answers `SOURCE_UNAVAILABLE`, logged by name; the soft limit and a
-    database error pass through."""
-    try:
-        return await fetch()
-    except (SoftTimeLimitExceeded, SQLAlchemyError):
-        raise
-    except Exception:
-        logger.warning(
-            "lyrics_source_failed",
-            track_id=track_id,
-            source=source,
-            reason=LyricsOutcome.SOURCE_UNAVAILABLE.value,
-            exc_info=True,
-        )
-        return LyricsResult(outcome=LyricsOutcome.SOURCE_UNAVAILABLE)
-
-
-async def ask_youtube_music(cache: SourceCache, query: LyricsQuery) -> LyricsResult | None:
-    if query.video_id is None:
-        return None
-    return await ask_source(
-        YTMUSIC_SOURCE,
-        query.track_id,
-        partial(ytmusic_lyrics.fetch_lyrics, cache, video_id=query.video_id),
-    )
-
-
-async def ask_lrclib(
-    http_client: httpx.AsyncClient,
-    cache: SourceCache,
-    query: LyricsQuery,
-) -> LyricsResult | None:
-    return await ask_source(
-        LRCLIB_SOURCE,
-        query.track_id,
-        partial(
-            fetch_lrclib_lyrics,
-            http_client,
-            cache,
-            artist_names=query.artist_names,
-            title=query.title,
-            duration_ms=query.duration_ms,
-        ),
-    )
-
-
-def is_storable(result: LyricsResult) -> bool:
-    """what the writer would write, decided without logging: it has lines and fits the limits."""
-    lines = lines_to_store(result)
-    characters = sum(min(len(line.text), MAX_LYRIC_TEXT_LENGTH) for line in lines)
-    return bool(lines) and fits_stored_text_limits(len(lines), characters)
-
-
-def has_usable_timed_text(result: LyricsResult | None) -> bool:
-    return result is not None and result.outcome is LyricsOutcome.SYNCED and is_storable(result)
-
-
-def choose_answer(youtube: LyricsResult | None, lrclib: LyricsResult | None) -> SourceAnswer | None:
-    """timed text first (YouTube Music, then LRCLIB), then plain; one not storable is skipped."""
-    answers = [
-        SourceAnswer(source, result)
-        for source, result in ((YTMUSIC_SOURCE, youtube), (LRCLIB_SOURCE, lrclib))
-        if result is not None
-    ]
-    for wanted in (LyricsOutcome.SYNCED, LyricsOutcome.UNSYNCED):
-        for answer in answers:
-            if answer.result.outcome is wanted and is_storable(answer.result):
-                return answer
-    return None
-
-
-def no_text_reason(youtube: LyricsResult | None, lrclib: LyricsResult | None) -> str:
-    """absent only when every source asked said so; a failure, then a too-long text, outrank it."""
-    # the render always passes the validated `youtubeMusic` id: `(None, ABSENT)` is not seen there.
-    asked = [result for result in (youtube, lrclib) if result is not None]
-    if lrclib is not None and lrclib.outcome in (
-        LyricsOutcome.INSTRUMENTAL,
-        LyricsOutcome.REJECTED_BY_MATCHING,
-    ):
-        return lrclib.outcome.value
-    if any(result.outcome is LyricsOutcome.SOURCE_UNAVAILABLE for result in asked):
-        return LyricsOutcome.SOURCE_UNAVAILABLE.value
-    if any(result.lines for result in asked):
-        return LYRICS_OVER_LIMITS
-    return lrclib.outcome.value if lrclib is not None else LyricsOutcome.ABSENT.value
 
 
 def reason_after_persist(
@@ -463,8 +342,15 @@ async def fetch_plain_lines(
                 duration_ms=query.duration_ms,
             ),
         )
-        if result.outcome is LyricsOutcome.UNSYNCED and is_storable(result):
-            return SourceAnswer(source.name, result)
+        if result.outcome is not LyricsOutcome.UNSYNCED:
+            continue
+        # the same words the Mini App offers: spaces collapsed, empty lines and a lone note gone.
+        plain = LyricsResult(
+            outcome=LyricsOutcome.UNSYNCED,
+            lines=tuple(LyricsLine(start_ms=None, text=text) for text in plain_lines_of(result)),
+        )
+        if is_storable(plain):
+            return SourceAnswer(source.name, plain)
     return None
 
 

@@ -1,6 +1,7 @@
 """Package boundaries: `webapp` never imports `bot`, reaches `worker` only through four leaf
-modules and enqueues the render, prepare and publish tasks alone; nothing imports `webapp`;
-`dispatch` is a leaf; `bot` reaches `resolve`, `post`, `telegram` and `worker` by a short list.
+modules and enqueues the render, prepare and publish tasks alone, reaching the lyrics sources
+through `resolve.lyrics_lookup`; nothing imports `webapp`; `dispatch` is a leaf; `bot` reaches
+`resolve`, `post`, `telegram` and `worker` by a short list.
 """
 
 from __future__ import annotations
@@ -177,6 +178,25 @@ def test_the_webapp_enqueues_the_render_prepare_and_publish_tasks_and_nothing_el
         "fragment_choice.py: dispatch_task(RENDER_POST_VIDEO_TASK_NAME)",
     ]
     assert task_name_literals(webapp_directory) == []
+
+
+def test_the_webapp_reaches_the_lyrics_sources_only_through_the_lookup_module() -> None:
+    """the lookups run in the public process, so the sources it may load are the lookup's own."""
+    used = set().union(*imported_modules(SOURCE_ROOT / "webapp").values())
+
+    assert "pisniar.resolve.lyrics_lookup" in used
+    assert "pisniar.worker.lyrics" not in used
+    assert not any(
+        module == "pisniar.resolve.plain_lyrics" or module.startswith("pisniar.resolve.sources.genius")
+        for module in used
+    )
+
+
+def test_the_lookup_module_is_a_library_the_worker_and_the_webapp_share() -> None:
+    imported = imported_modules(SOURCE_ROOT / "resolve")["resolve/lyrics_lookup.py"]
+
+    assert not any(module.startswith(("pisniar.bot", "pisniar.webapp", "pisniar.worker")) for module in imported)
+    assert "pisniar.resolve.lyrics_lookup" in set().union(*imported_modules(SOURCE_ROOT / "worker").values())
 
 
 def test_the_queue_scan_sees_the_bot_dispatches_and_a_spelled_out_task_name() -> None:

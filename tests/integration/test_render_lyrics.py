@@ -332,6 +332,43 @@ async def test_stored_lines_are_rendered_without_asking_lrclib(
     assert preview.lyrics_reasons == [LYRICS_ALREADY_STORED]
 
 
+async def test_a_saved_text_with_untimed_lines_renders_its_timed_lines_only(
+    session_factory: async_sessionmaker[AsyncSession],
+    alerts: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    post_id, track_id, _, _ = await make_downloaded_post(session_factory)
+    async with session_factory() as session:
+        for line_index, (start_ms, text) in enumerate([(1_000, "Перший"), (None, "Безчасовий"), (2_000, "Другий")]):
+            session.add(
+                Lyric(
+                    track_id=track_id,
+                    line_index=line_index,
+                    start_ms=start_ms,
+                    text=text,
+                    source="manual",
+                )
+            )
+        await session.commit()
+
+    async def refuse(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("a saved text exists, LRCLIB must not be asked")
+
+    renderer, preview = install_pipeline(monkeypatch, refuse)
+
+    await worker_tasks.perform_render_post_video(post_id)
+
+    alerts.assert_not_awaited()
+    _, render = await render_row_of(session_factory, post_id)
+    subtitles = renderer.subtitles[0]
+    assert subtitles is not None
+    assert "Перший" in subtitles and "Другий" in subtitles
+    assert "Безчасовий" not in subtitles
+    assert render.text_version == worker_tasks.video_render.text_version_of(subtitles)
+    assert preview.lyrics_reasons == [LYRICS_ALREADY_STORED]
+    assert await lyric_count(session_factory, track_id) == 3
+
+
 async def test_youtube_music_timed_text_is_stored_first_and_lrclib_is_not_asked(
     session_factory: async_sessionmaker[AsyncSession],
     alerts: AsyncMock,

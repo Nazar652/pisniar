@@ -65,6 +65,9 @@ def test_the_exported_schema_lists_the_api_and_hides_the_static_routes() -> None
         "/api/posts/{post_id}/preview",
         "/api/posts/{post_id}/apply",
         "/api/posts/{post_id}/archive",
+        "/api/posts/{post_id}/lyrics",
+        "/api/posts/{post_id}/lyrics/synced",
+        "/api/posts/{post_id}/lyrics/plain",
         "/api/meta",
     }
     assert {"ApiError", "SessionRequest", "SessionResponse", "MeResponse"} <= set(schema["components"]["schemas"])

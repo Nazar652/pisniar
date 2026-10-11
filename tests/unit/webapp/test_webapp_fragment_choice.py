@@ -273,15 +273,14 @@ async def test_a_two_minute_fragment_and_a_whole_short_track_pass_the_rule(locks
     assert short_choice.bounds == FragmentBounds(0, 7_000)
 
 
-async def test_the_bounds_the_preview_already_shows_are_unchanged_and_nothing_is_written(
-    locks: Locks, logger: RecordingLogger
-) -> None:
-    problem = await refusal_of(make_request(start_ms=0, end_ms=45_000))
+async def test_the_bounds_the_preview_already_shows_render_again(locks: Locks, logger: RecordingLogger) -> None:
+    choice = await choose_fragment(MagicMock(), POST_ID, make_request(start_ms=0, end_ms=45_000), ADMIN_ID)
 
-    assert (problem.status_code, problem.code) == (409, "fragment_unchanged")
+    assert choice == FragmentChoice(POST_ID, FragmentBounds(0, 45_000), PREVIEW)
     assert locks.post is not None
-    assert locks.post.status is PostStatus.RENDERED
-    assert logger.entries[0]["reason"] == "fragment_unchanged"
+    assert locks.post.status is PostStatus.RENDERING
+    assert (locks.post.fragment_start_ms, locks.post.fragment_end_ms) == (0, 45_000)
+    assert [entry for entry in logger.entries if entry["event"] == "fragment_render_refused"] == []
 
 
 def test_the_request_refuses_a_bool_a_float_a_string_an_extra_field_and_a_value_beyond_bigint() -> None:

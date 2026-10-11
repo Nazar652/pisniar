@@ -1,5 +1,6 @@
-"""Async engine / session construction. `bot`/`api` share one long-lived engine; `worker` builds a fresh `NullPool`
-engine per Celery task, since asyncpg connections can't cross the fresh event loop each task runs in.
+"""Async engine / session construction. `bot`/`api` share one long-lived
+engine; `worker` builds a fresh `NullPool` engine per Celery task, since
+asyncpg connections can't cross the fresh event loop each task runs in.
 """
 
 from __future__ import annotations
@@ -15,8 +16,8 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.pool import NullPool
 
-# contention on a post/track row only ever means another resolve of the same row; failing fast beats holding a worker
-# slot or a bot handler.
+# contention on a post/track row only ever means another resolve of the same
+# row; failing fast beats holding a worker slot or a bot handler.
 LOCK_TIMEOUT_MS = 5000
 
 
@@ -26,18 +27,28 @@ def build_engine(
     use_null_pool: bool = False,
     lock_timeout_ms: int | None = None,
 ) -> AsyncEngine:
-    # a connection-level GUC, not `SET LOCAL`: it must survive the rollback a failed commit performs, which is exactly
-    # when locks matter.
+    # a connection-level GUC, not `SET LOCAL`: it must survive the rollback
+    # a failed commit performs, which is exactly when locks matter.
     connection_arguments = (
         {"server_settings": {"lock_timeout": str(lock_timeout_ms)}} if lock_timeout_ms is not None else {}
     )
 
     if use_null_pool:
         # fresh engine per task already means a fresh connection.
-        return create_async_engine(database_url, poolclass=NullPool, connect_args=connection_arguments)
-    # pool_pre_ping: without it, the first /readyz after a Postgres restart 503s on a pooled-but-dead connection; only
-    # the second is 200.
-    return create_async_engine(database_url, pool_pre_ping=True, connect_args=connection_arguments)
+        return create_async_engine(
+            database_url,
+            poolclass=NullPool,
+            connect_args=connection_arguments,
+            hide_parameters=True,
+        )
+    # pool_pre_ping: the first /readyz after a Postgres restart would 503 on a pooled-but-dead connection.
+    # hide_parameters: a failed statement never logs its values (lyric text).
+    return create_async_engine(
+        database_url,
+        pool_pre_ping=True,
+        connect_args=connection_arguments,
+        hide_parameters=True,
+    )
 
 
 def build_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:

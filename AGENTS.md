@@ -306,8 +306,8 @@ suggest or introduce either.
   UPDATE NOWAIT`, the choosability verdict (`RENDERED`, or `FAILED` from `downloaded`/`rendering`),
   `expected_post_updated_at` (409 `stale_data`), then the track `FOR NO KEY UPDATE`, the `audio_asset`
   of the **current** `youtubeMusic` videoId (409 `audio_missing`), `worker.fragment.validate_chosen_bounds`
-  against the measured duration (422 `invalid_fragment`: the sentence with the numbers), in `RENDERED`
-  the bounds the post already has (409 `fragment_unchanged`), `assign_if_changed` for both bounds and
+  against the measured duration (422 `invalid_fragment`: the sentence with the numbers; the bounds the
+  post already has render again), `assign_if_changed` for both bounds and
   `set_post_status(RENDERING)`; no Telegram call and no broker call inside it. A refused NOWAIT or a hit
   `lock_timeout` is 409 `post_busy`, any other database failure 503. After the commit the task is
   enqueued; a refused enqueue runs `dispatch.mark_dispatch_failure(expected_status=RENDERING)`, so the
@@ -320,6 +320,9 @@ suggest or introduce either.
   `fragment_preview_keyboard_removal_failed`; neither fails the request. The request model refuses extra fields, `bool` and values
   beyond BIGINT; the response is `FragmentRenderStarted`. Logs: `fragment_render_requested`,
   `fragment_render_refused` (`reason`), `fragment_render_dispatched`, never a token.
+- **The lyrics routes**: `GET …/lyrics/synced` and `GET …/lyrics/plain?source=` are synchronous proposals
+  (20 s, no database write except the `source_fetch` cache); `PUT …/lyrics` is the manual save under the
+  track lock, sets `lyrics_edited_at` and has a 96 KiB body ceiling of its own.
 - **Saving fields from the Mini App is one short transaction with no Telegram call**
   (`webapp.editing.save_fields`): the post `FOR UPDATE NOWAIT`, then the track `FOR NO KEY UPDATE`
   (`db.locks.lock_post_without_waiting` / `lock_track_for_write`, the lock the resolve and the

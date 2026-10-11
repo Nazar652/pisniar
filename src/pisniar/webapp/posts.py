@@ -33,6 +33,8 @@ from pisniar.webapp.fragment_choice import (
     release_superseded_preview,
 )
 from pisniar.webapp.fragment_view import build_fragment_view, fetch_fragment_source
+from pisniar.webapp.lyrics_editing import fetch_lyrics_view, replace_lyrics
+from pisniar.webapp.lyrics_proposals import propose_plain_lyrics, propose_synced_lyrics
 from pisniar.webapp.meta import build_meta
 from pisniar.webapp.schemas import (
     POST_ID_MAX,
@@ -51,6 +53,10 @@ from pisniar.webapp.schemas import (
     FragmentRenderStarted,
     FragmentRequest,
     FragmentView,
+    LyricsProposal,
+    LyricsSourceName,
+    LyricsUpdate,
+    LyricsView,
     MetaResponse,
     PostDetail,
     PostListResponse,
@@ -321,6 +327,52 @@ async def publish_cover(
     return CoverPublicationStarted(post_id=post_id, status_label=STATUS_LABELS[PostStatus.PUBLISHING])
 
 
+async def read_lyrics(
+    request: Request,
+    admin: Annotated[AdminUser, Depends(require_admin)],
+    post_id: Annotated[int, Path(ge=1, le=POST_ID_MAX)],
+) -> LyricsView:
+    async with refusals_logged("lyrics_view_refused", admin.user_id, post_id):
+        view = await read_from_database(request, lambda session: fetch_lyrics_view(session, post_id, admin.user_id))
+        if view is None:
+            raise ApiProblem(404, "post_not_found", POST_NOT_FOUND_MESSAGE)
+        return view
+
+
+async def save_lyrics(
+    request: Request,
+    update: LyricsUpdate,
+    admin: Annotated[AdminUser, Depends(require_admin)],
+    post_id: Annotated[int, Path(ge=1, le=POST_ID_MAX)],
+) -> LyricsView:
+    async with refusals_logged("lyrics_save_refused", admin.user_id, post_id):
+        saved = await write_to_database(
+            request, lambda session: replace_lyrics(session, post_id, update, admin.user_id)
+        )
+        if saved is None:
+            raise ApiProblem(404, "post_not_found", POST_NOT_FOUND_MESSAGE)
+        return saved
+
+
+async def find_synced_lyrics(
+    request: Request,
+    admin: Annotated[AdminUser, Depends(require_admin)],
+    post_id: Annotated[int, Path(ge=1, le=POST_ID_MAX)],
+) -> LyricsProposal:
+    async with refusals_logged("lyrics_lookup_refused", admin.user_id, post_id):
+        return await propose_synced_lyrics(request, post_id, admin.user_id)
+
+
+async def find_plain_lyrics(
+    request: Request,
+    source: Annotated[LyricsSourceName, Query()],
+    admin: Annotated[AdminUser, Depends(require_admin)],
+    post_id: Annotated[int, Path(ge=1, le=POST_ID_MAX)],
+) -> LyricsProposal:
+    async with refusals_logged("lyrics_lookup_refused", admin.user_id, post_id):
+        return await propose_plain_lyrics(request, post_id, source, admin.user_id)
+
+
 async def read_meta() -> MetaResponse:
     return build_meta()
 
@@ -380,6 +432,37 @@ def register_post_routes(app: FastAPI) -> None:
         publish_cover,
         methods=["POST"],
         response_model=CoverPublicationStarted,
+        responses=EDIT_ERROR_RESPONSES,
+        dependencies=protected,
+    )
+    app.add_api_route(
+        "/api/posts/{post_id}/lyrics",
+        read_lyrics,
+        methods=["GET"],
+        response_model=LyricsView,
+        responses=EDIT_ERROR_RESPONSES,
+        dependencies=protected,
+    )
+    app.add_api_route(
+        "/api/posts/{post_id}/lyrics",
+        save_lyrics,
+        methods=["PUT"],
+        response_model=LyricsView,
+        responses=EDIT_ERROR_RESPONSES,
+    )
+    app.add_api_route(
+        "/api/posts/{post_id}/lyrics/synced",
+        find_synced_lyrics,
+        methods=["GET"],
+        response_model=LyricsProposal,
+        responses=EDIT_ERROR_RESPONSES,
+        dependencies=protected,
+    )
+    app.add_api_route(
+        "/api/posts/{post_id}/lyrics/plain",
+        find_plain_lyrics,
+        methods=["GET"],
+        response_model=LyricsProposal,
         responses=EDIT_ERROR_RESPONSES,
         dependencies=protected,
     )
