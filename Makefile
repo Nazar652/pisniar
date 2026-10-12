@@ -9,7 +9,7 @@ COMPOSE := docker compose
 .PHONY: help sync lock-check fmt fmt-check lint typecheck test check \
 	frontend-sync frontend-typecheck frontend-lint frontend-format frontend-test frontend-bundle \
 	api-types api-types-check frontend-build frontend-watch \
-	build up down ps logs restart clean test-int test-fonts migrate revision downgrade \
+	build up down ps logs restart clean test-int test-fonts test-media migrate revision downgrade \
 	alembic-check psql shell verify funnel-init funnel-up funnel-down dev-token peaks \
 	bench-render
 
@@ -111,12 +111,16 @@ clean: ## docker compose down -v (also drops the postgres volume)
 
 # the unit suite runs on the host in `make check`; test_bench.py is Linux-only, so it runs here as well.
 test-int: ## integration tests and the Linux-only bench test inside the bot container
-	$(COMPOSE) run --rm bot pytest -q -m "not fonts" tests/integration tests/unit/worker/test_bench.py
+	$(COMPOSE) run --rm bot pytest -q -m "not fonts and not media" tests/integration tests/unit/worker/test_bench.py
 
 # separate from `test-int`: the fonts live only in the worker image, and a missing font family
 # falls back silently, so this is what stops a typo in `ass.FONT_FAMILY` reaching a video.
 test-fonts: ## the ASS font family against `fc-list`, inside the worker container
 	$(COMPOSE) run --rm worker pytest -q -m fonts
+
+# ffmpeg exists only in the worker image, so the real-render smoke test runs there, not in `test-int`.
+test-media: ## the turntable render with the real ffmpeg, frames and ffprobe, inside the worker container
+	$(COMPOSE) run --rm worker pytest -q -m media
 
 # `upgrade head` skips a revision that changed after it was applied, and says nothing;
 # `alembic check` is the only thing that notices the missing schema.
@@ -162,7 +166,7 @@ funnel-down: ## stop and remove the Funnel container; the node state stays on it
 dev-token: ## print a session token for an admin, for a browser outside Telegram: make dev-token u=<user id>
 	$(COMPOSE) exec webapp python -m pisniar.webapp.dev_token --user-id $(u)
 
-verify: check build up ps alembic-check test-int ## check, build, up, ps, alembic-check, test-int, then down -v and re-up from a clean slate
+verify: check build up ps alembic-check test-int test-media ## check, build, up, ps, alembic-check, test-int, test-media, then down -v and re-up from a clean slate
 	$(COMPOSE) down -v
 	$(COMPOSE) up -d --wait
 	$(COMPOSE) ps

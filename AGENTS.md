@@ -39,6 +39,7 @@ make up           # docker compose up -d --wait
 make ps            # docker compose ps
 make test-int      # integration tests and the Linux-only bench test inside the bot container
 make test-fonts    # the subtitle font and the glyph-width table, inside the worker container
+make test-media    # the turntable render with the real ffmpeg: ffprobe facts and frame pixels, inside the worker container
 make migrate       # alembic upgrade head inside the bot container
 make revision m="add lyric table"   # alembic revision --autogenerate
 make alembic-check # alembic check: model/migration drift

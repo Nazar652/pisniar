@@ -66,6 +66,7 @@ asyncio_default_test_loop_scope = "function"
 markers = [
     "integration: requires a running Postgres/Redis (run inside docker compose)",
     "fonts: requires fontconfig and the worker image's fonts (run via `make test-fonts`)",
+    "media: renders with the real ffmpeg of the worker image (run via `make test-media`)",
 ]
 
 [dependency-groups]
