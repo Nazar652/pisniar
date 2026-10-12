@@ -169,10 +169,6 @@ def test_the_detail_judges_the_fragment_from_the_status_alone() -> None:
         reason=None,
     )
     assert ready.fragment.cancellable is True
-    assert (
-        build_post_detail(make_post(PostStatus.EDITING, preview_message_id=99), make_track(), []).fragment.cancellable
-        is False
-    )
     assert (resolved.fragment.cancellable, downloading.fragment.cancellable) == (False, False)
     assert published.fragment.choosable is False
     assert published.fragment.reason

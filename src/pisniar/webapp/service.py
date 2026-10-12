@@ -139,7 +139,7 @@ def build_post_detail(
     other_post_ids: list[int],
 ) -> PostDetail:
     editability = editability_of(post.status, post.failed_from_status)
-    choosability = choosability_of(post.status, post.failed_from_status, post.preview_message_id is not None)
+    choosability = choosability_of(post.status, post.failed_from_status)
     cover = cover_publication_of(post.status, post.failed_from_status, post.preview_message_id is not None)
     caption_view, rebuilt_html = rebuild_caption(post, track)
 

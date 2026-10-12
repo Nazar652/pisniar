@@ -49,28 +49,16 @@ async def remove_preview_keyboard(
 ) -> None:
     """a superseded preview must not offer publication. Cosmetic, so a Telegram refusal is logged with the post and
     never raised."""
-    try:
-        await bot.edit_message_reply_markup(
-            chat_id=chat_id,
-            message_id=message_id,
-            reply_markup=None,
-            request_timeout=request_timeout,
-        )
-    except TelegramAPIError as error:
-        if classify_edit_error(error) is EditOutcome.NOT_MODIFIED:
-            logger.info(
-                "preview_superseded_keyboard_already_removed",
-                post_id=post_id,
-                message_id=message_id,
-            )
-            return
-        logger.warning(
-            "preview_superseded_keyboard_removal_failed",
-            post_id=post_id,
-            chat_id=chat_id,
-            message_id=message_id,
-            exc_info=True,
-        )
+    await set_keyboard_quietly(
+        bot,
+        chat_id,
+        message_id,
+        post_id,
+        None,
+        request_timeout,
+        failure_event="preview_superseded_keyboard_removal_failed",
+        unchanged_event="preview_superseded_keyboard_already_removed",
+    )
 
 
 async def restore_draft_keyboard(
@@ -83,23 +71,15 @@ async def restore_draft_keyboard(
 ) -> None:
     """a draft that went back from a cancelled preparation gets its buttons again. Cosmetic: an unchanged keyboard is a
     success and a Telegram refusal is logged, never raised."""
-    try:
-        await bot.edit_message_reply_markup(
-            chat_id=chat_id,
-            message_id=message_id,
-            reply_markup=reply_markup,
-            request_timeout=request_timeout,
-        )
-    except TelegramAPIError as error:
-        if classify_edit_error(error) is EditOutcome.NOT_MODIFIED:
-            return
-        logger.warning(
-            "draft_keyboard_restore_failed",
-            post_id=post_id,
-            chat_id=chat_id,
-            message_id=message_id,
-            exc_info=True,
-        )
+    await set_keyboard_quietly(
+        bot,
+        chat_id,
+        message_id,
+        post_id,
+        reply_markup,
+        request_timeout,
+        failure_event="draft_keyboard_restore_failed",
+    )
 
 
 async def remove_draft_keyboard(
@@ -110,19 +90,41 @@ async def remove_draft_keyboard(
     request_timeout: int | None = None,
 ) -> None:
     """otherwise the cover photo could still go out instead of the video. Cosmetic (the status transition is the real
-    guard), so it never raises."""
+    guard), so it never raises. A keyboard that is already gone is a success."""
+    await set_keyboard_quietly(
+        bot,
+        chat_id,
+        message_id,
+        post_id,
+        None,
+        request_timeout,
+        failure_event="draft_keyboard_removal_failed",
+    )
+
+
+async def set_keyboard_quietly(
+    bot: Bot,
+    chat_id: int,
+    message_id: int,
+    post_id: int,
+    reply_markup: InlineKeyboardMarkup | None,
+    request_timeout: int | None,
+    *,
+    failure_event: str,
+    unchanged_event: str | None = None,
+) -> None:
+    """one cosmetic `editMessageReplyMarkup`: «not modified» is a success (logged as `unchanged_event` when given),
+    any other Telegram refusal a warning named `failure_event`. Never raises a Telegram error."""
     try:
         await bot.edit_message_reply_markup(
             chat_id=chat_id,
             message_id=message_id,
-            reply_markup=None,
+            reply_markup=reply_markup,
             request_timeout=request_timeout,
         )
-    except TelegramAPIError:
-        logger.warning(
-            "draft_keyboard_removal_failed",
-            post_id=post_id,
-            chat_id=chat_id,
-            message_id=message_id,
-            exc_info=True,
-        )
+    except TelegramAPIError as error:
+        if classify_edit_error(error) is EditOutcome.NOT_MODIFIED:
+            if unchanged_event is not None:
+                logger.info(unchanged_event, post_id=post_id, message_id=message_id)
+            return
+        logger.warning(failure_event, post_id=post_id, chat_id=chat_id, message_id=message_id, exc_info=True)

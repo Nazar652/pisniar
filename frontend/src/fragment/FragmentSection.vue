@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, defineAsyncComponent, inject, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { ApiClient } from '../api/client'
 import type { Schemas } from '../api/outcome'
+import { LEAVE_GUARD, confirmDiscardOthers } from '../app/leaveGuard'
+import { confirmWith } from '../telegram/actions'
 import type { WebApp } from '../telegram/useTelegram'
 import { formatTime } from './bounds'
 import { useAudioPreparation } from './useAudioPreparation'
@@ -22,7 +24,10 @@ const props = defineProps<{
 const emit = defineEmits<{ submitted: []; prepared: []; cancelled: [] }>()
 
 const opened = ref(false)
-const editor = useFragmentEditor(props.client, props.postId, () => emit('submitted'))
+const leaveGuard = inject(LEAVE_GUARD, null)
+const confirm = confirmWith(props.webApp)
+const keepOthers = () => confirmDiscardOthers(leaveGuard, 'fragment', confirm)
+const editor = useFragmentEditor(props.client, props.postId, () => emit('submitted'), keepOthers)
 const preparation = useAudioPreparation(props.client, props.postId, () => {
   opened.value = true
   emit('prepared')
@@ -35,8 +40,14 @@ const cancellation = useCancelPreparation(
     if (cancelled) opened.value = false
     emit('cancelled')
   },
+  keepOthers,
 )
 const chunk = useLoadRetry()
+
+watch(
+  () => props.postStamp,
+  (stamp) => editor.adoptStamp(stamp),
+)
 
 // the editor and wavesurfer load only when the admin opens it, so the post editor stays light
 const FragmentEditor = defineAsyncComponent({

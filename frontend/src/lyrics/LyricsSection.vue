@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { defineAsyncComponent, ref } from 'vue'
+import { defineAsyncComponent, inject, ref } from 'vue'
 import type { ApiClient } from '../api/client'
+import { LEAVE_GUARD, confirmDiscardOthers } from '../app/leaveGuard'
 import { useLoadRetry } from '../fragment/useLoadRetry'
 import { confirmWith } from '../telegram/actions'
 import type { WebApp } from '../telegram/useTelegram'
@@ -17,9 +18,12 @@ const props = defineProps<{
 const emit = defineEmits<{ saved: [] }>()
 
 const opened = ref(false)
+const leaveGuard = inject(LEAVE_GUARD, null)
+const confirm = confirmWith(props.webApp)
 const editor = useLyricsEditor(props.client, props.postId, {
-  confirm: confirmWith(props.webApp),
+  confirm,
   onSaved: () => emit('saved'),
+  beforeRender: () => confirmDiscardOthers(leaveGuard, 'lyrics', confirm),
 })
 const chunk = useLoadRetry()
 

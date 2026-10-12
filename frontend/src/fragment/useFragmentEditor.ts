@@ -31,7 +31,13 @@ const DEAD_END_CODES = new Set([
   'post_not_found',
 ])
 
-export function useFragmentEditor(client: ApiClient, postId: number, onSubmitted?: () => void) {
+// `beforeSubmit` answers false when the admin declines to go on, e.g. over other unsaved work
+export function useFragmentEditor(
+  client: ApiClient,
+  postId: number,
+  onSubmitted?: () => void,
+  beforeSubmit?: () => Promise<boolean>,
+) {
   const status = ref<FragmentStatus>('loading')
   const message = ref('')
   const view = shallowRef<FragmentView | null>(null)
@@ -86,6 +92,12 @@ export function useFragmentEditor(client: ApiClient, postId: number, onSubmitted
     return true
   }
 
+  // the post changed elsewhere (a field save) and the screen read it again: the next submit carries that stamp,
+  // so it is not refused as stale and the dragged bounds stay
+  function adoptStamp(stamp: string): void {
+    if (view.value !== null) expectedUpdatedAt = stamp
+  }
+
   // a drag in progress is only kept inside the rules; a drop also lands on the 100 ms grid
   function moveTo(next: Bounds, moved: Moved, dropped: boolean): void {
     const current = limits.value
@@ -118,6 +130,8 @@ export function useFragmentEditor(client: ApiClient, postId: number, onSubmitted
   }
 
   async function submit(): Promise<void> {
+    if (!canSubmit.value) return
+    if (beforeSubmit !== undefined && !(await beforeSubmit())) return
     if (!canSubmit.value) return
     status.value = 'submitting'
     message.value = ''
@@ -171,6 +185,7 @@ export function useFragmentEditor(client: ApiClient, postId: number, onSubmitted
     canSubmit,
     dirty,
     load,
+    adoptStamp,
     moveTo,
     nudgeEdge,
     setEdgeAt,

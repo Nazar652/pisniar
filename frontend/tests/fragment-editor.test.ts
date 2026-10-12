@@ -214,6 +214,33 @@ describe('useFragmentEditor bounds', () => {
 
     expect(editor.canSubmit.value).toBe(true)
   })
+
+  it('submits with the stamp the post was last read with, keeping the dragged bounds', async () => {
+    const server = serverWith([makeFragmentView({ post_updated_at: MICRO_STAMP })])
+    const editor = await loaded(server)
+    editor.nudgeEdge('end', 1000)
+
+    editor.adoptStamp('2026-10-10T08:00:00.000001Z')
+    await editor.submit()
+
+    expect(lastBody(server)).toMatchObject({
+      end_ms: 46_000,
+      expected_post_updated_at: '2026-10-10T08:00:00.000001Z',
+    })
+  })
+
+  it('ignores a stamp before the view has loaded', async () => {
+    const server = serverWith([makeFragmentView({ post_updated_at: MICRO_STAMP })])
+    const editor = useFragmentEditor(server.client, 7)
+
+    editor.adoptStamp('2026-10-10T08:00:00.000001Z')
+    await editor.load()
+    await editor.submit()
+
+    expect(lastBody(server)).toMatchObject({
+      expected_post_updated_at: '2026-10-09T12:34:56.123456Z',
+    })
+  })
 })
 
 describe('useFragmentEditor submit', () => {

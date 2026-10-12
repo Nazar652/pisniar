@@ -203,6 +203,22 @@ async def test_a_failed_keyboard_removal_never_raises_and_warns(
     assert fake_logger.warning.call_args.kwargs["post_id"] == 7
 
 
+async def test_a_draft_keyboard_that_is_already_gone_is_a_success_not_a_warning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_logger = MagicMock()
+    monkeypatch.setattr(preview_module, "logger", fake_logger)
+    bot = AsyncMock()
+    bot.edit_message_reply_markup.side_effect = TelegramBadRequest(
+        method=SendVideo(chat_id=555, video="x"),
+        message="Bad Request: message is not modified: specified new message content",
+    )
+
+    await remove_draft_keyboard(bot, 555, 41, 7)
+
+    fake_logger.warning.assert_not_called()
+
+
 async def test_a_restored_draft_keyboard_is_sent_with_the_markup_and_the_timeout() -> None:
     bot = AsyncMock()
     markup = preview_keyboard(7)

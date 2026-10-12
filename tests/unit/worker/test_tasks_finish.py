@@ -56,6 +56,9 @@ class FakeSession:
         self.state.order.append("execute")
         self.state.statements.append(statement)
 
+    async def scalars(self, statement: object) -> list[str]:
+        return list(self.state.earlier_hashes)
+
     async def commit(self) -> None:
         self.state.order.append("commit")
 
@@ -65,7 +68,7 @@ class FakeSession:
 
 @pytest.fixture
 def database() -> SimpleNamespace:
-    state = SimpleNamespace(post=None, lock_error=False, order=[], statements=[])
+    state = SimpleNamespace(post=None, lock_error=False, order=[], statements=[], earlier_hashes=[])
     state.session_factory = lambda: FakeSession(state)
     return state
 
@@ -339,6 +342,63 @@ async def test_a_failed_new_preview_keeps_the_old_reference_and_removes_nothing(
     assert database.post.preview_message_id == OLD_PREVIEW_MESSAGE_ID
     assert database.post.preview_params_hash == OLD_PARAMS_HASH
     superseded_removal.assert_not_awaited()
+
+
+async def test_a_new_preview_removes_the_files_of_the_earlier_renders_after_the_commit(
+    database: SimpleNamespace,
+    preview: AsyncMock,
+    superseded_removal: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    removed: list[tuple[int, str]] = []
+
+    def remove(media_root: Path, post_id: int, params_hash: str) -> None:
+        database.order.append("files")
+        removed.append((post_id, params_hash))
+
+    monkeypatch.setattr(worker_tasks.media_storage, "remove_render_files", remove)
+    database.post = make_previewed_post(PostStatus.RENDERING)
+    database.earlier_hashes = [OLD_PARAMS_HASH, "c" * 64]
+
+    await worker_tasks.finish_render(database.session_factory, RENDER_CLAIM, RENDER_OUTCOME)
+
+    assert removed == [(POST_ID, OLD_PARAMS_HASH), (POST_ID, "c" * 64)]
+    assert database.order.index("files") > database.order.index("commit")
+
+
+async def test_a_failed_removal_of_earlier_files_never_fails_the_post(
+    database: SimpleNamespace,
+    preview: AsyncMock,
+    superseded_removal: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(worker_tasks.media_storage, "remove_render_files", MagicMock(side_effect=PermissionError("ro")))
+    database.post = make_previewed_post(PostStatus.RENDERING)
+    database.earlier_hashes = [OLD_PARAMS_HASH]
+
+    reference = await worker_tasks.finish_render(database.session_factory, RENDER_CLAIM, RENDER_OUTCOME)
+
+    assert reference is not None
+    assert database.post.status is PostStatus.RENDERED
+
+
+def test_the_render_files_of_one_hash_are_removed_and_the_others_kept(tmp_path: Path) -> None:
+    storage = worker_tasks.media_storage
+    old, current = "b" * 64, "a" * 64
+    for params_hash in (old, current):
+        for path in (
+            storage.render_file_path(tmp_path, POST_ID, params_hash),
+            storage.thumbnail_file_path(tmp_path, POST_ID, params_hash),
+        ):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"x")
+
+    storage.remove_render_files(tmp_path, POST_ID, old)
+
+    assert not storage.render_file_path(tmp_path, POST_ID, old).exists()
+    assert not storage.thumbnail_file_path(tmp_path, POST_ID, old).exists()
+    assert storage.render_file_path(tmp_path, POST_ID, current).exists()
+    assert storage.thumbnail_file_path(tmp_path, POST_ID, current).exists()
 
 
 def patch_bot_client(monkeypatch: pytest.MonkeyPatch, bot: object) -> None:

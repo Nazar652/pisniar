@@ -36,7 +36,6 @@ ALLOWED_TRANSITIONS: dict[PostStatus, frozenset[PostStatus]] = {
     PostStatus.RESOLVED: frozenset(
         {
             PostStatus.PUBLISHING,
-            PostStatus.EDITING,
             PostStatus.DOWNLOADING,
             PostStatus.ARCHIVED,
         }
@@ -49,9 +48,7 @@ ALLOWED_TRANSITIONS: dict[PostStatus, frozenset[PostStatus]] = {
     PostStatus.RENDERING: frozenset(
         {PostStatus.RENDERED, PostStatus.FAILED, PostStatus.RENDERING, PostStatus.ARCHIVED}
     ),
-    PostStatus.RENDERED: frozenset(
-        {PostStatus.PUBLISHING, PostStatus.EDITING, PostStatus.RENDERING, PostStatus.ARCHIVED}
-    ),
+    PostStatus.RENDERED: frozenset({PostStatus.PUBLISHING, PostStatus.RENDERING, PostStatus.ARCHIVED}),
     PostStatus.PUBLISHING: frozenset(
         {PostStatus.PUBLISHED, PostStatus.FAILED, PostStatus.PUBLISHING, PostStatus.ARCHIVED}
     ),

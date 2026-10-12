@@ -86,6 +86,8 @@ COVER_IN_EDITOR_ANSWER = (
 )
 ALREADY_PUBLISHING_ANSWER = "Пост {post_id} уже публікується."
 MEDIA_FAILED_STAGES = MEDIA_IN_PROGRESS_STATUSES | {PostStatus.EDITING}
+# a failure here leaves a video to redo; a download failure still allows the cover alone
+VIDEO_FAILED_STAGES = frozenset({PostStatus.DOWNLOADED, PostStatus.RENDERING})
 OUTDATED_PREVIEW_ANSWER = "Пост {post_id}: це застаріле прев'ю. Публікуйте кнопкою під найновішим прев'ю."
 MEDIA_FAILED_PUBLISH_ANSWER = (
     "Відео для поста {post_id} не вдалося підготувати, тож кнопка публікації тут не діє. Спробуйте /retry {post_id}."
@@ -590,6 +592,15 @@ def claim_post_for_publishing(
         return AUDIO_READY_ANSWER.format(post_id=post_id), None
 
     if post.preview_message_id is None:
+        if post.status is PostStatus.FAILED and post.failed_from_status in VIDEO_FAILED_STAGES:
+            logger.warning(
+                "publish_refused",
+                reason="media_stage_failed",
+                failed_from=str(post.failed_from_status),
+                user_id=user_id,
+                post_id=post_id,
+            )
+            return MEDIA_FAILED_PUBLISH_ANSWER.format(post_id=post_id), None
         # the cover alone is published from the editor; a chat tap needs a video preview.
         logger.warning(
             "publish_refused",

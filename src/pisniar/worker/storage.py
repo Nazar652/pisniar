@@ -202,6 +202,16 @@ def remove_post_artifacts(media_root: Path, post_id: int) -> None:
     logger.info("media_post_artifacts_removed", post_id=post_id, path=str(directory))
 
 
+def remove_render_files(media_root: Path, post_id: int, params_hash: str) -> None:
+    """the video and its thumbnail of one render, nothing else; the row stays as the record."""
+    for path in (
+        render_file_path(media_root, post_id, params_hash),
+        thumbnail_file_path(media_root, post_id, params_hash),
+    ):
+        path.unlink(missing_ok=True)
+    logger.info("media_render_files_removed", post_id=post_id, params_hash=params_hash)
+
+
 def remove_track_artifacts(media_root: Path, track_id: int) -> None:
     """the audio half of the same rule. Audio is otherwise kept: this is the deletion path, not a sweeper."""
     directory = audio_directory(media_root, track_id)

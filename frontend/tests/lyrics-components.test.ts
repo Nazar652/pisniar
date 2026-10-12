@@ -229,7 +229,7 @@ describe('LyricsEditor', () => {
   })
 
   it('reports unsaved text to the leave guard, and clean text as nothing to lose', async () => {
-    const guard = { setDirty: vi.fn(), leave: vi.fn() }
+    const guard = { setDirty: vi.fn(), leave: vi.fn(), othersDirty: vi.fn() }
     const dirty = await loadedEditor()
     dirty.edit(0, 'Змінений')
     const app = createSSRApp(LyricsEditor, { editor: dirty, webApp: undefined })

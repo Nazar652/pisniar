@@ -217,6 +217,18 @@ async def test_a_publish_tap_on_a_draft_is_refused_with_the_editor_pointer(
     assert tap.callback.answer.await_args.args[0] == handlers.COVER_IN_EDITOR_ANSWER.format(post_id=POST_ID)
 
 
+@pytest.mark.parametrize("failed_from", [PostStatus.DOWNLOADED, PostStatus.RENDERING])
+async def test_a_publish_tap_on_a_draft_whose_video_failed_points_at_retry(
+    failed_from: PostStatus, tap: SimpleNamespace
+) -> None:
+    tap.post = make_post(PostStatus.FAILED, failed_from_status=failed_from)
+
+    await tap_publish(tap)
+
+    tap.celery_client.send_task.assert_not_called()
+    assert tap.callback.answer.await_args.args[0] == handlers.MEDIA_FAILED_PUBLISH_ANSWER.format(post_id=POST_ID)
+
+
 async def test_a_render_tap_runs_database_then_keyboard_then_dispatch(
     tap: SimpleNamespace,
 ) -> None:

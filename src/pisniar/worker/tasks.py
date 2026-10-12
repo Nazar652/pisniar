@@ -1124,6 +1124,8 @@ async def claim_post_for_downloading(
         )
 
         set_post_status(post, PostStatus.DOWNLOADING)
+        # the DOWNLOADING self-edge changes no column, so onupdate never fires
+        post.updated_at = datetime.now(UTC)
         await session.commit()
 
     logger.info("download_post_audio_claimed", post_id=post_id, track_id=claim.track_id)
@@ -1743,6 +1745,13 @@ async def finish_render(
             return None
 
         await session.execute(upsert_render_statement(claim, outcome))
+        earlier_hashes = list(
+            await session.scalars(
+                select(Render.params_hash).where(
+                    Render.post_id == claim.post_id, Render.params_hash != outcome.params_hash
+                )
+            )
+        )
 
         # plain values: the ORM attributes are overwritten by the new preview below.
         superseded = (
@@ -1770,6 +1779,7 @@ async def finish_render(
 
     if superseded is not None:
         await remove_superseded_preview_keyboard(claim.post_id, superseded)
+    remove_earlier_render_files(claim.post_id, earlier_hashes)
 
     logger.info(
         "render_post_video_finished",
@@ -1795,6 +1805,15 @@ async def remove_superseded_preview_keyboard(post_id: int, superseded: PreviewRe
         logger.error("render_post_video_superseded_keyboard_timed_out", post_id=post_id)
     except Exception:
         logger.warning("render_post_video_superseded_keyboard_failed", post_id=post_id, exc_info=True)
+
+
+def remove_earlier_render_files(post_id: int, params_hashes: list[str]) -> None:
+    """after the commit that moved the preview to the new file; a failure is a warning, never a failed post."""
+    for params_hash in params_hashes:
+        try:
+            media_storage.remove_render_files(settings.media_root, post_id, params_hash)
+        except (OSError, media_storage.MediaPathError):
+            logger.warning("render_post_video_earlier_files_not_removed", post_id=post_id, exc_info=True)
 
 
 def rendered_video(outcome: RenderOutcome) -> RenderedVideo:

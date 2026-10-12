@@ -184,7 +184,8 @@ worker image.
   last** — so a tap the database declined never loses its own button, and a
   double tap has nothing left to press. A publish tap on a post with no preview (an old
   draft's button) is refused with `COVER_IN_EDITOR_ANSWER` (reason `cover_publication_in_editor`)
-  and the post is untouched; with a preview it must come from exactly that preview message
+  and the post is untouched (a `failed` post from `downloaded`/`rendering` gets the `/retry` pointer
+  instead, reason `media_stage_failed`); with a preview it must come from exactly that preview message
   (chat id and message id, an inaccessible message counts), else it is refused as outdated;
   a tap on a `failed` post whose failed stage is a media one is refused with a
   pointer to `/retry`. «Зробити відео» on a `PUBLISHING` post answers that it is publishing.
@@ -263,7 +264,8 @@ worker image.
   first three true (`RESOLVED` and `FAILED(downloading)` are preparable, `DOWNLOADING` is preparing;
   `cancellable` is `EDITING` alone). `PostDetail.cover_publication {allowed, reason}` is
   `status.cover_publication_of(status, failed_from_status, has_preview)`: allowed for `RESOLVED` and
-  `FAILED` from `downloading`/`publishing`, only without a preview.
+  `FAILED` from `downloading`/`publishing`, only without a preview; `FAILED` from `downloaded`/`rendering`
+  answers the `/retry` sentence with or without one.
 - **`POST /api/posts/{id}/fragment/audio` prepares the audio before the first render**
   (`webapp.audio_preparation`), in the order database, queue, draft keyboard: post `FOR UPDATE
   NOWAIT`, the preparable verdict (409 `not_preparable`; «Аудіо вже підготовлено.» when choosable),
@@ -282,7 +284,7 @@ worker image.
   The `youtubeMusic` -> videoId parsing is `resolve.urls.stored_link_url` + `track_video_id_of`.
 - **`POST /api/posts/{id}/fragment/cancel` gives the prepared audio up** (`webapp.audio_preparation`,
   body `{expected_post_updated_at}` with extra fields refused, no task): post `FOR UPDATE NOWAIT`, the
-  verdict `status.cancellation_refusal_of` (only `EDITING` without a preview; else 409
+  verdict `status.cancellation_refusal_of` (only `EDITING`, which a previewed post never reaches; else 409
   `not_cancellable` with a sentence, «Рендер уже почався…» once a render began; `choosability_of`
   derives `cancellable` from the same function), 409 `stale_data` on a stamp mismatch, the track `FOR NO KEY UPDATE`, `set_post_status(RESOLVED)` through the existing
   `EDITING -> RESOLVED` edge, commit. After it `telegram.preview.restore_draft_keyboard` puts the
@@ -743,7 +745,9 @@ worker image.
   an orphan file is the safer half. Retention: the video is removed
   after a **successful** publication (Telegram holds the copy now), audio
   is never removed, and there is no sweeper. The `render` row stays as the
-  record of what was published; only its file is gone.
+  record of what was published; only its file is gone. A new preview also
+  removes, best effort after its commit, the `.mp4` and `.jpg` of the post's
+  other `render` rows, keeping the file `preview_params_hash` points at.
 - **The thumbnail is derived, not stored.** `<params_hash>.jpg` sits beside
   its `.mp4`, cut from the rendered file's own first frame, so it needs no
   column and the same directory removal takes both. It is cosmetic:

@@ -41,6 +41,8 @@ export interface LyricsDeps {
   confirm: Confirm
   // called after the text is stored; `rendered` says whether a render was queued with it
   onSaved?: (rendered: boolean) => void
+  // asked before a save that queues a render; false when the admin declines, e.g. over other unsaved work
+  beforeRender?: () => Promise<boolean>
 }
 
 export const PLAIN_SOURCES: { key: PlainSource; label: string }[] = [
@@ -439,6 +441,8 @@ export function useLyricsEditor(client: ApiClient, postId: number, deps: LyricsD
   async function save(thenRender = false): Promise<boolean> {
     const current = view.value
     if (current === null || !(thenRender ? canRender.value : canSave.value)) return false
+    if (thenRender && deps.beforeRender !== undefined && !(await deps.beforeRender())) return false
+    if (!(thenRender ? canRender.value : canSave.value)) return false
     status.value = 'saving'
     say('', false)
     const wrote = dirty.value

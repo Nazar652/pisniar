@@ -10,6 +10,7 @@ export function useCancelPreparation(
   postId: number,
   postStamp: () => string,
   onFinished?: (cancelled: boolean) => void,
+  beforeCancel?: () => Promise<boolean>,
 ) {
   const busy = ref(false)
   const failed = ref(false)
@@ -21,6 +22,7 @@ export function useCancelPreparation(
     failed.value = false
     message.value = ''
     try {
+      if (beforeCancel !== undefined && !(await beforeCancel())) return
       const answer = await outcomeOf(
         client.POST('/api/posts/{post_id}/fragment/cancel', {
           params: { path: { post_id: postId } },

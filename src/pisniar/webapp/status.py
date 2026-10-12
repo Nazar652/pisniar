@@ -86,16 +86,11 @@ class Choosability:
     cancellable: bool = False
 
 
-def choosability_of(
-    status: PostStatus,
-    failed_from_status: PostStatus | None,
-    has_preview: bool = False,
-) -> Choosability:
+def choosability_of(status: PostStatus, failed_from_status: PostStatus | None) -> Choosability:
     """a fragment is chosen once the audio is ready (before the first render) or on a previewed
     video; the reason is a sentence for the admin, never the name of the state."""
     if status is PostStatus.EDITING:
-        cancellable = cancellation_refusal_of(status, has_preview) is None
-        return Choosability(True, False, False, None, cancellable=cancellable)
+        return Choosability(True, False, False, None, cancellable=True)
     if status is PostStatus.RENDERED:
         return Choosability(True, False, False, None)
     if status is PostStatus.RESOLVED:
@@ -116,9 +111,9 @@ RENDER_STARTED_REASON = "Рендер уже почався — скасуват
 RENDER_STARTED_STATUSES = frozenset({PostStatus.DOWNLOADED, PostStatus.RENDERING, PostStatus.RENDERED})
 
 
-def cancellation_refusal_of(status: PostStatus, has_preview: bool) -> str | None:
+def cancellation_refusal_of(status: PostStatus) -> str | None:
     """`None` when the prepared audio can be given up; otherwise a sentence without a state name."""
-    if status is PostStatus.EDITING and not has_preview:
+    if status is PostStatus.EDITING:
         return None
     if status in RENDER_STARTED_STATUSES:
         return RENDER_STARTED_REASON
@@ -164,6 +159,9 @@ def cover_publication_of(
     if status in (PostStatus.PUBLISHED, PostStatus.ARCHIVED):
         return CoverPublication(False, COVER_REFUSAL_REASONS[status])
     if has_preview:
+        if status is PostStatus.FAILED and failed_from_status in CHOOSABLE_FAILURE_STAGES:
+            # the preview button is refused for a failed media stage, so /retry is the way on
+            return CoverPublication(False, COVER_RENDER_FAILED_REASON)
         return CoverPublication(False, COVER_HAS_VIDEO_REASON)
     if status is PostStatus.RESOLVED:
         return CoverPublication(True, None)

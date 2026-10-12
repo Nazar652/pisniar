@@ -21,7 +21,6 @@ EXPECTED_TRANSITIONS = {
     },
     PostStatus.RESOLVED: {
         PostStatus.PUBLISHING,
-        PostStatus.EDITING,
         PostStatus.DOWNLOADING,
         PostStatus.ARCHIVED,
     },
@@ -41,7 +40,6 @@ EXPECTED_TRANSITIONS = {
     },
     PostStatus.RENDERED: {
         PostStatus.PUBLISHING,
-        PostStatus.EDITING,
         PostStatus.RENDERING,
         PostStatus.ARCHIVED,
     },
@@ -160,21 +158,15 @@ def test_ready_audio_can_have_its_fragment_chosen_and_be_given_up() -> None:
 
 @pytest.mark.parametrize("current", list(PostStatus))
 @pytest.mark.parametrize("stage", [None, *PostStatus])
-@pytest.mark.parametrize("has_preview", [False, True])
-def test_cancellable_follows_the_cancel_refusal_rule(
-    current: PostStatus,
-    stage: PostStatus | None,
-    has_preview: bool,
-) -> None:
-    refusal = status.cancellation_refusal_of(current, has_preview)
+def test_cancellable_follows_the_cancel_refusal_rule(current: PostStatus, stage: PostStatus | None) -> None:
+    refusal = status.cancellation_refusal_of(current)
 
-    assert choosability_of(current, stage, has_preview).cancellable == (refusal is None)
+    assert choosability_of(current, stage).cancellable == (refusal is None)
 
 
-def test_ready_audio_that_already_has_a_preview_is_not_cancellable() -> None:
-    verdict = choosability_of(PostStatus.EDITING, None, True)
-
-    assert (verdict.choosable, verdict.cancellable) == (True, False)
+def test_a_post_cannot_reach_editing_from_a_draft_or_a_preview() -> None:
+    assert PostStatus.EDITING not in ALLOWED_TRANSITIONS[PostStatus.RESOLVED]
+    assert PostStatus.EDITING not in ALLOWED_TRANSITIONS[PostStatus.RENDERED]
 
 
 def test_the_preparable_sentence_says_how_to_get_the_cover_alone() -> None:
@@ -182,29 +174,24 @@ def test_the_preparable_sentence_says_how_to_get_the_cover_alone() -> None:
     assert "вже не вийде" not in status.FRAGMENT_PREPARE_REASON
 
 
-def test_ready_audio_without_a_preview_can_be_given_up() -> None:
-    assert status.cancellation_refusal_of(PostStatus.EDITING, False) is None
+def test_ready_audio_can_be_given_up() -> None:
+    assert status.cancellation_refusal_of(PostStatus.EDITING) is None
 
 
 @pytest.mark.parametrize(
-    ("current", "has_preview", "sentence"),
+    ("current", "sentence"),
     [
-        (PostStatus.EDITING, True, status.NOT_CANCELLABLE_REASON),
-        (PostStatus.RESOLVED, False, status.NOT_CANCELLABLE_REASON),
-        (PostStatus.DOWNLOADING, False, status.NOT_CANCELLABLE_REASON),
-        (PostStatus.FAILED, False, status.NOT_CANCELLABLE_REASON),
-        (PostStatus.PUBLISHED, False, status.NOT_CANCELLABLE_REASON),
-        (PostStatus.DOWNLOADED, False, status.RENDER_STARTED_REASON),
-        (PostStatus.RENDERING, False, status.RENDER_STARTED_REASON),
-        (PostStatus.RENDERED, True, status.RENDER_STARTED_REASON),
+        (PostStatus.RESOLVED, status.NOT_CANCELLABLE_REASON),
+        (PostStatus.DOWNLOADING, status.NOT_CANCELLABLE_REASON),
+        (PostStatus.FAILED, status.NOT_CANCELLABLE_REASON),
+        (PostStatus.PUBLISHED, status.NOT_CANCELLABLE_REASON),
+        (PostStatus.DOWNLOADED, status.RENDER_STARTED_REASON),
+        (PostStatus.RENDERING, status.RENDER_STARTED_REASON),
+        (PostStatus.RENDERED, status.RENDER_STARTED_REASON),
     ],
 )
-def test_the_cancel_refusal_is_a_sentence_without_a_state_name(
-    current: PostStatus,
-    has_preview: bool,
-    sentence: str,
-) -> None:
-    assert status.cancellation_refusal_of(current, has_preview) == sentence
+def test_the_cancel_refusal_is_a_sentence_without_a_state_name(current: PostStatus, sentence: str) -> None:
+    assert status.cancellation_refusal_of(current) == sentence
     assert not any(state.value in sentence.lower() for state in PostStatus)
 
 
@@ -248,6 +235,19 @@ def test_a_failed_render_without_a_preview_is_not_published_as_a_cover(
     verdict = status.cover_publication_of(PostStatus.FAILED, stage, False)
 
     assert verdict == status.CoverPublication(False, status.COVER_RENDER_FAILED_REASON)
+
+
+@pytest.mark.parametrize("stage", [PostStatus.DOWNLOADED, PostStatus.RENDERING])
+def test_a_failed_render_with_a_preview_points_to_retry_not_to_the_preview_button(stage: PostStatus) -> None:
+    verdict = status.cover_publication_of(PostStatus.FAILED, stage, True)
+
+    assert verdict == status.CoverPublication(False, status.COVER_RENDER_FAILED_REASON)
+
+
+def test_a_failed_publication_with_a_preview_still_points_to_the_preview() -> None:
+    verdict = status.cover_publication_of(PostStatus.FAILED, PostStatus.PUBLISHING, True)
+
+    assert verdict == status.CoverPublication(False, status.COVER_HAS_VIDEO_REASON)
 
 
 def test_ready_audio_points_to_the_cancel_before_a_cover_can_go() -> None:

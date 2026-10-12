@@ -146,7 +146,6 @@ async def test_a_missing_row_is_none_and_the_status_stays(locks: Locks, missing:
         (PostStatus.RESOLVED, None, NOT_CANCELLABLE_REASON),
         (PostStatus.DOWNLOADING, None, NOT_CANCELLABLE_REASON),
         (PostStatus.PUBLISHED, None, NOT_CANCELLABLE_REASON),
-        (PostStatus.EDITING, 99, NOT_CANCELLABLE_REASON),
         (PostStatus.DOWNLOADED, None, RENDER_STARTED_REASON),
         (PostStatus.RENDERING, None, RENDER_STARTED_REASON),
         (PostStatus.RENDERED, 99, RENDER_STARTED_REASON),

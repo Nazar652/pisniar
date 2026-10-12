@@ -10,6 +10,17 @@ export type DirtySource = 'fields' | 'lyrics' | 'fragment'
 export interface LeaveGuard {
   setDirty: (source: DirtySource, dirty: boolean) => void
   leave: (confirm: Confirm) => Promise<boolean>
+  // whether a source other than `source` has unsaved work
+  othersDirty: (source: DirtySource) => boolean
+}
+
+// an action of one screen that would drop another screen's unsaved work asks first; no guard, no question
+export async function confirmDiscardOthers(
+  guard: LeaveGuard | null,
+  source: DirtySource,
+  confirm: Confirm,
+): Promise<boolean> {
+  return guard === null || !guard.othersDirty(source) || (await confirm(DISCARD_QUESTION))
 }
 
 // `onChange` hears whether any source is dirty, e.g. to drive the closing confirmation
@@ -23,6 +34,7 @@ export function createLeaveGuard(onChange?: (anyDirty: boolean) => void): LeaveG
       if (before !== dirty.size > 0) onChange?.(dirty.size > 0)
     },
     leave: async (confirm) => dirty.size === 0 || (await confirm(DISCARD_QUESTION)),
+    othersDirty: (source) => [...dirty].some((entry) => entry !== source),
   }
 }
 

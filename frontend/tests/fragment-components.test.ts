@@ -54,7 +54,7 @@ describe('FragmentEditor', () => {
   })
 
   it('reports chosen-but-unsubmitted bounds to the leave guard and not before', async () => {
-    const guard = { setDirty: vi.fn(), leave: vi.fn() }
+    const guard = { setDirty: vi.fn(), leave: vi.fn(), othersDirty: vi.fn() }
     const clean = await loadedEditor()
     const cleanApp = createSSRApp(FragmentEditor, { editor: clean.editor, webApp: undefined })
     cleanApp.provide(LEAVE_GUARD, guard)

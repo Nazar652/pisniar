@@ -722,6 +722,9 @@ class FakeSession:
     async def execute(self, statement: object) -> FakeResult:
         return FakeResult(self.asset)
 
+    async def scalars(self, statement: object) -> list[str]:
+        return []
+
     async def commit(self) -> None:
         self.commits += 1
 
@@ -1250,6 +1253,19 @@ async def test_the_render_claim_restamps_updated_at(status: PostStatus) -> None:
     before = datetime.now(UTC)
 
     claim = await worker_tasks.claim_post_for_rendering(session_factory, 7)
+
+    assert claim is not None
+    assert post.updated_at >= before
+
+
+async def test_the_download_claim_restamps_updated_at() -> None:
+    """the stale window of `/retry` counts from the real start: the self-edge changes no column."""
+    post, _, session_factory = claim_fixtures(PostStatus.DOWNLOADING, preview_message_id=None)
+    stale = datetime(2020, 1, 1, tzinfo=UTC)
+    post.updated_at = stale
+    before = datetime.now(UTC)
+
+    claim = await worker_tasks.claim_post_for_downloading(session_factory, 7)
 
     assert claim is not None
     assert post.updated_at >= before

@@ -164,7 +164,7 @@ async def cancel_preparation(
     if post is None:
         return None
 
-    refusal = cancellation_refusal_of(post.status, post.preview_message_id is not None)
+    refusal = cancellation_refusal_of(post.status)
     if refusal is not None:
         refuse_cancel(409, "not_cancellable", refusal, user_id, post_id)
     if post.updated_at != request.expected_post_updated_at:
