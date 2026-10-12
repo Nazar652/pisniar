@@ -41,7 +41,7 @@ const LyricsEditor = defineAsyncComponent({
       <LyricsEditor v-else :editor="editor" :web-app="webApp" />
     </template>
     <template v-else>
-      <p class="muted">Текст для відео: рядки з часом, які видно під обкладинкою.</p>
+      <p class="muted">Текст для відео: рядки з часом, які видно у відео.</p>
       <button type="button" class="btn" @click="opened = true">Редагувати текст</button>
     </template>
   </section>

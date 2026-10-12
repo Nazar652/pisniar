@@ -4,7 +4,8 @@
 
 `pisniar` — a Telegram bot that automates posting music tracks to a channel:
 resolve a link's metadata, prepare a post, render a vertical video fragment
-(the cover, the audio and synced lyrics under the cover), publish.
+(the cover on a turning record, the title on a display, the audio and timed lyrics on a glass screen),
+publish.
 
 ## Stack and runtime
 
@@ -14,8 +15,9 @@ resolve a link's metadata, prepare a post, render a vertical video fragment
   (worker), SQLAlchemy 2.0 async + asyncpg, Alembic.
 - `yt-dlp` (pinned in `uv.lock`, **never self-updating** — `--no-update` is
   passed explicitly) plus `ffmpeg`/`ffprobe`, both run as subprocesses and both
-  present **only in the worker image**. The `bot` image has neither, and the
-  `media-data` volume (`/data`) is writable only in `worker`; `webapp` mounts it
+  present **only in the worker image**, as is Pillow (the `worker` uv group). The `bot` image has none of
+  them, and the `media-data` volume (`/data`) is writable only in `worker` and `worker-render` (one image);
+  `webapp` mounts it
   read-only (`/data:ro`, same uid `app`) to serve the fragment audio.
 - Postgres and Redis run **only in Docker**; never install them on the host.
 - `REDIS_PASSWORD` in `.env` is a hard prerequisite: `compose.yaml` starts
@@ -48,6 +50,7 @@ make frontend-build # vite build into frontend/dist, which the running webapp se
 make frontend-watch # vite build --watch into frontend/dist: the Telegram dev loop
 make dev-token u=<id> # print a session token for an admin, for a browser outside Telegram (a secret)
 make peaks          # write the waveform file for every stored audio lacking the current version, in the worker
+make bench-render   # time a 45 s and a 120 s render in the isolated `bench` service; prints the .env time limits
 make funnel-init    # create the external volume holding the Tailscale node state (once)
 make funnel-up      # start the Tailscale Funnel service
 make funnel-down    # remove the Funnel container; the node state stays on its volume
@@ -57,6 +60,14 @@ make verify        # full local + Docker verification in one entrypoint
 
 The type checker is **`ty`** (Astral), not `mypy` and not `pyright` — do not
 suggest or introduce either.
+
+Tests are hermetic. The autouse `outside_access_guard` (root `tests/conftest.py`) refuses and records a
+connect, name lookup, datagram or `Celery.send_task` beyond the `outside_access_allowed_hosts` fixture
+(loopback; `tests/integration/conftest.py` adds the database host) and fails the test at teardown even
+when the code swallowed the error; a test widens the list by overriding that fixture. `make test` runs
+`-n 4 --dist loadfile`. The migration tests call `alembic.command` in-process (`run_alembic`, in a thread,
+against a disposable database). `make test-int` skips the `fonts` and `media` markers, which need the
+worker image.
 
 ## Architectural boundaries
 
@@ -81,8 +92,10 @@ suggest or introduce either.
   the LRCLIB adapter and the LRC parser) and `pisniar/post/`
   (caption/hashtags/sanitize/render) never import `bot/` or `worker/` — they
   are pure libraries the worker orchestrates. LRCLIB, the YouTube Music lyrics
-  and Genius are not among the six: `resolve.service` never calls them, only
-  `worker.lyrics` does (the first two at render time, Genius in its own task).
+  and Genius are not among the six: `resolve.service` never calls them. They are asked
+  through `resolve.lyrics_lookup`, which opens no session, writes no row and imports
+  neither `bot/`, `webapp/` nor `worker/`; `worker.lyrics` (the first two at render time,
+  Genius in its own task) and the Mini App's lookup routes share it.
 - The one edge back the other way is `post.sanitize`, which `resolve/` may
   import (`musicbrainz` logs a source-supplied URL through it) — and it is
   the **only** `post/` module allowed there. That works because
@@ -221,7 +234,9 @@ suggest or introduce either.
   modules**: `worker.fragment`, `worker.storage`, `worker.peaks_format` (the peaks file format and
   its validating `read_peaks`, which `worker.peaks` imports too) and `worker.celery_app` (imports
   only celery). They import no other worker module, so the webapp never loads ffmpeg, the tasks, the
-  download or the render; the boundary test pins both lists. The webapp is a producer of **three tasks
+  download or the render; the boundary test pins both lists. Of the lyrics sources it reaches only
+  `resolve.lyrics_lookup`: never `worker.lyrics`, `resolve.plain_lyrics` or `resolve.sources.genius`
+  directly, and its `httpx` client is what those lookups use. The webapp is a producer of **three tasks
   only**: `RENDER_POST_VIDEO_TASK_NAME`, `PREPARE_POST_AUDIO_TASK_NAME` and
   `PUBLISH_POST_TASK_NAME`, through
   `pisniar.dispatch.dispatch_task`; the same test fails on any other `*_TASK_NAME`
@@ -322,9 +337,26 @@ suggest or introduce either.
   `fragment_preview_keyboard_removal_failed`; neither fails the request. The request model refuses extra fields, `bool` and values
   beyond BIGINT; the response is `FragmentRenderStarted`. Logs: `fragment_render_requested`,
   `fragment_render_refused` (`reason`), `fragment_render_dispatched`, never a token.
-- **The lyrics routes**: `GET …/lyrics/synced` and `GET …/lyrics/plain?source=` are synchronous proposals
-  (20 s, no database write except the `source_fetch` cache); `PUT …/lyrics` is the manual save under the
-  track lock, sets `lyrics_edited_at` and has a 96 KiB body ceiling of its own.
+- **The lyrics routes (`webapp.lyrics_editing`, `lyrics_proposals`, `lyrics_rules`) are offered like the
+  fragment view**: `status.choosability_of` (else 409 `not_choosable`) and the audio of the current
+  `youtubeMusic` videoId (409 `audio_missing`), since every time is checked against its measured duration.
+  `GET …/lyrics` is a plain read: lines, `edited_by_admin`, `lyrics_version`. `PUT …/lyrics` replaces the
+  whole text in one transaction with no Telegram or broker call: the track `FOR NO KEY UPDATE`
+  (`lock_track_for_write`, the lock every `lyric` writer takes), 409 `media_in_progress` while a post of the
+  track is downloading, downloaded or rendering, `plan_lyrics` (422 `invalid_lyrics` naming the line: the
+  count and size limits, times in `[0, duration)` and strictly rising, an empty line only with a time, which
+  is a pause), 409 `stale_data` unless `expected_lyrics_version` (sha256 of the stored lines and marker)
+  matches, then delete and insert with `source='manual'` and `track.lyrics_edited_at = now()` (an empty list
+  removes the text and sets the marker too). This is the one route with a bigger body ceiling: 96 KiB
+  (`app.LYRICS_MAX_BODY_BYTES`), 16 KiB elsewhere. `GET …/lyrics/synced` and `GET …/lyrics/plain?source=`
+  (`ytmusic`, `lrclib`, `genius`) are proposals, never writes: a plain SELECT for the subject, then
+  `resolve.lyrics_lookup` under one 20 s `wait_for` (`LYRICS_LOOKUP_TIMEOUT_SECONDS`), with no session open;
+  the only row written is the `source_fetch` cache, in its own short session. Synced order is YouTube Music,
+  then LRCLIB; times are kept strictly rising (a tie moves 10 ms), lines past the audio are counted and
+  dropped, an over-long line is cut. 409 `synced_lyrics_not_found`, `plain_lyrics_not_found`,
+  `lyrics_over_limits`; a source that fails or exceeds the 20 s is 503 `lyrics_source_unavailable`.
+  Logs: `lyrics_viewed`, `lyrics_saved`, `lyrics_lookup_requested`, `lyrics_lookup_found`, and
+  `lyrics_view_refused`, `lyrics_save_refused`, `lyrics_lookup_refused` with a `reason`.
 - **Saving fields from the Mini App is one short transaction with no Telegram call**
   (`webapp.editing.save_fields`): the post `FOR UPDATE NOWAIT`, then the track `FOR NO KEY UPDATE`
   (`db.locks.lock_post_without_waiting` / `lock_track_for_write`, the lock the resolve and the
@@ -408,6 +440,20 @@ suggest or introduce either.
   `WAVESURFER_VERSION` at `waveform.WAVEFORM_HEIGHT_PX`); `tests/scripts/csp.test.ts` recomputes it
   from the installed package and a Python test ties the version to `package.json`. Never
   `'unsafe-inline'`.
+  The «Текст» section (`LyricsSection`, in `PostEditor` when `fragment.choosable`) opens `LyricsEditor`, its
+  own async chunk without wavesurfer (the bundle check fails when no lazy chunk holds it, when an initial
+  script does, or when it contains or loads wavesurfer). `useLyricsEditor` (`loading -> ready <-> timing ->
+  saving -> saved | failed`) reads `GET …/lyrics` and `…/fragment` and saves with `PUT …/lyrics`; «Зберегти й
+  зробити відео» then posts the fragment route with the server's bounds. The rules are pure
+  `lyrics/timing.ts`, mirroring `plan_lyrics`: a tap (pointerdown while playing, Space; Backspace undoes)
+  times the cursor line at the position minus `TAP_LATENCY_MS` × playback rate (provisional 0, never
+  measured on a device); a tap not after the previous time is refused with a sentence, a tap that passes
+  later times clears them, and undo is the exact inverse of a splice. «♪» inserts a timed line «♪» and
+  «Програш» a timed empty line (a pause) at the playhead; times nudge on a 10 ms grid between their
+  neighbours. «Знайти синхронізацію» and «Знайти просто текст» (a source `<select>`, Genius first) fetch a
+  proposal that replaces the buffer, after `showConfirm` when the buffer is not empty. Each editor with
+  unsaved work (the fields form, lyrics, fragment) reports to `app/leaveGuard.ts`: the Telegram back button
+  asks once, and the closing confirmation follows «any source dirty».
 
 ## Resolver conventions (`pisniar/resolve/`)
 
@@ -562,8 +608,9 @@ suggest or introduce either.
   in the main thread, i.e. out of the event loop rather than out of an `await`.
 - **The render has its own queue and service.** `build_celery_app` routes `RENDER_POST_VIDEO_TASK_NAME`
   alone to `render`; `worker` takes `celery`, `worker-render` (`-c 1`, same image, env and volume) takes
-  `render`, each healthcheck pings its own node with `-d`. `claim_post_for_rendering` restamps
-  `updated_at`, so the `/retry` window counts from the real start.
+  `render`, each healthcheck pings its own node with `-d`, and `compose.override.yml` spells the render command
+  out because the dev image's CMD is the default queue. `claim_post_for_rendering` restamps `updated_at`, so
+  the `/retry` window counts from the real start, not from the time spent waiting in the queue.
 - **The media tasks carry their own time limits** from `Settings`
   (`download_task_*`, `render_task_*`). `TASK_SOFT_TIME_LIMIT_SECONDS` /
   `TASK_TIME_LIMIT_SECONDS` in `worker/celery_app.py` are the resolve's, and
@@ -596,28 +643,38 @@ suggest or introduce either.
   `make peaks` (`python -m pisniar.worker.peaks`, in the worker) walks every stored audio
   (`storage.stored_audio_files`), skips current files, stages in `/data/tmp/peaks-backfill/` and
   is safe to run twice; its exit code is 1 when any file failed.
-- **`scale=...:in_range=pc:out_range=tv` plus `-color_range tv` is required,
-  not a refinement.** The cover arrives from the Spotify CDN as
-  full-range JPEG, and a naive `format=yuv420p` produces `yuvj420p` *every
-  time*; `subtitles=` takes `yuv420p` directly and changes neither. The render
-  is 720x1280, H.264 + AAC, `+faststart`, explicit fps, `-maxrate`/`-bufsize`,
-  and its size is asserted against the 50 MB Telegram ceiling with exactly one
-  lower-bitrate retry before the post fails. The worst realistic input renders
-  to ~4.4 MB, so that branch guards a render defect, not normal input.
+- **The frame is a turntable: Pillow draws the still layers, ffmpeg turns the vinyl** (`worker/layout.py` holds
+  every coordinate and imports nothing, `worker/turntable.py` is the only module that imports PIL and
+  `pillow` lives in the `worker` uv group alone, so `bot` and `webapp` never carry it). `write_layers` paints five
+  PNGs per render from fixed seeds (wood body, vinyl, label mask, hub, and the overlay with the tonearm);
+  the cover is cropped into the 300 px label, the vinyl layer rotates at 33⅓ rpm
+  (`render.DISC_REVOLUTIONS_PER_SECOND`), and the title and artists are always drawn on the display
+  pane (`ass.build_display_subtitles`), even for a song without text. The lyrics sit on the **glass screen**
+  (`layout.SCREEN_BOX_PX`, 44…676 x 842…1228): three slots, previous, current, next, centred by `\an5` plus an
+  explicit `\pos` at `ass.PREVIOUS_SLOT_Y`/`CURRENT_SLOT_Y`/`NEXT_SLOT_Y` (905/1035/1165, `SLOT_SPACING_PX`
+  130). The current line is 52 px white and wraps to two lines, the neighbours 38 px grey and one line; the
+  rest is cut with `…`. `test_ass.py` pins the slots inside the screen and measures a two-line current line
+  against its neighbours. The neighbours are the nearest lines that draw something, so a pause never leaves
+  a blank slot.
+- **Only the disc is composed per frame.** The stills are single frames that `loop` repeats (no input carries
+  `-loop 1`); the floor is converted to YUV once with the display drawn on it, and only `render.disc_square`,
+  everything that moves, is composed in `gbrp` and converted per frame. `scale=...:in_range=pc` reads the
+  full-range JPEG cover, every YUV conversion is `out_range=tv` and `-color_range tv` is set, because a naive
+  `format=yuv420p` yields `yuvj420p`; `subtitles=` takes `yuv420p` directly and changes neither. The video
+  is 720x1280, H.264 high 4.0 + AAC, 30 fps, `+faststart`, `-maxrate`/`-bufsize`; its size is asserted against
+  the 50 MB Telegram ceiling with exactly one lower-bitrate retry (`REDUCED_QUALITY`) before the post fails.
+  A 120 s fragment renders to ~22 MB, so that branch guards a render defect, not normal input.
 - `render.RenderParameters.subtitles_path` is an **optional path passed in from
-  outside**, not a flag decided inside: `None` means the filtergraph has no
-  `subtitles=` step at all, never an empty file.
-- **The frame is the cover on top and the lyrics below it.** The cover is
-  scaled into 720x1280 and padded at `render.COVER_TOP_OFFSET_PX` (100 px), so a
-  square cover fills 100…820 and `ass.TEXT_BAND_TOP_PX` (820) starts the text
-  band; a long line overflows into black, never onto the image. The band holds
-  three slots — previous, current, next — at y 955/1050/1145
-  (`SLOT_SPACING_PX` 95), centred by `\an5` plus an explicit `\pos`. The
-  current line is 44 px white and wraps to two lines, the neighbours 32 px
-  half-transparent and one line; the rest is cut with `…`. `test_ass.py` pins
-  the cover offset and the band against each other, and any change to the
-  filtergraph or the encoder bumps `render.RENDERER_VERSION`, an input to
-  `params_hash`.
+  outside**, not a flag decided inside: `None` means the filtergraph has no lyrics
+  `subtitles=` step at all, never an empty file. The display's `.ass` is a required path of its own.
+- **`render.RENDERER_VERSION` (`turntable-1`) is bumped with any change to the graph, the encoder, `layout`
+  or the drawing**; it is an input to `params_hash`, and `test_video_render.py` pins it to a digest of the
+  graph and the layout, so a forgotten bump fails.
+- **`make bench-render` runs in its own `bench` service** (`compose.yaml`, profile `bench`, the `worker`
+  image target): no `env_file`, no volume and `network_mode: none`, so synthetic renders cannot reach the
+  secrets, the media volume or the broker. `pisniar.worker.bench` imports only the render pipeline, works under
+  `/tmp`, removes it in a `finally` and prints the 45 s and 120 s timings, memory and the `.env` lines for
+  `RENDER_TASK_*`; run it on the production host before setting them.
 - **The chain is started by a button and continues by itself.** «Зробити
   відео» dispatches `download_post_audio`; that task dispatches
   `render_post_video` **after** its own commit, so a redelivered render can
@@ -693,7 +750,7 @@ suggest or introduce either.
   `render_thumbnail()` returns `None` instead of raising, and a missing file
   is not a send failure — Telegram builds its own preview.
 
-## Lyrics and subtitles (`worker/lyrics.py`, `worker/ass.py`, `resolve/sources/lrclib.py`)
+## Lyrics and subtitles (`worker/lyrics.py`, `worker/ass.py`, `resolve/lyrics_lookup.py`, `resolve/sources/lrclib.py`)
 
 - **The text path runs in the render's long phase, with no session open.**
   One read returns `StoredLyrics(renderable_lines, total_count, edited_by_admin)`.
@@ -706,7 +763,7 @@ suggest or introduce either.
   text**; LRCLIB is not asked after a timed YouTube Music answer. The first answer with lines
   is written under its own `source` (`ytmusic`, `lrclib`); plain text is written with
   `start_ms` NULL, so the video has no text, the reason is `lyrics_untimed` and the admin's
-  editor has the lines. Each source is isolated by `ask_source` (a failure is a log line
+  editor has the lines. Each source is isolated by `lyrics_lookup.ask_source` (a failure is a log line
   naming it, the soft limit and `SQLAlchemyError` pass); no source answering with lines
   leaves LRCLIB's class as the reason. A text past `MAX_LYRIC_LINES` or
   `MAX_LYRICS_TOTAL_CHARACTERS` is not written. Then
@@ -741,8 +798,11 @@ suggest or introduce either.
   (`get_watch_playlist` for the lyrics page id, then `get_lyrics(timestamps=True)`) run in one
   thread under `wait_for`, through `SourceCache` (`ytmusic:lyrics:<videoId>`). The shape
   classifies: timed lines are synced, a string is plain, no page or `None` is absent, anything
-  else raises `YtmusicLyricsApiError` and is never cached. The `♪` mark becomes an empty line,
-  which the render reads as a pause, and lines are sorted by time.
+  else raises `YtmusicLyricsApiError` and is never cached. A timed `♪` (YouTube Music's mark for an
+  instrumental gap) is stored as the text «♪» and shown on the glass screen like any line, so an
+  instrumental break reads as a note; Noto Sans lacks U+266A, and libass takes the glyph through fontconfig
+  from a fallback Noto family. An empty line (LRC) stays a pause, plain text drops the mark, and a text of
+  only gaps is absent. Lines are sorted by time.
 - **Plain text of the remaining sources is a task of its own** (`fetch_plain_lyrics`, queued by
   the render after the preview and its notice, only for `lyrics_absent`,
   `lyrics_rejected_by_matching` and `lyrics_source_unavailable`; a refused enqueue is a log
@@ -783,7 +843,8 @@ suggest or introduce either.
   `fc-match` answers an unknown family with the same file as an installed
   one, so a wrong `ass.FONT_FAMILY` shows up only as rectangles in a video.
   The one guard is `tests/integration/test_ass_font.py` (`make test-fonts`),
-  which checks the family against `fc-list :lang=uk` inside the worker.
+  which checks the family against `fc-list :lang=uk` inside the worker, and that an installed family carries
+  U+266A for the note (`fc-list :charset=266a`), not necessarily `FONT_FAMILY`.
 - **libass reads `Fontsize` as the ascender-to-descender cell height**, not
   the em square, so every width is scaled by `text_metrics.FONT_SIZE_TO_EM_SCALE`
   (derived from the font's `hhea` metrics, never a literal). Line widths come
@@ -794,9 +855,8 @@ suggest or introduce either.
   numbers. An unknown codepoint counts as a full em and kerning is ignored:
   both err wide, so a line wraps early rather than leaving the frame.
 - **The render limits cover LRCLIB's worst case.** Timeouts, retries and the
-  fallback search add up to ~187 s and a 120 s fragment renders in ~150 s on a
-  laptop, so `render_task_*` is 600/660 s; the hard limit is also the stale-render
-  window `/retry` waits out.
+  fallback search add up to ~187 s, and `make bench-render` recommends 600/660 s for `render_task_*` on two
+  shared vCPUs; the hard limit is also the stale-render window `/retry` waits out.
 
 ## Data conventions
 
@@ -875,7 +935,8 @@ suggest or introduce either.
   atomic: under READ COMMITTED a second writer counts only after the first
   commits, while `UNIQUE (track_id, line_index)` stops a duplicate index, not a
   mix of two writers' lines. **Every writer of `lyric` must take the same
-  lock.** An insert that lands short raises and
+  lock**, the Mini App's `PUT …/lyrics` (the one writer that replaces the lines, `source='manual'`, and sets the
+  marker) included. An insert that lands short raises and
   rolls back rather than committing a partial set.
 - `track.manual_fields` lists the columns a human set, drawn from
   `models.MANUAL_FIELD_NAMES` (`title`, `artists`, `year`, `release_type`,
@@ -900,14 +961,16 @@ caption as `send_photo` and records
 
 «Зробити відео» starts the media chain instead: the worker downloads the
 audio from `youtubeMusic`, picks the fragment, takes the track's stored
-lyric lines or fetches them from LRCLIB, renders a verified 720x1280 file
-with previous, current and next line under the cover, and delivers it as a
+lyric lines or fetches them (YouTube Music, LRCLIB; plain text from Genius afterwards), renders a verified
+720x1280 turntable video (the cover as the record's label, the title and artists on the display, the
+previous, current and next line on the glass screen) on the `render` queue, and delivers it as a
 **preview with a publish button**. A video without text still reaches the
 preview, with a notice under it saying why. Publication sends that same file
 with that same caption as `send_video`, and the file is deleted afterwards.
 
 From a preview the admin can open the Mini App's fragment editor, pick other
-bounds on the waveform and render again: the post goes back to `RENDERING`, a
+bounds on the waveform and render again, or time the lyrics in the lyrics editor (tap each line while the
+audio plays, or fetch a synced text or a plain one to start from) and render with them: the post goes back to `RENDERING`, a
 new preview replaces the old one as the only publishable message, and
 publication sends the file `preview_params_hash` points at.
 

@@ -14,7 +14,7 @@ Mini App's **Редагувати**; nothing in the chat publishes the cover alo
 
 **Зробити відео** starts the media chain: the worker downloads the
 track's audio from YouTube Music, takes a 45-second fragment from the start,
-renders a 720x1280 video of the cover plus that audio, and sends it
+renders a 720x1280 video, and sends it
 back as a **preview with its own publish button**. Publishing from there
 puts that exact file, with that exact caption, into the channel as a video.
 The preview is not a convenience — a published post cannot be revoked, so
@@ -25,13 +25,33 @@ the Mini App's **Опублікувати без відео** (with a confirmati
 is saved) publishes it and records who approved it. It needs `WEBAPP_PUBLIC_URL`
 and a private chat; without them there is no cover-only path.
 
-The video carries the track's **synced lyrics** under the cover: the
-previous, current and next line, timed to the audio. They come from
-[LRCLIB](https://lrclib.net) and are stored per track, so a second post of
-the same recording reuses them without asking again. When there is no usable
-text (none in LRCLIB, none with timecodes, an instrumental, no answer from
-LRCLIB, or no line inside the fragment), the video is rendered without it,
-and a short notice under the preview says why.
+The video is a **turntable**: the cover is the label of a record that turns at
+33⅓ rpm, the title and artists glow on a display, and the track's **timed
+lyrics** show on a glass screen below, the previous, current and next line
+synced to the audio (an instrumental gap shows a note, ♪). The still layers are
+drawn with Pillow and only the record is composed per frame, so a 120-second
+fragment renders in about two minutes on two shared vCPUs. Lyrics come from
+YouTube Music and [LRCLIB](https://lrclib.net) and are stored per track, so a
+second post of the same recording reuses them without asking again; plain text
+without times is fetched afterwards (Genius, YouTube Music, LRCLIB) and kept for
+the editor. When there is no usable timed text (none found, none with
+timecodes, an instrumental, no answer from the sources, or no line inside the
+fragment), the video is rendered without it, and a short notice under the
+preview says why.
+
+In the Mini App, **Текст** → **Редагувати текст** opens the lyrics editor for a
+post whose audio is downloaded (it has a preview, or its audio was prepared). Play the audio (0.5×, 0.75×
+or 1×) and tap **Тап** (or Space; Backspace undoes) on each line as it is sung;
+**♪** and **Програш** mark an instrumental gap at the playhead, a line's time nudges
+by 0.1 or 1 s, and a pasted text becomes untimed lines to tap through.
+**Знайти синхронізацію** asks YouTube Music, then LRCLIB, for timed text, and
+**Знайти просто текст** asks the source you pick (Genius by default) for the
+words alone; either only proposes, and replaces the editor's text once you
+confirm. **Зберегти** stores the text (it is never overwritten by an automatic
+lookup afterwards), **Зберегти й зробити відео** also renders with it. The
+editors of the fields, the lyrics and the fragment warn before the back button
+discards unsaved work. The tap delay compensation (`TAP_LATENCY_MS` in
+`frontend/src/lyrics/timing.ts`) is 0 until measured on a device.
 
 A **Mini App** (Vue 3, served by the `webapp` container) edits a post after the
 fact. It opens from the **Редагувати** button under the draft, the preview and
@@ -132,9 +152,19 @@ auth key; only the `tailscale` service reads it, and it is git-ignored too.
 ```
 make build   # docker compose build
 make up      # docker compose up -d --wait — brings up postgres, redis,
-              # runs the one-shot `migrate` service, then starts bot, worker and webapp
+              # runs the one-shot `migrate` service, then starts bot, worker,
+              # worker-render and webapp
 make ps      # confirm everything is healthy
 ```
+
+`worker` serves the default queue; `worker-render` serves the `render` queue
+alone, one render at a time, so a minutes-long ffmpeg never holds up resolving
+or downloading. They share one image, so after pulling a change that touches the
+queues run `docker compose up -d --build worker worker-render` (`make up` does not
+build), with the default queue drained first. The render time limits
+(`RENDER_TASK_*`, 600/660 s by default) depend on the host: `make bench-render`
+renders a 45 s and a 120 s fragment in an isolated container (no `.env`, no
+volume, no network) and prints the values to put in `.env`.
 
 `compose.override.yml` is picked up automatically and adds, for local
 development only: bind-mounting `src/`/`alembic/`/`tests/` into the
@@ -206,7 +236,9 @@ The sources are in `frontend/`. With `compose.override.yml`, the running
 
 ## Everyday commands
 
-Run `make help` for the full list. The ones you will use most:
+Run `make help` for the full list. The ones you will use most. Every test is
+hermetic: a connect, name lookup or task send beyond loopback (and, in the
+integration layer, the database) fails the test.
 
 Plain `make check` still stops at the first failing step (sequential
 prerequisites behave like `&&`). Run `make -k check` to see every failure —
@@ -215,8 +247,11 @@ round-trip at a time.
 
 ```
 make check        # sync + lock-check + fmt-check + lint + typecheck + test, then the frontend checks (host, no Docker); use `make -k check` to see every failure at once
+make test          # unit tests, no database, in parallel (pytest-xdist, 4 workers)
 make test-int      # integration tests and the Linux-only bench test inside the bot container
 make test-fonts    # the subtitle font and its glyph-width table, inside the worker container
+make test-media    # the turntable render with the real ffmpeg, inside the worker container
+make bench-render  # time a 45 s and a 120 s render in an isolated container, print the .env limits
 make migrate       # alembic upgrade head
 make revision m="add lyric table"   # alembic revision --autogenerate
 make alembic-check # confirm models and migrations agree
@@ -322,3 +357,16 @@ With a real `.env` in place and the stack up (`make up`):
     works (test channel).
 30. A track without a YouTube Music link: **Обрати фрагмент** is refused with a
     sentence; after a failed download the post is still publishable without a video.
+31. A new video shows the turntable: the cover as the record's label, the record
+    turning, the tonearm, the title and artists on the display and the lyrics on
+    the glass screen, none of it outside its frame (check a long title and a long
+    line). An instrumental gap shows ♪, not a box.
+32. **Текст** → **Редагувати текст** on a post with prepared audio: play, tap
+    each line, **Зберегти й зробити відео** → the new preview has the lyrics at
+    the tapped times. Tapping at a time not after the previous line is refused
+    with a sentence.
+33. **Знайти синхронізацію** on a track YouTube Music or LRCLIB knows → a proposal
+    that replaces the text after a confirmation; **Знайти просто текст** with each
+    of the three sources → untimed lines, or a sentence when the source has none.
+34. Edit the text, then tap the Telegram back button → one question; confirm
+    leaves, cancel stays. The same on the fields form and the fragment editor.
