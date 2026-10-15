@@ -5,6 +5,7 @@ import type { Confirm } from '../telegram/actions'
 import {
   bufferOf,
   deleteLine,
+  glassAt,
   insertLine,
   insertMusicMark,
   insertPause,
@@ -16,7 +17,9 @@ import {
   retimeFrom,
   sameLines,
   setText,
+  slotStartMs,
   tap,
+  tapLabel,
   timedCount,
   undo,
   validate,
@@ -96,6 +99,8 @@ export function useLyricsEditor(client: ApiClient, postId: number, deps: LyricsD
   const audioUrl = ref('')
   // whether the audio plays: the gate of a tap, whatever the status shows
   const playing = ref(false)
+  // where the audio is, in whole milliseconds of the full track
+  const positionMs = ref(0)
   const history = shallowRef<{ patch: Patch; rewindMs: number | null }[]>([])
 
   // the server's own string: a JS `Date` would cut the microseconds the stale check compares
@@ -118,6 +123,12 @@ export function useLyricsEditor(client: ApiClient, postId: number, deps: LyricsD
     limits.value === null ? null : validate(buffer.value.lines, limits.value),
   )
   const timed = computed(() => timedCount(buffer.value.lines))
+  // the video's glass at the audio position
+  const glass = computed(() => glassAt(buffer.value.lines, positionMs.value))
+  const soundingRow = computed(() => (playing.value ? glass.value.active : null))
+  // the row kept in view while the audio plays; pausing leaves the list where it is
+  const followedRow = computed(() => (playing.value ? glass.value.active : null))
+  const tapText = computed(() => tapLabel(buffer.value))
   const canUndo = computed(() => history.value.length > 0)
   const busy = computed(() => status.value === 'saving' || looking.value)
   const editable = computed(
@@ -216,6 +227,15 @@ export function useLyricsEditor(client: ApiClient, postId: number, deps: LyricsD
     speed.value = next
   }
 
+  function setPosition(ms: number): void {
+    positionMs.value = ms
+  }
+
+  // the time a slot's line starts at, for the audio to go to; neither plays nor pauses
+  function slotStart(index: number | null): number | null {
+    return slotStartMs(buffer.value.lines, index)
+  }
+
   function tapAt(positionMs: number): boolean {
     const current = limits.value
     if (!editable.value || current === null) return false
@@ -296,7 +316,7 @@ export function useLyricsEditor(client: ApiClient, postId: number, deps: LyricsD
   }
 
   function replaceBuffer(next: readonly Line[]): void {
-    buffer.value = { lines: next, cursor: 0 }
+    buffer.value = bufferOf(next)
     history.value = []
     touched()
   }
@@ -512,6 +532,11 @@ export function useLyricsEditor(client: ApiClient, postId: number, deps: LyricsD
     buffer,
     lines,
     playing,
+    positionMs,
+    glass,
+    soundingRow,
+    followedRow,
+    tapText,
     speed,
     plainSource,
     looking,
@@ -529,6 +554,8 @@ export function useLyricsEditor(client: ApiClient, postId: number, deps: LyricsD
     load,
     setPlaying,
     setSpeed,
+    setPosition,
+    slotStart,
     tapAt,
     undoLast,
     nudge,

@@ -253,14 +253,16 @@ def test_an_absolute_start_is_shifted_into_fragment_time() -> None:
     assert field_of(current_rows(document)[0], "Start") == "0:00:02.00"
 
 
-def test_a_line_before_the_fragment_never_appears() -> None:
+def test_a_line_that_ended_before_the_fragment_never_appears_but_one_still_held_at_its_start_does() -> None:
     document = build(
-        lines_of((5_000, "до фрагмента"), (32_000, "у фрагменті")),
+        lines_of((5_000, "до фрагмента"), (20_000, "ще на склі"), (32_000, "у фрагменті")),
         fragment_start_ms=30_000,
         fragment_end_ms=75_000,
     )
 
-    assert [field_of(row, "Text").split("}", 1)[1] for row in current_rows(document)] == ["у фрагменті"]
+    rows = current_rows(document)
+    assert [field_of(row, "Text").split("}", 1)[1] for row in rows] == ["ще на склі", "у фрагменті"]
+    assert (field_of(rows[0], "Start"), field_of(rows[0], "End")) == ("0:00:00.00", "0:00:02.00")
 
 
 def test_a_line_after_the_fragment_never_appears() -> None:
@@ -281,21 +283,65 @@ def test_a_line_ends_when_the_next_one_starts() -> None:
     assert field_of(current_rows(document)[0], "End") == "0:00:02.50"
 
 
-def test_a_long_gap_is_capped_instead_of_hanging_for_a_minute() -> None:
+def test_a_line_followed_by_a_long_gap_stays_until_the_next_one() -> None:
     document = build(
         lines_of((1_000, "перший"), (61_000, "другий")),
         fragment_start_ms=0,
         fragment_end_ms=90_000,
     )
 
-    assert field_of(current_rows(document)[0], "End") == "0:00:09.00"
+    assert field_of(current_rows(document)[0], "End") == "0:01:01.00"
 
 
-def test_a_pause_entry_ends_the_line_before_it_and_draws_nothing() -> None:
-    document = build(lines_of((1_000, "рядок"), (3_000, ""), (10_000, "наступний")))
+def test_a_line_followed_by_a_gap_over_the_ceiling_does_not_blank_the_glass() -> None:
+    document = build(lines_of((88_430, "Вдихай! Видихай!"), (99_270, "далі")), fragment_end_ms=120_000)
 
-    assert field_of(current_rows(document)[0], "End") == "0:00:03.00"
+    assert field_of(current_rows(document)[0], "End") == "0:01:39.27"
+
+
+def test_the_last_line_of_the_text_gets_the_ceiling() -> None:
+    document = build(lines_of((1_000, "перший"), (2_000, "останній")), fragment_end_ms=60_000)
+
+    assert field_of(current_rows(document)[-1], "End") == ass.ass_timestamp(2_000 + ass.LAST_LINE_MAX_MS)
+
+
+def test_a_line_before_a_later_one_outside_the_fragment_stays_until_the_fragment_ends() -> None:
+    document = build(lines_of((1_000, "перший"), (90_000, "після фрагмента")))
+
+    assert field_of(current_rows(document)[0], "End") == "0:00:45.00"
+
+
+def test_a_pause_leaves_the_middle_empty_and_shows_the_nearest_lines_on_the_sides() -> None:
+    document = build(lines_of((1_000, "до"), (3_000, ""), (10_000, "після")))
+    during_pause = [row for row in dialogue_rows(document) if field_of(row, "Start") == "0:00:03.00"]
+
     assert len(current_rows(document)) == 2
+    assert [(field_of(row, "Style"), field_of(row, "End")) for row in during_pause] == [
+        (ass.STYLE_ADJACENT, "0:00:10.00"),
+        (ass.STYLE_ADJACENT, "0:00:10.00"),
+    ]
+    assert [field_of(row, "Text").split("}", 1)[1] for row in during_pause] == ["до", "після"]
+    assert f"\\pos({ass.SLOT_CENTER_X},{ass.CURRENT_SLOT_Y})" not in "".join(field_of(r, "Text") for r in during_pause)
+
+
+def test_a_pause_as_the_last_entry_shows_its_neighbour_for_the_ceiling() -> None:
+    document = build(lines_of((1_000, "рядок"), (3_000, "")), fragment_end_ms=60_000)
+    during_pause = [row for row in dialogue_rows(document) if field_of(row, "Start") == "0:00:03.00"]
+
+    assert [field_of(row, "Text").split("}", 1)[1] for row in during_pause] == ["рядок"]
+    assert field_of(during_pause[0], "End") == ass.ass_timestamp(3_000 + ass.LAST_LINE_MAX_MS)
+
+
+def test_a_pause_with_no_line_around_it_draws_nothing() -> None:
+    assert ass.build_ass_subtitles(lines_of((3_000, "")), fragment_start_ms=0, fragment_end_ms=45_000) is None
+
+
+def test_pauses_count_toward_the_drawn_window_budget() -> None:
+    many = lines_of(*((index * 10 + 1, "" if index % 2 else f"рядок {index}") for index in range(400)))
+
+    document = build(many)
+
+    assert len({field_of(row, "Start") for row in dialogue_rows(document)}) == ass.MAX_RENDERED_LINES
 
 
 def test_two_lines_sharing_a_start_do_not_produce_a_zero_length_event() -> None:

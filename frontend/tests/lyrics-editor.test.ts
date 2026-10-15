@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { NOTHING_TO_TAP_MESSAGE } from '../src/lyrics/timing'
 import {
   EMPTY_PROPOSAL_MESSAGE,
   KEEP_OR_LOAD_QUESTION,
@@ -671,7 +672,8 @@ describe('«Знайти синхронізацію»', () => {
       { text: 'Перший', startMs: 1000 },
       { text: 'Другий', startMs: 5000 },
     ])
-    expect(editor.buffer.value.cursor).toBe(0)
+    expect(editor.buffer.value.cursor).toBe(2)
+    expect(editor.tapText.value).toBe('Усі рядки відстукано')
     expect(editor.dirty.value).toBe(true)
     expect(editor.canUndo.value).toBe(false)
     expect(server.callsTo(SAVE)).toBe(0)
@@ -945,5 +947,133 @@ describe('tapping from a line again (the «Відстукати звідси» f
       expect(rising(times(editor))).toBe(true)
     }
     expect(editor.problem.value).toBeNull()
+  })
+})
+
+describe('the tap cursor and the glass preview', () => {
+  const TIMED: LyricsView = makeLyricsView({
+    lines: [
+      { text: 'Перший', start_ms: 1000, source: 'lrclib' },
+      { text: '', start_ms: 5000, source: 'manual' },
+      { text: 'Третій', start_ms: 9000, source: 'lrclib' },
+    ],
+  })
+
+  it('stands on the first untimed line when a text is loaded', async () => {
+    const { editor } = await opened(serverWith())
+
+    expect(editor.buffer.value.cursor).toBe(1)
+    expect(editor.tapText.value).toBe('Тап → Другий')
+  })
+
+  it('stands past the end when every line is timed, and a tap there changes nothing', async () => {
+    const { editor } = await opened(serverWith({}, TIMED))
+    editor.setPlaying(true)
+    const before = editor.lines.value
+
+    expect(editor.buffer.value.cursor).toBe(3)
+    expect(editor.tapText.value).toBe('Усі рядки відстукано')
+    expect(editor.tapAt(20_000)).toBe(false)
+
+    expect(editor.message.value).toBe(NOTHING_TO_TAP_MESSAGE)
+    expect(editor.lines.value).toBe(before)
+  })
+
+  it('names a pause «(програш)» on the tap button', async () => {
+    const { editor } = await opened(serverWith({}, TIMED))
+
+    editor.retime(1)
+
+    expect(editor.tapText.value).toBe('Тап → (програш)')
+  })
+
+  it('lets a chosen row and the next-untimed step move the cursor as before', async () => {
+    const { editor } = await opened(serverWith())
+
+    editor.retime(0)
+    expect(editor.buffer.value.cursor).toBe(0)
+    expect(editor.toNextUntimed()).toBe(true)
+    expect(editor.buffer.value.cursor).toBe(1)
+  })
+
+  it('goes to the first untimed line after pasted text replaces a timed one', async () => {
+    const { editor } = await opened(serverWith({}, TIMED))
+
+    expect(await editor.paste('Новий\nТекст')).toBe(true)
+
+    expect(editor.buffer.value.cursor).toBe(0)
+    expect(editor.tapText.value).toBe('Тап → Новий')
+  })
+
+  it('goes past the end after a found synced text', async () => {
+    const synced = await opened(serverWith({ [SYNCED]: () => jsonResponse(makeProposal()) }))
+    await synced.editor.findSynced()
+
+    expect(synced.editor.buffer.value.cursor).toBe(2)
+    expect(synced.editor.tapText.value).toBe('Усі рядки відстукано')
+  })
+
+  it('goes to the first line after a found plain text, which has no times', async () => {
+    const plainProposal = makeProposal({
+      kind: 'plain',
+      source: 'genius',
+      lines: [
+        { text: 'Новий', start_ms: null },
+        { text: 'Текст', start_ms: null },
+      ],
+    })
+    const plain = await opened(serverWith({ [PLAIN]: () => jsonResponse(plainProposal) }, TIMED))
+    plain.editor.retime(2)
+
+    await plain.editor.findPlain()
+
+    expect(plain.editor.buffer.value.cursor).toBe(0)
+    expect(plain.editor.tapText.value).toBe('Тап → Новий')
+  })
+
+  it('shows the glass at the audio position, taken from the timed lines', async () => {
+    const { editor } = await opened(serverWith({}, TIMED))
+
+    editor.setPosition(2000)
+    expect(editor.glass.value).toEqual({ previous: null, current: 0, next: 2, active: 0 })
+    editor.setPosition(6000)
+    expect(editor.glass.value).toEqual({ previous: 0, current: null, next: 2, active: 1 })
+    editor.setPosition(500)
+    expect(editor.glass.value.active).toBeNull()
+  })
+
+  it('marks the sounding row only while the audio plays, and follows it then', async () => {
+    const { editor } = await opened(serverWith({}, TIMED))
+    editor.setPosition(2000)
+
+    expect(editor.soundingRow.value).toBeNull()
+    expect(editor.followedRow.value).toBeNull()
+
+    editor.setPlaying(true)
+    expect(editor.soundingRow.value).toBe(0)
+    expect(editor.followedRow.value).toBe(0)
+
+    editor.setPosition(10_000)
+    expect(editor.followedRow.value).toBe(2)
+
+    editor.setPosition(100)
+    expect(editor.soundingRow.value).toBeNull()
+    expect(editor.followedRow.value).toBeNull()
+
+    editor.setPosition(2000)
+    editor.setPlaying(false)
+    expect(editor.followedRow.value).toBeNull()
+  })
+
+  it('takes a slot to its line time without touching the playing state', async () => {
+    const { editor } = await opened(serverWith({}, TIMED))
+    editor.setPosition(6000)
+    const { previous, current, next } = editor.glass.value
+
+    expect(editor.slotStart(previous)).toBe(1000)
+    expect(editor.slotStart(next)).toBe(9000)
+    expect(editor.slotStart(current)).toBeNull()
+    expect(editor.playing.value).toBe(false)
+    expect(editor.status.value).toBe('ready')
   })
 })

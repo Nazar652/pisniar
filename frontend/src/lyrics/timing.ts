@@ -11,6 +11,11 @@ export const NUDGE_GRID_MS = 10
 export const FINE_NUDGE_MS = 100
 export const COARSE_NUDGE_MS = 1000
 export const MUSIC_MARK = '♪'
+// the last entry of the text, with nothing after it, stays on the glass this long; `ass.LAST_LINE_MAX_MS` is the same number
+export const LAST_LINE_MAX_MS = 8000
+export const PAUSE_LABEL = '(програш)'
+export const ALL_TAPPED_LABEL = 'Усі рядки відстукано'
+const TAP_LABEL_PREFIX = 'Тап → '
 
 export const NOTHING_TO_TAP_MESSAGE = 'Усі рядки вже відстукано.'
 export const NOT_PLAYING_MESSAGE = 'Увімкніть відтворення, щоб відстукувати.'
@@ -116,9 +121,16 @@ export function nextUntimed(buffer: LyricsBuffer): number | null {
   return null
 }
 
+// the cursor starts on the first line without a time, past the end when every line has one
 export function bufferOf(lines: readonly Line[]): LyricsBuffer {
-  const firstUntimed = lines.findIndex((line) => line.startMs === null)
-  return { lines, cursor: firstUntimed === -1 ? 0 : firstUntimed }
+  return { lines, cursor: nextUntimed({ lines, cursor: -1 }) ?? lines.length }
+}
+
+// what the tap button will time
+export function tapLabel(buffer: LyricsBuffer): string {
+  const line = buffer.lines[buffer.cursor]
+  if (line === undefined) return ALL_TAPPED_LABEL
+  return TAP_LABEL_PREFIX + (normalizedText(line.text) === '' ? PAUSE_LABEL : line.text)
 }
 
 export function timedCount(lines: readonly Line[]): number {
@@ -315,28 +327,44 @@ export function linesFromPaste(text: string): Line[] {
     .map((row) => ({ text: row, startMs: null }))
 }
 
-// the line before and after the cursor skip pauses; the current one is the cursor's own
-export function slotsAt(buffer: LyricsBuffer): Slots {
-  const spoken = (index: number): boolean => (buffer.lines[index]?.text ?? '') !== ''
-  let previous: number | null = null
-  for (let i = Math.min(buffer.cursor, buffer.lines.length) - 1; i >= 0; i -= 1) {
-    if (spoken(i)) {
-      previous = i
-      break
+// `active` is the entry sounding at the position, a pause included; `current` is it only when it draws text
+export interface Glass extends Slots {
+  active: number | null
+}
+
+// What the video's glass shows at a track time, by `ass.display_window`: an entry lasts until the next
+// timed one starts, the last one `LAST_LINE_MAX_MS`; a pause empties the middle slot; the sides are the nearest
+// lines that draw something.
+export function glassAt(lines: readonly Line[], positionMs: number): Glass {
+  const timed: { index: number; startMs: number; spoken: boolean }[] = []
+  lines.forEach((line, index) => {
+    if (line.startMs !== null) {
+      timed.push({ index, startMs: line.startMs, spoken: normalizedText(line.text) !== '' })
     }
-  }
-  let next: number | null = null
-  for (let i = buffer.cursor + 1; i < buffer.lines.length; i += 1) {
-    if (spoken(i)) {
-      next = i
-      break
-    }
-  }
+  })
+  const at = timed.findIndex((entry, order) => {
+    const following = timed[order + 1]
+    const endMs = following === undefined ? entry.startMs + LAST_LINE_MAX_MS : following.startMs
+    return entry.startMs <= positionMs && positionMs < endMs
+  })
+  const entry = timed[at]
+  if (entry === undefined) return { previous: null, current: null, next: null, active: null }
+  const previous = timed
+    .slice(0, at)
+    .reverse()
+    .find((other) => other.spoken)
+  const next = timed.slice(at + 1).find((other) => other.spoken)
   return {
-    previous,
-    current: buffer.lines[buffer.cursor] === undefined ? null : buffer.cursor,
-    next,
+    previous: previous?.index ?? null,
+    current: entry.spoken ? entry.index : null,
+    next: next?.index ?? null,
+    active: entry.index,
   }
+}
+
+// where a tap on a slot takes the audio: the line's own time, nothing for an empty slot or an untimed line
+export function slotStartMs(lines: readonly Line[], index: number | null): number | null {
+  return index === null ? null : (lines[index]?.startMs ?? null)
 }
 
 export function inFragment(line: Line, fragmentStartMs: number, fragmentEndMs: number): boolean {

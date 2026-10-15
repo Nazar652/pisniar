@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
+  ALL_TAPPED_LABEL,
+  LAST_LINE_MAX_MS,
   MUSIC_MARK,
   NUDGE_GRID_MS,
   PREROLL_MS,
@@ -8,6 +10,7 @@ import {
   bufferOf,
   compensatedMs,
   deleteLine,
+  glassAt,
   inFragment,
   insertLine,
   insertMusicMark,
@@ -21,8 +24,9 @@ import {
   sameLines,
   seekBeforeMs,
   setText,
-  slotsAt,
+  slotStartMs,
   tap,
+  tapLabel,
   timedCount,
   undo,
   validate,
@@ -262,9 +266,12 @@ describe('structure edits', () => {
     expect(retimeFrom(buffer, -3).cursor).toBe(0)
   })
 
-  it('starts a loaded text at the first line without a time', () => {
+  it('starts a loaded text at the first line without a time, past the end when all are timed', () => {
     expect(bufferOf([line('a', 1), line('b')]).cursor).toBe(1)
-    expect(bufferOf([line('a', 1)]).cursor).toBe(0)
+    expect(bufferOf([line('a'), line('b')]).cursor).toBe(0)
+    expect(bufferOf([line('a', 1), line('b', 2)]).cursor).toBe(2)
+    expect(bufferOf([line('a', 1), line('b'), line('c', 3), line('d')]).cursor).toBe(1)
+    expect(bufferOf([]).cursor).toBe(0)
     expect(timedCount([line('a', 1), line('b')])).toBe(1)
     expect(sameLines([line('a', 1)], [line('a', 1)])).toBe(true)
     expect(sameLines([line('a', 1)], [line('a', 2)])).toBe(false)
@@ -283,24 +290,90 @@ describe('linesFromPaste', () => {
   })
 })
 
-describe('slotsAt', () => {
-  it('shows the line before, at and after the cursor and skips pauses on the sides', () => {
-    const buffer = bufferWith(
-      [line('a', 1), line('', 2), line('b', 3), line('c'), line('', 9), line('d')],
-      3,
-    )
+describe('glassAt', () => {
+  const song = [line('a', 1000), line('b', 5000), line('', 9000), line('c', 12_000), line('d')]
 
-    expect(slotsAt(buffer)).toEqual({ previous: 2, current: 3, next: 5 })
+  it('shows the sounding line with the nearest lines on the sides', () => {
+    expect(glassAt(song, 5000)).toEqual({ previous: 0, current: 1, next: 3, active: 1 })
+    expect(glassAt(song, 8999)).toEqual({ previous: 0, current: 1, next: 3, active: 1 })
   })
 
-  it('keeps a pause as the current line and has no current past the end', () => {
-    expect(slotsAt(bufferWith([line('a', 1), line('', 2), line('b')], 1)).current).toBe(1)
-    expect(slotsAt(bufferWith([line('a', 1)], 1))).toEqual({
-      previous: 0,
+  it('has only a next line on the first one, and only a previous one on the last', () => {
+    expect(glassAt(song, 1000)).toEqual({ previous: null, current: 0, next: 1, active: 0 })
+    expect(glassAt(song, 12_000)).toEqual({ previous: 1, current: 3, next: null, active: 3 })
+  })
+
+  it('keeps a line until the next one starts however long the gap is', () => {
+    const gap = [line('Вдихай! Видихай!', 88_430), line('далі', 99_270)]
+
+    expect(glassAt(gap, 88_430 + LAST_LINE_MAX_MS + 2000).current).toBe(0)
+    expect(glassAt(gap, 99_269).current).toBe(0)
+    expect(glassAt(gap, 99_270).current).toBe(1)
+  })
+
+  it('shows nothing before the first line', () => {
+    expect(glassAt(song, 999)).toEqual({ previous: null, current: null, next: null, active: null })
+  })
+
+  it('lets the last entry of the text stay for the ceiling only', () => {
+    const last = [line('a', 1000), line('b', 2000)]
+
+    expect(glassAt(last, 2000 + LAST_LINE_MAX_MS - 1).current).toBe(1)
+    expect(glassAt(last, 2000 + LAST_LINE_MAX_MS)).toEqual({
+      previous: null,
       current: null,
       next: null,
+      active: null,
     })
-    expect(slotsAt(bufferWith([]))).toEqual({ previous: null, current: null, next: null })
+  })
+
+  it('empties the middle in a pause and shows the nearest lines around it', () => {
+    expect(glassAt(song, 9000)).toEqual({ previous: 1, current: null, next: 3, active: 2 })
+    expect(glassAt(song, 11_999)).toEqual({ previous: 1, current: null, next: 3, active: 2 })
+  })
+
+  it('treats a pause as the last entry with the same ceiling', () => {
+    const ending = [line('a', 1000), line('', 3000)]
+
+    expect(glassAt(ending, 3000)).toEqual({ previous: 0, current: null, next: null, active: 1 })
+    expect(glassAt(ending, 3000 + LAST_LINE_MAX_MS).active).toBeNull()
+  })
+
+  it('skips untimed lines and takes the text of a blank line for a pause', () => {
+    const mixed = [line('a', 1000), line('x'), line('  ', 4000), line('b', 6000)]
+
+    expect(glassAt(mixed, 4500)).toEqual({ previous: 0, current: null, next: 3, active: 2 })
+    expect(glassAt([line('a'), line('b')], 5000).active).toBeNull()
+  })
+
+  it('has the same ceiling as the render', () => {
+    expect(LAST_LINE_MAX_MS).toBe(8000)
+  })
+})
+
+describe('slotStartMs', () => {
+  it('is the time of the line in the slot, nothing for an empty slot or an untimed line', () => {
+    const lines = [line('a', 1500), line('b')]
+
+    expect(slotStartMs(lines, 0)).toBe(1500)
+    expect(slotStartMs(lines, 1)).toBeNull()
+    expect(slotStartMs(lines, null)).toBeNull()
+    expect(slotStartMs(lines, 7)).toBeNull()
+  })
+})
+
+describe('tapLabel', () => {
+  it('names the line the next tap will time', () => {
+    expect(tapLabel(bufferWith([line('a'), line('Рядок')], 1))).toBe('Тап → Рядок')
+  })
+
+  it('names a pause «(програш)»', () => {
+    expect(tapLabel(bufferWith([line('')], 0))).toBe('Тап → (програш)')
+  })
+
+  it('says all lines are tapped past the end', () => {
+    expect(tapLabel(bufferWith([line('a', 1)], 1))).toBe(ALL_TAPPED_LABEL)
+    expect(ALL_TAPPED_LABEL).toBe('Усі рядки відстукано')
   })
 })
 

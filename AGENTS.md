@@ -656,8 +656,10 @@ worker image.
   explicit `\pos` at `ass.PREVIOUS_SLOT_Y`/`CURRENT_SLOT_Y`/`NEXT_SLOT_Y` (905/1035/1165, `SLOT_SPACING_PX`
   130). The current line is 52 px white and wraps to two lines, the neighbours 38 px grey and one line; the
   rest is cut with `…`. `test_ass.py` pins the slots inside the screen and measures a two-line current line
-  against its neighbours. The neighbours are the nearest lines that draw something, so a pause never leaves
-  a blank slot.
+  against its neighbours. The neighbours are the nearest lines that draw something. An entry lasts until
+  the next one starts, with no ceiling (`ass.LAST_LINE_MAX_MS`, 8 s, is the last entry's alone, and the fragment
+  bounds everything), so a long gap never blanks the glass. A pause empties the middle slot and keeps the sides;
+  windows that draw, pauses included, count toward `MAX_RENDERED_LINES`.
 - **Only the disc is composed per frame.** The stills are single frames that `loop` repeats (no input carries
   `-loop 1`); the floor is converted to YUV once with the display drawn on it, and only `render.disc_square`,
   everything that moves, is composed in `gbrp` and converted per frame. `scale=...:in_range=pc` reads the

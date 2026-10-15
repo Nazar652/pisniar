@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, inject, onBeforeUnmount, onMounted, watch, watchEffect } from 'vue'
+import { computed, inject, onBeforeUnmount, onMounted, provide, watch, watchEffect } from 'vue'
 import type { ApiClient } from '../api/client'
 import { LEAVE_GUARD } from '../app/leaveGuard'
+import { MAIN_BUTTON_GATE, createMainButtonGate } from '../app/mainButtonGate'
 import ArtistsEditor from '../components/ArtistsEditor.vue'
 import CaptionPreview from '../components/CaptionPreview.vue'
 import FieldBlock from '../components/FieldBlock.vue'
@@ -29,6 +30,9 @@ const editor = usePostEditor(props.client, props.postId, {
 })
 const { form, detail, meta } = editor
 const leaveGuard = inject(LEAVE_GUARD, null)
+// the lyrics editor saves its own text, so «Зберегти» of the fields stays hidden while it is open
+const mainButtonGate = createMainButtonGate()
+provide(MAIN_BUTTON_GATE, mainButtonGate)
 
 // unsaved field edits count as unsaved work for the back button
 watch(
@@ -65,7 +69,8 @@ watchEffect(() => {
   if (props.webApp === undefined) return
   applyMainButton(props.webApp.MainButton, {
     text: 'Зберегти',
-    visible: editor.status.value === 'ready' && editor.editable.value,
+    visible:
+      editor.status.value === 'ready' && editor.editable.value && !mainButtonGate.hidden.value,
     enabled: !editor.busy.value,
     busy: editor.busy.value,
   })

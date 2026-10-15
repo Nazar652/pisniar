@@ -25,6 +25,7 @@ from pisniar.webapp.app import (
     WAVESURFER_VERSION,
 )
 from pisniar.webapp.export_openapi import GENERATED_NOTICE, build_openapi_schema
+from pisniar.worker.ass import LAST_LINE_MAX_MS
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 FRONTEND = REPOSITORY_ROOT / "frontend"
@@ -121,6 +122,14 @@ def test_the_csp_style_hash_names_the_wavesurfer_version_in_package_json() -> No
     assert package["dependencies"]["wavesurfer.js"] == WAVESURFER_VERSION
     assert f"'{WAVESURFER_STYLE_HASH}'" in CONTENT_SECURITY_POLICY
     assert "unsafe-inline" not in CONTENT_SECURITY_POLICY
+
+
+def test_the_editor_preview_uses_the_render_ceiling_of_the_last_line() -> None:
+    source = (FRONTEND / "src" / "lyrics" / "timing.ts").read_text(encoding="utf-8")
+    match = re.search(r"^export const LAST_LINE_MAX_MS = ([\d_]+)$", source, re.M)
+
+    assert match is not None
+    assert int(match.group(1).replace("_", "")) == LAST_LINE_MAX_MS
 
 
 def test_node_exists_only_in_the_frontend_build_stage() -> None:

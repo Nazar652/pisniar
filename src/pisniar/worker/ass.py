@@ -62,9 +62,10 @@ MAX_CURRENT_WRAPPED_LINES = 2
 MAX_ADJACENT_WRAPPED_LINES = 1
 ELLIPSIS = "…"
 
-# without a ceiling the last line of a fragment hangs for the rest of it, and a 60-second gap hangs for a minute.
-MAX_LINE_MS = 8_000
-# a 45-second fragment with more than this many lines is a broken LRC or an attempt to spend ffmpeg's CPU.
+# a line stays until the next entry; only the last entry of the text, with nothing after it, gets this ceiling.
+# The Mini App's `lyrics/timing.ts` mirrors it; `test_frontend_wiring.py` ties the two.
+LAST_LINE_MAX_MS = 8_000
+# windows that draw, pauses included: more than this in a fragment is a broken LRC or an attempt to spend ffmpeg's CPU.
 MAX_RENDERED_LINES = 120
 # mirrors `models.MAX_LYRIC_TEXT_LENGTH`: past it the wrapper would be word-splitting a payload, not a lyric.
 MAX_SOURCE_TEXT_CHARACTERS = 500
@@ -280,12 +281,14 @@ def build_events(placed: Sequence[PlacedLine], fragment_length_ms: int) -> list[
     events: list[dict[str, str]] = []
     rendered_count = 0
 
-    for index, line in enumerate(placed):
-        if not line.text:
-            continue
-
+    for index in range(len(placed)):
         window = display_window(placed, index, fragment_length_ms)
         if window is None:
+            continue
+
+        start_ms, end_ms = window
+        window_events = slot_events(placed, index, start_ms, end_ms)
+        if not window_events:
             continue
 
         if rendered_count >= MAX_RENDERED_LINES:
@@ -296,8 +299,7 @@ def build_events(placed: Sequence[PlacedLine], fragment_length_ms: int) -> list[
             )
             break
 
-        start_ms, end_ms = window
-        events.extend(slot_events(placed, index, start_ms, end_ms))
+        events.extend(window_events)
         rendered_count += 1
 
     return events
@@ -308,12 +310,13 @@ def display_window(
     index: int,
     fragment_length_ms: int,
 ) -> tuple[int, int] | None:
-    """a pause entry counts as the next line, which is exactly what ends a verse."""
+    """an entry, a pause included, lasts until the next one starts; the last one gets `LAST_LINE_MAX_MS`."""
     start_ms = placed[index].start_ms
-    end_ms = min(start_ms + MAX_LINE_MS, fragment_length_ms)
 
     if index + 1 < len(placed):
-        end_ms = min(end_ms, placed[index + 1].start_ms)
+        end_ms = min(placed[index + 1].start_ms, fragment_length_ms)
+    else:
+        end_ms = min(start_ms + LAST_LINE_MAX_MS, fragment_length_ms)
 
     start_ms = max(start_ms, 0)
     if end_ms <= start_ms:
@@ -327,7 +330,7 @@ def slot_events(
     start_ms: int,
     end_ms: int,
 ) -> list[dict[str, str]]:
-    """the neighbours are the nearest lines that draw something, so a pause between verses never leaves a blank slot."""
+    """the neighbours are the nearest lines that draw something; a pause empties the middle slot only."""
     previous = neighbour_text(placed, index, step=-1)
     following = neighbour_text(placed, index, step=1)
 

@@ -103,25 +103,96 @@ describe('LyricsEditor', () => {
     }
   })
 
-  it('names an inserted pause row «(програш)» in the slot and the field, never «(пауза)»', async () => {
+  it('names an inserted pause row «(програш)» on the tap button and in the field, never «(пауза)»', async () => {
     const editor = await loadedEditor()
     editor.addPause(5000)
     editor.retime(1)
 
     const html = await render(LyricsEditor, { editor, webApp: undefined })
 
-    expect(html).toContain('lyrics-editor__slot lyrics-editor__slot--current">(програш)<')
+    expect(html).toContain('lyrics-editor__tap-label">Тап → (програш)<')
     expect(html).toContain('placeholder="(програш)"')
     expect(html).not.toContain('(пауза)')
   })
 
-  it('puts the line to tap next in the current slot, with its neighbours around it', async () => {
+  it('shows the glass at the audio position: the sounding line with its neighbours around it', async () => {
+    const editor = await loadedEditor(
+      makeLyricsView({
+        lines: [
+          { text: 'Перший', start_ms: 1000, source: 'lrclib' },
+          { text: 'Другий', start_ms: 20_000, source: 'lrclib' },
+          { text: 'Третій', start_ms: 30_000, source: 'lrclib' },
+        ],
+      }),
+    )
+    editor.setPosition(25_000)
+
+    const html = await render(LyricsEditor, { editor, webApp: undefined })
+
+    expect(html).toMatch(/slot--side"[^>]*>\s*Перший\s*</)
+    expect(html).toMatch(/slot--current"[^>]*>\s*Другий\s*</)
+    expect(html).toMatch(/slot--side"[^>]*>\s*Третій\s*</)
+    expect(html).not.toMatch(/lyrics-editor__slot[^>]*disabled/)
+  })
+
+  it('leaves a slot empty and not pressable where the glass has nothing', async () => {
     const editor = await loadedEditor()
 
     const html = await render(LyricsEditor, { editor, webApp: undefined })
 
-    expect(html).toMatch(/lyrics-editor__slot lyrics-editor__slot--side">Другий</)
-    expect(html).toMatch(/lyrics-editor__slot lyrics-editor__slot--current">Третій</)
+    expect(
+      html.split(/lyrics-editor__slot lyrics-editor__slot--\w+" disabled><\/button>/),
+    ).toHaveLength(4)
+  })
+
+  it('keeps the middle slot empty in a pause, with the lines around it on the sides', async () => {
+    const editor = await loadedEditor(
+      makeLyricsView({
+        lines: [
+          { text: 'До', start_ms: 1000, source: 'lrclib' },
+          { text: '', start_ms: 5000, source: 'manual' },
+          { text: 'Після', start_ms: 9000, source: 'lrclib' },
+        ],
+      }),
+    )
+    editor.setPosition(6000)
+
+    const html = await render(LyricsEditor, { editor, webApp: undefined })
+
+    expect(html).toContain('lyrics-editor__slot--current" disabled></button>')
+    expect(html).toMatch(/slot--side"[^>]*>\s*До\s*</)
+    expect(html).toMatch(/slot--side"[^>]*>\s*Після\s*</)
+  })
+
+  it('writes what the tap will time on the button, one line cut by the stylesheet', async () => {
+    const editor = await loadedEditor()
+
+    const html = await render(LyricsEditor, { editor, webApp: undefined })
+
+    expect(html).toContain('lyrics-editor__tap-label">Тап → Третій<')
+  })
+
+  it('says every line is tapped when the cursor is past the end', async () => {
+    const editor = await loadedEditor(
+      makeLyricsView({ lines: [{ text: 'Єдиний', start_ms: 1000, source: 'lrclib' }] }),
+    )
+
+    const html = await render(LyricsEditor, { editor, webApp: undefined })
+
+    expect(html).toContain('lyrics-editor__tap-label">Усі рядки відстукано<')
+  })
+
+  it('marks the sounding row while the audio plays and no row otherwise', async () => {
+    const editor = await loadedEditor()
+    editor.setPosition(2000)
+
+    const paused = await render(LyricsEditor, { editor, webApp: undefined })
+    editor.setPlaying(true)
+    const playing = await render(LyricsEditor, { editor, webApp: undefined })
+
+    expect(paused).not.toContain('lyrics-editor__row--sounding')
+    expect(playing).toMatch(/data-row="0" class="lyrics-editor__row lyrics-editor__row--sounding"/)
+    expect(playing.split('lyrics-editor__row--sounding')).toHaveLength(2)
   })
 
   it('lists the lines with their times and marks the ones inside the fragment', async () => {

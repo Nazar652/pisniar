@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { LEAVE_GUARD } from '../app/leaveGuard'
+import { MAIN_BUTTON_GATE } from '../app/mainButtonGate'
 import NoticeBanner from '../components/NoticeBanner.vue'
 import { inputValue } from '../editor/dom'
 import type { Notice } from '../editor/usePostEditor'
@@ -14,10 +15,10 @@ import { attachKeys } from './keys'
 import {
   COARSE_NUDGE_MS,
   FINE_NUDGE_MS,
+  PAUSE_LABEL,
   SPEEDS,
   inFragment,
   seekBeforeMs,
-  slotsAt,
   type Line,
 } from './timing'
 import { PLAIN_SOURCES, type LyricsEditorState, type PlainSource } from './useLyricsEditor'
@@ -34,22 +35,23 @@ const STEPS = [
   { label: '+1 с', deltaMs: COARSE_NUDGE_MS },
 ]
 const NO_LINE = '—'
-const PAUSE_LINE = '(програш)'
 
 const root = ref<HTMLElement | null>(null)
 const audioElement = ref<HTMLAudioElement | null>(null)
-const positionMs = ref(0)
+const positionMs = props.editor.positionMs
 const playing = ref(false)
 const pasteText = ref('')
 
 let restoreSwipes: () => void = () => undefined
 let detachKeys: () => void = () => undefined
+let releaseMainButton: () => void = () => undefined
 let resumeAtMs: number | null = null
 
 const durationMs = computed(() => props.editor.limits.value?.durationMs ?? 0)
 const cursor = computed(() => props.editor.buffer.value.cursor)
-const slots = computed(() => slotsAt(props.editor.buffer.value))
+const glass = props.editor.glass
 const leaveGuard = inject(LEAVE_GUARD, null)
+const mainButtonGate = inject(MAIN_BUTTON_GATE, null)
 
 function noticeIn(area: 'tap' | 'save'): Notice | null {
   const { message, failed, area: current } = props.editor
@@ -61,9 +63,7 @@ const saveNotice = computed(() => noticeIn('save'))
 const locked = computed(() => !props.editor.editable.value)
 
 function slotText(index: number | null): string {
-  if (index === null) return NO_LINE
-  const text = props.editor.lines.value[index]?.text ?? ''
-  return text === '' ? PAUSE_LINE : text
+  return index === null ? '' : (props.editor.lines.value[index]?.text ?? '')
 }
 
 function timeText(line: Line): string {
@@ -82,7 +82,13 @@ function nowMs(): number {
 function seek(ms: number): void {
   const media = audioElement.value
   if (media !== null) media.currentTime = ms / 1000
-  positionMs.value = ms
+  props.editor.setPosition(ms)
+}
+
+// a slot takes the audio to its line and leaves playing or pausing as it was
+function seekToSlot(index: number | null): void {
+  const startMs = props.editor.slotStart(index)
+  if (startMs !== null) seek(startMs)
 }
 
 function play(): void {
@@ -139,7 +145,7 @@ function onMetadata(): void {
 }
 
 function onTime(): void {
-  positionMs.value = nowMs()
+  props.editor.setPosition(nowMs())
 }
 
 function onPlay(): void {
@@ -180,19 +186,30 @@ watch(
   { immediate: true },
 )
 
-// the line to tap next stays in view
-watch(cursor, async (index) => {
+async function showRow(index: number): Promise<void> {
   await nextTick()
   root.value?.querySelector(`[data-row="${index}"]`)?.scrollIntoView({ block: 'nearest' })
+}
+
+// while the audio plays the sounding line stays in view, and it wins over the tap cursor
+watch(props.editor.followedRow, (index) => {
+  if (index !== null) void showRow(index)
+})
+
+// the line to tap next stays in view
+watch(cursor, (index) => {
+  if (!props.editor.playing.value) void showRow(index)
 })
 
 onMounted(() => {
+  releaseMainButton = mainButtonGate?.hide() ?? releaseMainButton
   restoreSwipes = lockVerticalSwipes(props.webApp)
   detachKeys = attachKeys(window, { tap: tapNow, undo: undoNow })
   if (props.editor.view.value === null) void props.editor.load()
 })
 
 onBeforeUnmount(() => {
+  releaseMainButton()
   leaveGuard?.setDirty('lyrics', false)
   releaseEditor({
     detachKeys,
@@ -234,11 +251,30 @@ onBeforeUnmount(() => {
       </p>
 
       <div class="lyrics-editor__slots" aria-live="off">
-        <p class="lyrics-editor__slot lyrics-editor__slot--side">{{ slotText(slots.previous) }}</p>
-        <p class="lyrics-editor__slot lyrics-editor__slot--current">
-          {{ slotText(slots.current) }}
-        </p>
-        <p class="lyrics-editor__slot lyrics-editor__slot--side">{{ slotText(slots.next) }}</p>
+        <button
+          type="button"
+          class="lyrics-editor__slot lyrics-editor__slot--side"
+          :disabled="glass.previous === null"
+          @click="seekToSlot(glass.previous)"
+        >
+          {{ slotText(glass.previous) }}
+        </button>
+        <button
+          type="button"
+          class="lyrics-editor__slot lyrics-editor__slot--current"
+          :disabled="glass.current === null"
+          @click="seekToSlot(glass.current)"
+        >
+          {{ slotText(glass.current) }}
+        </button>
+        <button
+          type="button"
+          class="lyrics-editor__slot lyrics-editor__slot--side"
+          :disabled="glass.next === null"
+          @click="seekToSlot(glass.next)"
+        >
+          {{ slotText(glass.next) }}
+        </button>
       </div>
 
       <div class="lyrics-editor__player">
@@ -278,7 +314,7 @@ onBeforeUnmount(() => {
         :disabled="locked"
         @pointerdown.prevent="tapPointer($event)"
       >
-        {{ slots.current === null ? 'Усі рядки відстукано' : 'Тап' }}
+        <span class="lyrics-editor__tap-label">{{ editor.tapText.value }}</span>
       </button>
       <NoticeBanner :notice="tapNotice" />
       <div class="lyrics-editor__tools">
@@ -329,7 +365,13 @@ onBeforeUnmount(() => {
           v-for="(line, index) in editor.lines.value"
           :key="index"
           :data-row="index"
-          :class="['lyrics-editor__row', { 'lyrics-editor__row--active': index === cursor }]"
+          :class="[
+            'lyrics-editor__row',
+            {
+              'lyrics-editor__row--active': index === cursor,
+              'lyrics-editor__row--sounding': index === editor.soundingRow.value,
+            },
+          ]"
         >
           <div class="lyrics-editor__line">
             <button
@@ -348,7 +390,7 @@ onBeforeUnmount(() => {
             <input
               class="input"
               :value="line.text"
-              :placeholder="PAUSE_LINE"
+              :placeholder="PAUSE_LABEL"
               :disabled="locked"
               :aria-label="`Текст рядка ${index + 1}`"
               @input="editor.edit(index, inputValue($event))"
@@ -497,8 +539,21 @@ onBeforeUnmount(() => {
 }
 
 .lyrics-editor__slot {
+  display: block;
+  width: 100%;
+  min-height: 1.4em;
   margin: 4px 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font-family: inherit;
+  text-align: center;
   overflow-wrap: anywhere;
+}
+
+.lyrics-editor__slot:disabled {
+  cursor: default;
 }
 
 .lyrics-editor__slot--side {
@@ -541,6 +596,13 @@ onBeforeUnmount(() => {
   user-select: none;
 }
 
+.lyrics-editor__tap-label {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .lyrics-editor__tools {
   display: flex;
   flex-wrap: wrap;
@@ -562,6 +624,10 @@ onBeforeUnmount(() => {
 .lyrics-editor__row--active {
   border-left: 3px solid var(--page-button);
   padding-left: 6px;
+}
+
+.lyrics-editor__row--sounding {
+  background: var(--page-card);
 }
 
 .lyrics-editor__line {
