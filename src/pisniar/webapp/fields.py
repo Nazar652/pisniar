@@ -10,9 +10,10 @@ import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
-from pisniar.db.models import MANUAL_FIELD_NAMES
+from pisniar.db.models import MANUAL_FIELD_NAMES, MAX_DESCRIPTION_LENGTH
 from pisniar.post.caption import RELEASE_TYPE_NAMES, is_shown_in_caption
 from pisniar.post.caption_input import genres_from_stored
+from pisniar.post.description import normalize_description, parse_description
 from pisniar.resolve.json_utils import as_dict, as_nonempty_str
 from pisniar.resolve.link_policy import ALLOWED_HOSTS, check_manual_link, parse_spotify_album_link
 from pisniar.resolve.merge import artists_from_stored
@@ -39,6 +40,7 @@ class StoredFields:
     release_type: str | None
     release_title: str | None
     album_id_spotify: str | None
+    description: str | None
     platform_links: dict[str, object]
     manual_fields: list[object]
     removed_platforms: list[object]
@@ -56,6 +58,7 @@ class PlannedFields:
     release_type: str | None
     release_title: str | None
     album_id_spotify: str | None
+    description: str | None
     platform_links: dict[str, object]
     manual_fields: list[str]
     removed_platforms: list[str]
@@ -215,6 +218,20 @@ def plan_album_id(link: str | None, errors: list[FieldError]) -> str | None:
     return parsed.album_id
 
 
+def plan_description(value: str | None, errors: list[FieldError]) -> str | None:
+    """the normalized text, or `None` for none; the length is counted after normalizing, and every problem of a link is
+    its own sentence."""
+    description = normalize_description(value)
+    if description is None:
+        return None
+
+    if len(description) > MAX_DESCRIPTION_LENGTH:
+        collect(errors, "description", f"Опис задовгий: {len(description)} з {MAX_DESCRIPTION_LENGTH} символів.")
+    for problem in parse_description(description).problems:
+        collect(errors, "description", problem)
+    return description
+
+
 def plan_platform_links(
     inputs: Mapping[str, str],
     stored_links: Mapping[str, object],
@@ -300,6 +317,7 @@ def plan_fields(
     release_type = plan_release_type(update.release_type, stored.release_type, errors)
     release_title = plan_release_title(update.release_title)
     album_id = plan_album_id(update.album_link, errors)
+    description = plan_description(update.description, errors)
     links, removed, youtube_music_changed = plan_platform_links(
         update.platform_links, stored.platform_links, stored.removed_platforms, errors
     )
@@ -328,6 +346,8 @@ def plan_fields(
         changed.append("genres")
     if links != stored.platform_links:
         changed.append("platform_links")
+    if description != stored.description:
+        changed.append("description")
 
     return PlannedFields(
         title=title,
@@ -338,6 +358,7 @@ def plan_fields(
         release_type=release_type,
         release_title=release_title,
         album_id_spotify=album_id,
+        description=description,
         platform_links=links,
         manual_fields=manual_fields,
         removed_platforms=removed,

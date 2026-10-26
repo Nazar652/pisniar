@@ -236,6 +236,28 @@ async def test_fragment_bounds_check_rejects_negative_start(db_session: AsyncSes
         await db_session.flush()
 
 
+@pytest.mark.parametrize("description", ["", "я" * 501, "\U0001f600" * 501])
+async def test_description_check_rejects_an_empty_and_an_over_long_text(
+    db_session: AsyncSession, description: str
+) -> None:
+    track = await make_track(db_session)
+    db_session.add(Post(track_id=track.id, created_by_user_id=1, description=description))
+
+    with pytest.raises(IntegrityError, match="ck_post_description_length"):
+        await db_session.flush()
+
+
+@pytest.mark.parametrize("description", [None, "я", "я" * 500, "\U0001f600" * 500])
+async def test_description_check_allows_null_and_the_limits(db_session: AsyncSession, description: str | None) -> None:
+    track = await make_track(db_session)
+    post = Post(track_id=track.id, created_by_user_id=1, description=description)
+    db_session.add(post)
+
+    await db_session.flush()  # must not raise
+
+    assert post.description == description
+
+
 async def test_fragment_bounds_check_allows_null_bounds(db_session: AsyncSession) -> None:
     track = await make_track(db_session)
     post = Post(track_id=track.id, created_by_user_id=1)

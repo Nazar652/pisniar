@@ -28,6 +28,7 @@ def build(warnings: list[str] | None = None, **overrides: Any) -> tuple[str, lis
         "languages": ["українська"],
         "genres": [GenreInfo(name="рок", hashtag=None, source="deezer")],
         "platform_links": {"spotify": SPOTIFY_LINK},
+        "description": None,
         "include_release_title": True,
         "warnings": collected,
     }

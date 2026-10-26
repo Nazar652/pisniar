@@ -61,6 +61,7 @@ def build_caption_from_rows(
     languages: Sequence[object],
     genres: Sequence[object],
     platform_links: Mapping[str, object],
+    description: str | None,
     limit: int = MEDIA_CAPTION_LIMIT,
 ) -> CaptionResult:
     return build_caption_with_report(
@@ -73,5 +74,6 @@ def build_caption_from_rows(
         languages=languages_from_stored(languages),
         genres=genres_from_stored(genres),
         platform_links=platform_links_from_stored(platform_links),
+        description=description,
         limit=limit,
     )

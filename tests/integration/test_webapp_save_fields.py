@@ -70,6 +70,7 @@ class Environment:
             "release_type": detail["release_type"],
             "release_title": detail["release_title"],
             "album_link": detail["album_url"],
+            "description": detail["description"],
             "platform_links": {
                 key: link["url"] for key, link in detail["platform_links"].items() if link["shown_in_caption"]
             },
@@ -195,6 +196,70 @@ async def test_a_save_writes_the_fields_marks_the_changed_one_and_returns_the_ca
     assert track.manual_fields == ["title", "year"]
     assert cast("list[dict[str, Any]]", track.artists)[0]["spotify_id"] == "a1"
     assert saved["expected_track_updated_at"] != body["expected_track_updated_at"]
+
+
+async def test_a_description_is_stored_on_the_post_shown_in_the_caption_and_removed_by_an_empty_one(
+    environment: Environment, seeded: Seeded
+) -> None:
+    body = await environment.form_of(seeded.post_id, description="Про пісню\r\n\r\n[Кліп](https://youtu.be/abc)  ")
+
+    response = await environment.save(seeded.post_id, body)
+
+    assert response.status_code == 200
+    saved = response.json()
+    assert saved["description"] == "Про пісню\n\n[Кліп](https://youtu.be/abc)"
+    kinds = [(segment["kind"], segment["text"]) for segment in saved["caption"]["segments"]]
+    assert ("text", "Про пісню") in kinds
+    assert ("link", "Кліп") in kinds
+    assert (await stored_track(environment, seeded.track_id)).manual_fields == []
+
+    cleared = await environment.save(seeded.post_id, await environment.form_of(seeded.post_id, description="  \n "))
+
+    assert cleared.status_code == 200
+    assert cleared.json()["description"] is None
+
+
+async def test_a_broken_description_is_a_422_on_description_and_nothing_is_written(
+    environment: Environment, seeded: Seeded
+) -> None:
+    body = await environment.form_of(seeded.post_id, description="[Клік](javascript:alert(1))")
+
+    response = await environment.save(seeded.post_id, body)
+
+    assert response.status_code == 422
+    assert [error["field"] for error in response.json()["errors"]] == ["description"]
+    assert (await environment.detail(seeded.post_id))["description"] is None
+
+
+async def test_a_description_that_keeps_the_caption_over_the_limit_is_refused_and_nothing_is_written(
+    environment: Environment, seeded: Seeded
+) -> None:
+    body = await environment.form_of(
+        seeded.post_id,
+        title="Т" * 300,
+        artists=[{"name": "А" * 200, "hashtag": None}],
+        description="в" * 500,
+    )
+
+    response = await environment.save(seeded.post_id, body)
+
+    assert response.status_code == 422
+    [error] = response.json()["errors"]
+    assert error["field"] == "description"
+    assert "Скоротіть опис щонайменше на" in error["message"]
+    stored = await environment.detail(seeded.post_id)
+    assert (stored["title"], stored["description"]) == ("Тема", None)
+
+
+async def test_a_description_beyond_the_limit_is_refused_by_the_request_model(
+    environment: Environment, seeded: Seeded
+) -> None:
+    body = await environment.form_of(seeded.post_id, description="я" * 501)
+
+    response = await environment.save(seeded.post_id, body)
+
+    assert response.status_code == 422
+    assert (await environment.detail(seeded.post_id))["description"] is None
 
 
 async def test_a_save_without_changes_writes_nothing_and_keeps_both_stamps(

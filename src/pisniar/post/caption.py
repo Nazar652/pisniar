@@ -1,7 +1,7 @@
 """Builds a `CaptionDocument` at the media caption limit (1024): `Artists — Title`, the «Release title» line (album/ep
-only), `#artists · year`, `#languages · #genres`, then the platform links and the channel link. On overflow it degrades
-deterministically: genres from the tail, then platforms from the tail (Spotify/YT Music last), then the release
-title."""
+only), `#artists · year`, `#languages · #genres`, the description, then the platform links and the channel link. On
+overflow it degrades deterministically: genres from the tail, then platforms from the tail (Spotify/YT Music last),
+then the release title; the description is never cut."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import NamedTuple
 
 from pisniar.channel import CHANNEL_LINK_TEXT, CHANNEL_LINK_URL
+from pisniar.post.description import parse_description
 from pisniar.post.hashtags import default_hashtag
 from pisniar.post.render import CaptionDocument, visible_length
 from pisniar.resolve.matching import is_valid_spotify_id
@@ -129,6 +130,7 @@ def build_document(
     languages: list[str],
     genres: list[GenreInfo],
     platform_links: dict[str, PlatformLink],
+    description: str | None,
     include_release_title: bool,
     warnings: list[str],
 ) -> CaptionDocument:
@@ -175,6 +177,13 @@ def build_document(
         document.append_line_break()
         document.append_text(hashtag_line)
 
+    # the description is never cut or dropped: it sits between the hashtags and the links, set off by a blank line
+    description_segments = parse_description(description).segments
+    if description_segments:
+        document.append_line_break()
+        document.append_line_break()
+        document.segments.extend(description_segments)
+
     clip = clip_platform(platform_links)
     ordered_platforms = platforms_in_display_order(platform_links)
     if ordered_platforms:
@@ -207,6 +216,7 @@ def build_caption_with_report(
     languages: list[str],
     genres: list[GenreInfo],
     platform_links: dict[str, PlatformLink],
+    description: str | None = None,
     limit: int = MEDIA_CAPTION_LIMIT,
 ) -> CaptionResult:
     remaining_genres = list(genres)
@@ -227,6 +237,7 @@ def build_caption_with_report(
             languages=languages,
             genres=remaining_genres,
             platform_links=remaining_platforms,
+            description=description,
             include_release_title=include_release_title,
             warnings=warnings,
         )
@@ -276,6 +287,7 @@ def build_caption(
     languages: list[str],
     genres: list[GenreInfo],
     platform_links: dict[str, PlatformLink],
+    description: str | None = None,
     limit: int = MEDIA_CAPTION_LIMIT,
 ) -> tuple[CaptionDocument, list[str]]:
     result = build_caption_with_report(
@@ -288,6 +300,7 @@ def build_caption(
         languages=languages,
         genres=genres,
         platform_links=platform_links,
+        description=description,
         limit=limit,
     )
     return result.document, result.warnings

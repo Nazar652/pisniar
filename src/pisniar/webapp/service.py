@@ -21,6 +21,7 @@ from pisniar.post.caption_input import (
     genres_from_stored,
     languages_from_stored,
 )
+from pisniar.post.description import link_destinations
 from pisniar.post.hashtags import default_hashtag
 from pisniar.post.render import (
     LineBreakSegment,
@@ -37,6 +38,7 @@ from pisniar.webapp.schemas import (
     CaptionSegmentView,
     CaptionView,
     CoverPublicationAvailability,
+    DescriptionDestination,
     FragmentAvailability,
     GenreDetail,
     PlatformLinkDetail,
@@ -189,6 +191,11 @@ def build_post_detail(
         release_title=track.release_title,
         album_id_spotify=track.album_id_spotify,
         album_url=album_url_of(track.album_id_spotify),
+        description=post.description,
+        description_links=[
+            DescriptionDestination(label=link.label, host=link.host, warnings=link.warnings)
+            for link in link_destinations(post.description)
+        ],
         platform_links=stored_platform_links(track.platform_links),
         manual_fields=names_of(track.manual_fields),
         removed_platforms=names_of(track.removed_platforms),
@@ -217,6 +224,7 @@ def rebuild_caption(post: Post, track: Track) -> tuple[CaptionView | None, str |
         languages=track.languages,
         genres=post.genres,
         platform_links=track.platform_links,
+        description=post.description,
     )
 
 
@@ -231,6 +239,7 @@ def caption_view_of(
     languages: Sequence[object],
     genres: Sequence[object],
     platform_links: dict[str, object],
+    description: str | None,
 ) -> tuple[CaptionView, str]:
     """the view and the exact HTML it renders to; the sha256 in the view is that HTML's."""
     rebuilt = build_caption_from_rows(
@@ -243,6 +252,7 @@ def caption_view_of(
         languages=languages,
         genres=genres,
         platform_links=platform_links,
+        description=description,
     )
 
     segments = []

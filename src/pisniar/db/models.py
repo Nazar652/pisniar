@@ -61,6 +61,10 @@ MAX_LYRIC_TEXT_LENGTH = 500
 # a book.
 MAX_LYRIC_LINES = 300
 MAX_LYRICS_TOTAL_CHARACTERS = 20_000
+
+# the admin's text under the hashtags: a typical caption leaves ~700 of the 1024 for it, and degradation absorbs
+# the rest.
+MAX_DESCRIPTION_LENGTH = 500
 # a saved set's JSON body: 20 000 four-byte characters plus ~40 bytes of keys per line.
 LYRICS_MAX_BODY_BYTES = 96 * 1024
 
@@ -156,6 +160,10 @@ class Post(IdAndTimestampsMixin, Base):
         ),
         CheckConstraint("jsonb_typeof(genres) = 'array'", name="genres_is_array"),
         CheckConstraint(
+            f"description IS NULL OR char_length(description) BETWEEN 1 AND {MAX_DESCRIPTION_LENGTH}",
+            name="description_length",
+        ),
+        CheckConstraint(
             "num_nonnulls(channel_chat_id, channel_message_id) <> 1",
             name="channel_ref_complete",
         ),
@@ -218,6 +226,8 @@ class Post(IdAndTimestampsMixin, Base):
     genres: Mapped[list[object]] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     fragment_start_ms: Mapped[int | None] = mapped_column(BigInteger)
     fragment_end_ms: Mapped[int | None] = mapped_column(BigInteger)
+    # normalized text with `[text](https://…)` links, shown under the hashtags; NULL means none.
+    description: Mapped[str | None] = mapped_column(Text)
 
     channel_chat_id: Mapped[int | None] = mapped_column(BigInteger)
     channel_message_id: Mapped[int | None] = mapped_column(BigInteger)

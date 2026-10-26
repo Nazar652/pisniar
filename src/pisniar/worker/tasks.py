@@ -324,6 +324,7 @@ async def resolve_and_deliver(
                 languages=track.languages,
                 genres=post.genres,
                 platform_links=track.platform_links,
+                description=post.description,
             )
             for warning in [*resolved.warnings, *rebuilt.warnings]:
                 logger.warning("resolve_post_warning", post_id=post.id, warning=warning)

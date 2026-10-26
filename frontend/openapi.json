@@ -378,6 +378,33 @@
         "title": "CoverPublicationStarted",
         "type": "object"
       },
+      "DescriptionDestination": {
+        "description": "where one link of the description goes: the host in ASCII and the warnings about it.",
+        "properties": {
+          "host": {
+            "title": "Host",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "label",
+          "host",
+          "warnings"
+        ],
+        "title": "DescriptionDestination",
+        "type": "object"
+      },
       "FieldError": {
         "properties": {
           "field": {
@@ -419,6 +446,18 @@
             "maxItems": 20,
             "title": "Artists",
             "type": "array"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
           },
           "genres": {
             "items": {
@@ -498,6 +537,7 @@
           "artists",
           "languages",
           "genres",
+          "description",
           "platform_links"
         ],
         "title": "FieldsInput",
@@ -551,6 +591,18 @@
             "maxItems": 20,
             "title": "Artists",
             "type": "array"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
           },
           "expected_post_updated_at": {
             "format": "date-time",
@@ -640,6 +692,7 @@
           "artists",
           "languages",
           "genres",
+          "description",
           "platform_links",
           "expected_post_updated_at",
           "expected_track_updated_at"
@@ -1182,6 +1235,14 @@
             "title": "Caption Limit",
             "type": "integer"
           },
+          "description_max_length": {
+            "title": "Description Max Length",
+            "type": "integer"
+          },
+          "description_max_links": {
+            "title": "Description Max Links",
+            "type": "integer"
+          },
           "genres": {
             "items": {
               "$ref": "#/components/schemas/GenreHint"
@@ -1224,7 +1285,9 @@
           "languages",
           "genres",
           "manual_field_names",
-          "caption_limit"
+          "caption_limit",
+          "description_max_length",
+          "description_max_links"
         ],
         "title": "MetaResponse",
         "type": "object"
@@ -1344,6 +1407,24 @@
             "format": "date-time",
             "title": "Created At",
             "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "description_links": {
+            "items": {
+              "$ref": "#/components/schemas/DescriptionDestination"
+            },
+            "title": "Description Links",
+            "type": "array"
           },
           "editable": {
             "title": "Editable",
@@ -1518,6 +1599,8 @@
           "release_title",
           "album_id_spotify",
           "album_url",
+          "description",
+          "description_links",
           "platform_links",
           "manual_fields",
           "removed_platforms",
@@ -1643,6 +1726,17 @@
           "caption": {
             "$ref": "#/components/schemas/CaptionView"
           },
+          "description_links": {
+            "items": {
+              "$ref": "#/components/schemas/DescriptionDestination"
+            },
+            "title": "Description Links",
+            "type": "array"
+          },
+          "description_over_limit": {
+            "title": "Description Over Limit",
+            "type": "boolean"
+          },
           "differs_from_stored": {
             "title": "Differs From Stored",
             "type": "boolean"
@@ -1661,6 +1755,8 @@
         },
         "required": [
           "caption",
+          "description_over_limit",
+          "description_links",
           "stored_caption_sha256",
           "differs_from_stored"
         ],

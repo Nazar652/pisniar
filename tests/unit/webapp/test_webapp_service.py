@@ -96,6 +96,33 @@ def test_the_detail_carries_every_editable_field() -> None:
     assert detail.other_post_ids == [9, 8]
 
 
+def test_a_description_makes_the_stored_caption_stale_until_it_is_applied() -> None:
+    track = make_track()
+    post = make_post()
+    _, post.caption = rebuild_caption(post, track)
+    assert build_post_detail(post, track, []).stored_caption_matches is True
+
+    post.description = "Новий опис"
+    detail = build_post_detail(post, track, [])
+    assert (detail.description, detail.stored_caption_matches) == ("Новий опис", False)
+
+    _, post.caption = rebuild_caption(post, track)
+    assert build_post_detail(post, track, []).stored_caption_matches is True
+
+
+def test_the_detail_names_the_hosts_of_the_stored_description() -> None:
+    post = make_post(description="[Квиток](https://tickets.example/a) [spotify.com](https://evil.example/x)")
+
+    detail = build_post_detail(post, make_track(), [])
+
+    assert [(link.label, link.host) for link in detail.description_links] == [
+        ("Квиток", "tickets.example"),
+        ("spotify.com", "evil.example"),
+    ]
+    assert detail.description_links[1].warnings == ["текст посилання показує інший сайт"]
+    assert build_post_detail(make_post(), make_track(), []).description_links == []
+
+
 def test_the_detail_marks_a_stored_link_the_caption_never_shows() -> None:
     tidal = {"url": "https://listen.tidal.com/track/1", "source": "songlink", "match": "aggregator"}
 
@@ -247,6 +274,7 @@ def test_the_previewed_caption_is_what_the_rows_build() -> None:
         languages=track.languages,
         genres=post.genres,
         platform_links=track.platform_links,
+        description=None,
     )
     assert view is not None
     assert html == render_html(expected.document)

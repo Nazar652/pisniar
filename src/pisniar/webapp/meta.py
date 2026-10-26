@@ -4,8 +4,9 @@ the release types, and the language and genre suggestions. Taken from the same t
 
 from __future__ import annotations
 
-from pisniar.db.models import DEFAULT_LANGUAGES, MANUAL_FIELD_NAMES
+from pisniar.db.models import DEFAULT_LANGUAGES, MANUAL_FIELD_NAMES, MAX_DESCRIPTION_LENGTH
 from pisniar.post.caption import MEDIA_CAPTION_LIMIT, RELEASE_TYPE_NAMES, is_shown_in_caption, platform_display_name
+from pisniar.post.description import MAX_DESCRIPTION_LINKS
 from pisniar.post.hashtags import default_hashtag
 from pisniar.resolve.genres import DEEZER_GENRE_NAMES
 from pisniar.resolve.link_policy import ALLOWED_HOST_SUFFIXES, ALLOWED_HOSTS, CLASSIFIED_PLATFORMS
@@ -35,4 +36,6 @@ def build_meta() -> MetaResponse:
         ],
         manual_field_names=list(MANUAL_FIELD_NAMES),
         caption_limit=MEDIA_CAPTION_LIMIT,
+        description_max_length=MAX_DESCRIPTION_LENGTH,
+        description_max_links=MAX_DESCRIPTION_LINKS,
     )

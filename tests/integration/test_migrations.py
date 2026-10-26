@@ -20,6 +20,7 @@ MANUAL_FIELDS_REVISION = "6134b8e293e1"
 PREVIEW_HASH_REVISION = "ba0fdb351081"
 UNTIMED_LINES_REVISION = "45c8ad2d6e6d"
 RENDER_BOUNDS_REVISION = "c3a91f7d2e54"
+DESCRIPTION_REVISION = "d7e4b92a1c68"
 
 RunAlembic = Callable[..., Awaitable[None]]
 
@@ -328,3 +329,55 @@ async def test_render_bounds_backfill_fills_only_the_preview_row_of_a_rendered_p
         assert (stored[untouched]["fragment_start_ms"], stored[untouched]["fragment_end_ms"]) == (None, None)
         assert stored[untouched]["touched"] is False
     assert (columns_left, check_left) == (0, 0)
+
+
+async def test_description_migration_adds_a_nullable_column_that_leaves_old_rows_untouched(
+    migrations_test_database_url: str,
+    run_alembic: RunAlembic,
+) -> None:
+    """existing posts get NULL and keep their `updated_at`; the CHECK refuses '' and 501 characters; the downgrade
+    removes both the column and the CHECK."""
+    old_stamp = datetime(2020, 1, 1, tzinfo=UTC)
+    await run_alembic(command.upgrade, RENDER_BOUNDS_REVISION, database_url=migrations_test_database_url)
+
+    plain_dsn = (
+        make_url(migrations_test_database_url).set(drivername="postgresql").render_as_string(hide_password=False)
+    )
+    connection = await asyncpg.connect(plain_dsn)
+    try:
+        await connection.execute(
+            "INSERT INTO track (id, source_url, source_url_normalized) "
+            "OVERRIDING SYSTEM VALUE VALUES (1, 'test://1', 'test://1')"
+        )
+        await connection.execute(
+            "INSERT INTO post (id, track_id, created_by_user_id, updated_at) OVERRIDING SYSTEM VALUE "
+            "VALUES (1, 1, 1, $1::timestamptz)",
+            old_stamp,
+        )
+
+        await run_alembic(command.upgrade, DESCRIPTION_REVISION, database_url=migrations_test_database_url)
+
+        old_row = await connection.fetchrow(
+            "SELECT description, updated_at = $1::timestamptz AS same FROM post", old_stamp
+        )
+        await connection.execute("UPDATE post SET description = $1", "я" * 500)
+        with pytest.raises(asyncpg.CheckViolationError, match="ck_post_description_length"):
+            await connection.execute("UPDATE post SET description = ''")
+        with pytest.raises(asyncpg.CheckViolationError, match="ck_post_description_length"):
+            await connection.execute("UPDATE post SET description = $1", "я" * 501)
+
+        await run_alembic(command.downgrade, "-1", database_url=migrations_test_database_url)
+        column_left = await connection.fetchval(
+            "SELECT count(*) FROM information_schema.columns WHERE table_name = 'post' AND column_name = 'description'"
+        )
+        check_left = await connection.fetchval(
+            "SELECT count(*) FROM pg_constraint WHERE conname = 'ck_post_description_length'"
+        )
+
+        await run_alembic(command.upgrade, "head", database_url=migrations_test_database_url)
+    finally:
+        await connection.close()
+
+    assert old_row is not None
+    assert (old_row["description"], old_row["same"]) == (None, True)
+    assert (column_left, check_left) == (0, 0)

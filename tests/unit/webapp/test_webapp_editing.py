@@ -65,6 +65,7 @@ def unchanged_update(track: Track, **overrides: Any) -> FieldsUpdate:
         "release_type": track.release_type,
         "release_title": track.release_title,
         "album_link": f"https://open.spotify.com/album/{ALBUM_ID}",
+        "description": None,
         "platform_links": {"spotify": SPOTIFY_URL, "youtubeMusic": MUSIC_URL},
         "expected_post_updated_at": STAMP,
         "expected_track_updated_at": STAMP,
@@ -186,6 +187,123 @@ async def test_a_save_writes_flushes_and_returns_the_detail(session: MagicMock, 
     assert track.manual_fields == ["title"]
     session.flush.assert_awaited_once()
     assert session.refresh.await_count == 2
+
+
+async def test_a_save_writes_the_description_to_the_post(session: MagicMock, locks: dict[str, AsyncMock]) -> None:
+    track = locks["track"].return_value
+    post = locks["post"].return_value
+
+    await save_fields(session, 7, unchanged_update(track, description="Текст\r\n[Кліп](https://youtu.be/x)"), 2026, 111)
+
+    assert post.description == "Текст\n[Кліп](https://youtu.be/x)"
+
+
+async def test_a_save_without_a_description_change_leaves_the_post_alone(
+    session: MagicMock, locks: dict[str, AsyncMock]
+) -> None:
+    track = locks["track"].return_value
+    post = locks["post"].return_value
+    post.description = "Той самий"
+
+    await save_fields(session, 7, unchanged_update(track, description="Той самий"), 2026, 111)
+
+    assert post.description == "Той самий"
+    assert (
+        "description"
+        not in editing.plan_fields(
+            unchanged_update(track, description="Той самий"), stored_fields_of(post, track), 2026
+        ).changed_fields
+    )
+
+
+async def test_a_save_whose_description_keeps_the_caption_over_the_limit_is_a_422_on_description(
+    session: MagicMock, locks: dict[str, AsyncMock]
+) -> None:
+    track = locks["track"].return_value
+    post = locks["post"].return_value
+    track.title = "Т" * 300
+    track.release_title = "Р" * 300
+    track.artists = [{"name": "А" * 200, "hashtag": None, "spotify_id": None}]
+
+    with pytest.raises(FieldsInvalidError) as raised:
+        await save_fields(
+            session,
+            7,
+            unchanged_update(track, title=track.title, artists=[ArtistInput(name="А" * 200)], description="в" * 500),
+            2026,
+            111,
+        )
+
+    [error] = raised.value.errors
+    assert error.field == "description"
+    assert "Скоротіть опис щонайменше на" in error.message
+    assert post.description is None
+    session.flush.assert_not_awaited()
+
+
+async def test_a_caption_over_the_limit_without_any_description_is_not_blamed_on_it(
+    session: MagicMock, locks: dict[str, AsyncMock]
+) -> None:
+    track = locks["track"].return_value
+    title = "Т" * 300
+    artists = [ArtistInput(name="А" * 200) for _ in range(3)]
+
+    await save_fields(session, 7, unchanged_update(track, title=title, artists=artists, description="Текст"), 2026, 111)
+
+    session.flush.assert_awaited_once()
+
+
+async def test_a_preview_shows_the_description_in_the_caption() -> None:
+    post, track = make_rows()
+
+    preview = await preview_fields(
+        preview_session(post, track), 7, form(description="Опис [Кліп](https://youtu.be/x)"), 2026, 111
+    )
+
+    assert preview is not None
+    kinds = [(segment.kind, segment.text) for segment in preview.caption.segments]
+    assert ("text", "Опис ") in kinds
+    assert ("link", "Кліп") in kinds
+
+
+async def test_a_preview_names_the_destination_hosts_of_the_links() -> None:
+    post, track = make_rows()
+    text = "[Квиток](https://tickets.example/a) [spotify.com](https://evil.example/x)"
+
+    preview = await preview_fields(preview_session(post, track), 7, form(description=text), 2026, 111)
+
+    assert preview is not None
+    assert [(link.label, link.host) for link in preview.description_links] == [
+        ("Квиток", "tickets.example"),
+        ("spotify.com", "evil.example"),
+    ]
+    assert preview.description_links[1].warnings == ["текст посилання показує інший сайт"]
+    assert preview.description_over_limit is False
+
+
+async def test_a_preview_blames_the_description_only_when_the_caption_is_long_because_of_it() -> None:
+    post, track = make_rows()
+    long_fields: dict[str, Any] = {
+        "title": "Т" * 300,
+        "artists": [ArtistInput(name="А" * 200)],
+        "release_title": "Р" * 300,
+    }
+
+    blamed = await preview_fields(
+        preview_session(post, track), 7, form(description="в" * 500, **long_fields), 2026, 111
+    )
+    already_long = await preview_fields(
+        preview_session(post, track),
+        7,
+        form(description="в", title="Т" * 300, artists=[ArtistInput(name="А" * 200) for _ in range(3)]),
+        2026,
+        111,
+    )
+
+    assert blamed is not None
+    assert (blamed.caption.over_limit, blamed.description_over_limit) == (True, True)
+    assert already_long is not None
+    assert (already_long.caption.over_limit, already_long.description_over_limit) == (True, False)
 
 
 async def test_a_missing_post_is_none_and_the_track_is_never_locked(
@@ -310,6 +428,7 @@ def form(track: Track | None = None, **overrides: Any) -> FieldsInput:
         "release_type": "album",
         "release_title": "Альбом",
         "album_link": f"https://open.spotify.com/album/{ALBUM_ID}",
+        "description": None,
         "platform_links": {"spotify": SPOTIFY_URL, "youtubeMusic": MUSIC_URL},
     }
     values.update(overrides)
@@ -359,6 +478,7 @@ async def test_a_preview_equal_to_the_stored_caption_does_not_differ() -> None:
         languages=["українська"],
         genres=[],
         platform_links=track.platform_links,
+        description=None,
     )
     post.caption = html
 

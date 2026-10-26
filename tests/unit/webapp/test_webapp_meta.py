@@ -5,8 +5,9 @@ from __future__ import annotations
 import pytest
 
 import pisniar.webapp.meta as meta_module
-from pisniar.db.models import MANUAL_FIELD_NAMES
+from pisniar.db.models import MANUAL_FIELD_NAMES, MAX_DESCRIPTION_LENGTH
 from pisniar.post.caption import PLATFORM_DISPLAY_ORDER
+from pisniar.post.description import MAX_DESCRIPTION_LINKS
 from pisniar.resolve.genres import DEEZER_GENRE_NAMES
 from pisniar.resolve.link_policy import ALLOWED_HOST_SUFFIXES, ALLOWED_HOSTS, CLASSIFIED_PLATFORMS
 from pisniar.webapp.meta import LANGUAGE_HINTS, build_meta
@@ -67,3 +68,11 @@ def test_the_manual_field_names_and_the_caption_limit() -> None:
 
     assert meta.manual_field_names == list(MANUAL_FIELD_NAMES)
     assert meta.caption_limit == 1024
+
+
+def test_the_description_limits_are_the_models_and_the_parsers() -> None:
+    meta = build_meta()
+
+    assert (meta.description_max_length, meta.description_max_links) == (MAX_DESCRIPTION_LENGTH, MAX_DESCRIPTION_LINKS)
+    assert meta.description_max_length == 500
+    assert meta.description_max_links == 10

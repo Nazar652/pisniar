@@ -57,6 +57,7 @@ def test_post_constraint_and_index_names_are_unchanged() -> None:
     assert "ck_post_status_valid" in check_names
     assert "ck_post_failed_from_status_valid" in check_names
     assert "ck_post_fragment_bounds_valid" in check_names
+    assert "ck_post_description_length" in check_names
     assert "ck_post_channel_ref_complete" in check_names
     assert "ck_post_draft_ref_complete" in check_names
     assert "ck_post_preview_ref_complete" in check_names

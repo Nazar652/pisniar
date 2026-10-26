@@ -98,6 +98,8 @@ export function makeDetail(overrides: Partial<PostDetail> = {}): PostDetail {
     release_title: 'Альбом',
     album_id_spotify: '4yYXqedvSKuJlgI2IWsB0j',
     album_url: 'https://open.spotify.com/album/4yYXqedvSKuJlgI2IWsB0j',
+    description: null,
+    description_links: [],
     platform_links: {
       spotify: {
         url: 'https://open.spotify.com/track/abc',
@@ -178,6 +180,8 @@ export function makeMeta(): MetaResponse {
       'album_id_spotify',
     ],
     caption_limit: 1024,
+    description_max_length: 500,
+    description_max_links: 10,
   }
 }
 
@@ -238,6 +242,8 @@ export function editorServer(detail: PostDetail, extra: Record<string, Handler> 
     [`POST /api/posts/${detail.id}/preview`]: () =>
       jsonResponse({
         caption: makeCaption(),
+        description_over_limit: false,
+        description_links: [],
         stored_caption_sha256: null,
         differs_from_stored: true,
       }),

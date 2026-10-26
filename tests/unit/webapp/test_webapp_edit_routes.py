@@ -34,6 +34,7 @@ FORM: dict[str, Any] = {
     "release_type": "album",
     "release_title": "Альбом",
     "album_link": None,
+    "description": None,
     "platform_links": {},
 }
 SAVE_BODY = {
@@ -66,6 +67,8 @@ def make_preview() -> PreviewResponse:
             warnings=[],
             sha256="0" * 64,
         ),
+        description_over_limit=False,
+        description_links=[],
         stored_caption_sha256=None,
         differs_from_stored=True,
     )

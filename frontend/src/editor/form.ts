@@ -31,6 +31,7 @@ export interface FormState {
   releaseType: string
   releaseTitle: string
   albumLink: string
+  description: string
   links: LinkRow[]
 }
 
@@ -63,6 +64,7 @@ export function formFromDetail(detail: PostDetail): FormState {
     releaseType: detail.release_type ?? '',
     releaseTitle: detail.release_title ?? '',
     albumLink: detail.album_url ?? '',
+    description: detail.description ?? '',
     // a link the caption never shows stays stored: it has no row, and the server keeps what is absent
     links: Object.entries(detail.platform_links)
       .filter(([, link]) => link.shown_in_caption)
@@ -92,6 +94,8 @@ export function toFieldsInput(form: FormState, revert: readonly string[]): Field
     release_type: orNull(form.releaseType),
     release_title: orNull(form.releaseTitle),
     album_link: orNull(form.albumLink),
+    // the server normalizes the text; only an empty one is sent as none
+    description: form.description.trim() === '' ? null : form.description,
     platform_links: Object.fromEntries(
       form.links.filter((row) => row.url.trim() !== '').map((row) => [row.platform, row.url]),
     ),

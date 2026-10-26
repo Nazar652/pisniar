@@ -10,6 +10,7 @@ from pisniar.post.sanitize import (
     escape_attribute,
     escape_text,
     is_safe_href,
+    sanitize_description_text,
     sanitize_metadata_text,
 )
 
@@ -72,3 +73,20 @@ def test_sanitize_metadata_text_folds_line_breaks_into_spaces(break_character: s
 
 def test_sanitize_metadata_text_leaves_ordinary_text_untouched() -> None:
     assert sanitize_metadata_text("Димна суміш — 0%Mercury") == "Димна суміш — 0%Mercury"
+
+
+def test_sanitize_description_text_keeps_the_joiner_that_metadata_text_drops() -> None:
+    family = "\U0001f468‍\U0001f469"
+
+    assert sanitize_description_text(family) == family
+    assert sanitize_metadata_text(family) == "\U0001f468\U0001f469"
+
+
+@pytest.mark.parametrize("control", ["‮", "‪", "⁦", "⁩", "‎", "‏", "﻿", "\x07", "​"])
+def test_sanitize_description_text_removes_bidi_and_control_characters(control: str) -> None:
+    assert sanitize_description_text(f"a{control}b") == "ab"
+
+
+@pytest.mark.parametrize("break_character", ["\n", "\r", "\t", " ", " "])
+def test_sanitize_description_text_folds_line_breaks_into_spaces(break_character: str) -> None:
+    assert sanitize_description_text(f"a{break_character}b") == "a b"

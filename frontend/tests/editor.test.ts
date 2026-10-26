@@ -141,6 +141,8 @@ describe('preview', () => {
         if (calls === 1) return new Promise<Response>((resolve) => (release = resolve))
         return jsonResponse({
           caption: makeCaption({ visible_length: 99 }),
+          description_over_limit: false,
+          description_links: [],
           stored_caption_sha256: null,
           differs_from_stored: true,
         })
@@ -154,6 +156,8 @@ describe('preview', () => {
     release(
       jsonResponse({
         caption: makeCaption({ visible_length: 1 }),
+        description_over_limit: false,
+        description_links: [],
         stored_caption_sha256: null,
         differs_from_stored: true,
       }),
@@ -222,6 +226,31 @@ describe('saving before publication', () => {
     expect(editor.notice.value).toEqual({ kind: 'success', text: 'Збережено й застосовано.' })
     expect(deps.haptic).toHaveBeenCalledWith('success')
     expect(editor.busy.value).toBe(false)
+  })
+
+  it('sends the description with the save and shows every link problem next to the field', async () => {
+    const server = serverFor({
+      [SAVED_KEY]: () =>
+        errorResponse(422, 'invalid_fields', 'Деякі поля заповнено неправильно.', {
+          errors: [
+            { field: 'description', message: 'Посилання «Клік» має починатися з http://.' },
+            { field: 'description', message: 'Забагато посилань: 11.' },
+          ],
+        }),
+    })
+    const { editor } = await ready(server)
+    if (editor.form.value) editor.form.value.description = '[Клік](ftp://a.com)'
+
+    await editor.save()
+
+    const sent = server.bodies[server.requests.findIndex((r) => r.method === 'PUT')] as {
+      description: string | null
+    }
+    expect(sent.description).toBe('[Клік](ftp://a.com)')
+    expect(editor.errorOf('description')).toBe(
+      'Посилання «Клік» має починатися з http://. Забагато посилань: 11.',
+    )
+    expect(server.callsTo(APPLY_KEY)).toBe(0)
   })
 
   it('says so when the message already carried the caption', async () => {
@@ -416,6 +445,36 @@ describe('a published post', () => {
     expect(server.callsTo(APPLY_KEY)).toBe(0)
     expect(editor.notice.value?.kind).toBe('info')
     expect(editor.canApplyToChannel.value).toBe(true)
+  })
+
+  it('names the hosts of the saved description in the confirmation, not those being typed', async () => {
+    const server = serverFor({
+      'GET /api/posts/7': () =>
+        jsonResponse(
+          published({
+            description_links: [{ label: 'Квиток', host: 'tickets.example', warnings: [] }],
+          }),
+        ),
+      'POST /api/posts/7/preview': () =>
+        jsonResponse({
+          caption: makeCaption({ over_limit: true }),
+          description_over_limit: true,
+          description_links: [{ label: 'Набране', host: 'typing.example', warnings: [] }],
+          stored_caption_sha256: null,
+          differs_from_stored: true,
+        }),
+    })
+    const deps = makeDeps(true)
+    const { editor } = await ready(server, deps)
+    await vi.advanceTimersByTimeAsync(20)
+    expect(editor.descriptionOverLimit.value).toBe(true)
+    expect(editor.descriptionLinks.value.map((link) => link.host)).toEqual(['typing.example'])
+
+    await editor.applyToChannel()
+
+    expect(deps.confirm).toHaveBeenCalledWith(
+      `${CONFIRM_APPLY_TEXT} Посилання ведуть на: tickets.example.`,
+    )
   })
 
   it('applies to the channel only after the exact confirmation is accepted', async () => {

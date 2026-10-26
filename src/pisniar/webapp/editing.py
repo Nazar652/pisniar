@@ -16,9 +16,18 @@ from pisniar.db.locks import lock_post_without_waiting, lock_track_for_write
 from pisniar.db.models import Post, Track
 from pisniar.db.states import PostStatus
 from pisniar.logging import get_logger
-from pisniar.webapp.errors import ApiProblem
+from pisniar.post.description import link_destinations
+from pisniar.webapp.errors import ApiProblem, FieldsInvalidError
 from pisniar.webapp.fields import PlannedFields, StoredFields, plan_fields
-from pisniar.webapp.schemas import FieldsInput, FieldsUpdate, PostDetail, PreviewResponse
+from pisniar.webapp.schemas import (
+    CaptionView,
+    DescriptionDestination,
+    FieldError,
+    FieldsInput,
+    FieldsUpdate,
+    PostDetail,
+    PreviewResponse,
+)
 from pisniar.webapp.service import caption_sha256, caption_view_of, detail_of
 from pisniar.webapp.status import editability_of
 
@@ -36,6 +45,10 @@ MEDIA_IN_PROGRESS_MESSAGE = (
     "чекає вибору фрагмента. Дочекайтесь завершення або помилки."
 )
 POST_NOT_FOUND_MESSAGE = "Пост не знайдено."
+DESCRIPTION_OVER_LIMIT_MESSAGE = (
+    "Підпис задовгий навіть після скорочення жанрів і платформ: {length} з {limit} символів. "
+    "Скоротіть опис щонайменше на {excess}."
+)
 
 
 def stored_fields_of(post: Post, track: Track) -> StoredFields:
@@ -48,6 +61,7 @@ def stored_fields_of(post: Post, track: Track) -> StoredFields:
         release_type=track.release_type,
         release_title=track.release_title,
         album_id_spotify=track.album_id_spotify,
+        description=post.description,
         platform_links=track.platform_links,
         manual_fields=track.manual_fields,
         removed_platforms=track.removed_platforms,
@@ -82,6 +96,7 @@ def apply_plan(
     assign_if_changed(track, "manual_fields", planned.manual_fields)
     assign_if_changed(track, "removed_platforms", planned.removed_platforms)
     assign_if_changed(post, "genres", planned.genres)
+    assign_if_changed(post, "description", planned.description)
 
 
 def refuse_unless_editable(
@@ -95,7 +110,7 @@ def refuse_unless_editable(
         raise ApiProblem(409, "not_editable", verdict.reason or "Пост зараз не можна редагувати.")
 
 
-def preview_of_plan(planned: PlannedFields, post: Post) -> PreviewResponse:
+def caption_of_plan(planned: PlannedFields, description: str | None) -> CaptionView:
     view, _ = caption_view_of(
         title=planned.title,
         artists=planned.artists,
@@ -106,10 +121,38 @@ def preview_of_plan(planned: PlannedFields, post: Post) -> PreviewResponse:
         languages=planned.languages,
         genres=planned.genres,
         platform_links=planned.platform_links,
+        description=description,
     )
+    return view
+
+
+def description_is_to_blame(planned: PlannedFields, view: CaptionView) -> bool:
+    """the caption stays over the limit after genres, platforms and the release title are given up, and does not
+    without the description: the description is what has to shrink. The one decision the save and the preview share."""
+    return planned.description is not None and view.over_limit and not caption_of_plan(planned, None).over_limit
+
+
+def refuse_description_over_limit(planned: PlannedFields) -> None:
+    """the description is never cut, so the save refuses it instead."""
+    view = caption_of_plan(planned, planned.description)
+    if not description_is_to_blame(planned, view):
+        return
+
+    excess = view.visible_length - view.limit
+    message = DESCRIPTION_OVER_LIMIT_MESSAGE.format(length=view.visible_length, limit=view.limit, excess=excess)
+    raise FieldsInvalidError([FieldError(field="description", message=message)])
+
+
+def preview_of_plan(planned: PlannedFields, post: Post) -> PreviewResponse:
+    view = caption_of_plan(planned, planned.description)
     stored_sha = caption_sha256(post.caption) if post.caption is not None else None
     return PreviewResponse(
         caption=view,
+        description_over_limit=description_is_to_blame(planned, view),
+        description_links=[
+            DescriptionDestination(label=link.label, host=link.host, warnings=link.warnings)
+            for link in link_destinations(planned.description)
+        ],
         stored_caption_sha256=stored_sha,
         differs_from_stored=stored_sha != view.sha256,
     )
@@ -179,6 +222,7 @@ async def save_fields(
         refuse_stale(user_id, post_id)
 
     planned = plan_fields(update, stored_fields_of(post, track), current_year)
+    refuse_description_over_limit(planned)
     if planned.youtube_music_changed and await count_media_posts(session, track.id) > 0:
         logger.warning("fields_save_refused", reason="media_in_progress", user_id=user_id, post_id=post_id)
         raise ApiProblem(409, "media_in_progress", MEDIA_IN_PROGRESS_MESSAGE)

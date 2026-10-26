@@ -86,6 +86,8 @@ def make_detail() -> PostDetail:
         release_title=None,
         album_id_spotify=None,
         album_url=None,
+        description=None,
+        description_links=[],
         platform_links={},
         manual_fields=[],
         removed_platforms=[],

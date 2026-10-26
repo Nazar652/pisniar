@@ -7,7 +7,9 @@ from __future__ import annotations
 from typing import Any, cast
 
 import pytest
+from pydantic import ValidationError
 
+from pisniar.db.models import MAX_DESCRIPTION_LENGTH
 from pisniar.webapp import fields
 from pisniar.webapp.errors import FieldsInvalidError
 from pisniar.webapp.fields import (
@@ -15,6 +17,7 @@ from pisniar.webapp.fields import (
     StoredFields,
     plan_album_id,
     plan_artists,
+    plan_description,
     plan_fields,
     plan_genres,
     plan_hashtag,
@@ -55,6 +58,7 @@ def make_stored(**overrides: Any) -> StoredFields:
         "release_type": "album",
         "release_title": "Альбом",
         "album_id_spotify": ALBUM_ID,
+        "description": None,
         "platform_links": {
             "spotify": SPOTIFY_LINK,
             "tidal": TIDAL_LINK,
@@ -82,6 +86,7 @@ def make_unchanged_update(stored: StoredFields | None = None, **overrides: Any) 
         "release_type": stored.release_type,
         "release_title": stored.release_title,
         "album_link": f"https://open.spotify.com/album/{stored.album_id_spotify}",
+        "description": stored.description,
         "platform_links": {key: entry["url"] for key, entry in links.items()},
     }
     values.update(overrides)
@@ -543,6 +548,81 @@ def test_the_plan_carries_the_genres_languages_and_links_as_the_rows_expect_them
     assert set(planned.platform_links) == {"spotify", "tidal"}
     assert planned.removed_platforms == ["youtubeMusic"]
     assert set(planned.changed_fields) == {"languages", "genres", "platform_links"}
+
+
+def test_a_description_is_stored_normalized_and_counts_as_changed() -> None:
+    planned = plan(make_unchanged_update(description="  Перший  \r\n\r\n\r\n[Кліп](https://youtu.be/x)\r\n"))
+
+    assert planned.description == "  Перший\n\n[Кліп](https://youtu.be/x)"
+    assert planned.changed_fields == ("description",)
+    assert planned.manual_fields == []
+
+
+def test_an_empty_description_is_none_and_clears_a_stored_one() -> None:
+    stored = make_stored(description="Було")
+
+    planned = plan(make_unchanged_update(stored, description=" \n "), stored)
+
+    assert planned.description is None
+    assert planned.changed_fields == ("description",)
+
+
+def test_an_unchanged_description_changes_nothing() -> None:
+    stored = make_stored(description="Той самий\n\n[Кліп](https://youtu.be/x)")
+
+    assert plan(make_unchanged_update(stored), stored).changed_fields == ()
+
+
+def test_the_planner_refuses_a_description_over_the_limit_with_the_numbers() -> None:
+    errors: list[FieldError] = []
+
+    plan_description("я" * (MAX_DESCRIPTION_LENGTH + 1), errors)
+
+    assert [(error.field, error.message) for error in errors] == [
+        ("description", f"Опис задовгий: {MAX_DESCRIPTION_LENGTH + 1} з {MAX_DESCRIPTION_LENGTH} символів.")
+    ]
+
+
+def test_a_broken_link_in_the_description_is_a_422_on_description_only() -> None:
+    result = problems(make_unchanged_update(description="[Клік](javascript:alert(1)) і [Пошта](mailto:a@b.com)"))
+
+    assert list(result) == ["description"]
+
+
+@pytest.mark.parametrize("host", ["банк..укр", "я" * 64 + ".укр"])
+def test_a_host_that_does_not_encode_is_a_422_on_description(host: str) -> None:
+    result = problems(make_unchanged_update(description=f"[Банк](https://{host}/x)"))
+
+    assert result == {"description": "Адреса посилання «Банк» некоректна."}
+
+
+def test_every_problem_of_the_description_is_its_own_error() -> None:
+    update = make_unchanged_update(description="[Клік](javascript:x) [Пошта](mailto:a@b.com)")
+    with pytest.raises(FieldsInvalidError) as raised:
+        plan(update)
+
+    assert [error.field for error in raised.value.errors] == ["description", "description"]
+    assert "Клік" in raised.value.errors[0].message
+    assert "Пошта" in raised.value.errors[1].message
+
+
+def test_eleven_links_are_refused() -> None:
+    text = " ".join(f"[{index}](https://example.com/{index})" for index in range(11))
+
+    assert "Забагато посилань: 11" in problems(make_unchanged_update(description=text))["description"]
+
+
+def test_a_description_longer_than_the_limit_never_reaches_the_planner() -> None:
+    with pytest.raises(ValidationError):
+        make_unchanged_update(description="я" * (MAX_DESCRIPTION_LENGTH + 1))
+
+
+def test_the_form_without_a_description_field_is_refused() -> None:
+    values = make_unchanged_update().model_dump()
+    del values["description"]
+
+    with pytest.raises(ValidationError):
+        FieldsInput(**values)
 
 
 def test_the_constants_name_the_three_release_types() -> None:

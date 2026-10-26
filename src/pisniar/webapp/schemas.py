@@ -7,7 +7,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
-from pisniar.db.models import MAX_LYRIC_LINES
+from pisniar.db.models import MAX_DESCRIPTION_LENGTH, MAX_LYRIC_LINES
 
 # real `initData` is under 2 KiB; the bound keeps a hostile body cheap to reject.
 INIT_DATA_MAX_LENGTH = 8192
@@ -197,6 +197,14 @@ class AudioPreparationStarted(BaseModel):
     status_label: str
 
 
+class DescriptionDestination(BaseModel):
+    """where one link of the description goes: the host in ASCII and the warnings about it."""
+
+    label: str
+    host: str
+    warnings: list[str]
+
+
 class PostDetail(BaseModel):
     id: int
     has_video: bool
@@ -216,6 +224,8 @@ class PostDetail(BaseModel):
     release_title: str | None
     album_id_spotify: str | None
     album_url: str | None
+    description: str | None
+    description_links: list[DescriptionDestination]
     platform_links: dict[str, PlatformLinkDetail]
     manual_fields: list[str]
     removed_platforms: list[str]
@@ -252,6 +262,8 @@ class MetaResponse(BaseModel):
     genres: list[GenreHint]
     manual_field_names: list[str]
     caption_limit: int
+    description_max_length: int
+    description_max_links: int
 
 
 class ArtistInput(BaseModel):
@@ -281,6 +293,7 @@ class FieldsInput(BaseModel):
     release_type: str | None = Field(default=None, max_length=40)
     release_title: str | None = Field(default=None, max_length=300)
     album_link: str | None = Field(default=None, max_length=300)
+    description: str | None = Field(max_length=MAX_DESCRIPTION_LENGTH)
     platform_links: dict[str, str] = Field(max_length=25)
     revert_to_automatic: list[str] = Field(default_factory=list, max_length=6)
 
@@ -301,6 +314,8 @@ class FieldsInvalid(ApiError):
 
 class PreviewResponse(BaseModel):
     caption: CaptionView
+    description_over_limit: bool
+    description_links: list[DescriptionDestination]
     stored_caption_sha256: str | None
     differs_from_stored: bool
 

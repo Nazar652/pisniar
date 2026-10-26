@@ -391,6 +391,17 @@ worker image.
   `youtubeMusic` link is refused (409 `media_in_progress`) while any post of the track is
   downloading, downloaded, rendering or editing. The response carries the rebuilt caption and its
   `sha256`, which is what applying the caption to a message later compares against.
+- **`post.description` is the admin's text between the hashtags and the platform links** (blank line each side), at most
+  `MAX_DESCRIPTION_LENGTH` (500, the model CHECK `ck_post_description_length`, `FieldsInput`, the textarea through
+  `/api/meta`) characters after `post/description.py` normalizes it. Only `[text](https://…)` is markup: http(s),
+  a host, no credentials, ≤ 10 links; everything else is literal text. One parser serves both: `plan_description` refuses
+  its `problems` (422 on `description`), the caption builder shows a failed link as typed. Never cut: the 500 leaves
+  ~700 for a typical caption, degradation (genres, platforms, release title) absorbs the rest, and a save whose caption
+  stays over 1024 only because of the description is a 422 on `description` with the number. `description=` is a required
+  keyword of `build_caption_from_rows`/`caption_view_of`; the text is never logged. Bare URLs, @mentions and #tags in
+  the text are auto-linked by Telegram and accepted (the admin sees the preview). The preview carries the decision
+  (`description_over_limit`, the same helper as the save) and `description_links`: each link's host in ASCII (punycode
+  for a non-Latin one) with warnings for a non-Latin host or a label that names another site; warnings, never refusals.
 - **Applying a caption (`POST /api/posts/{id}/apply`) edits Telegram first and stores second**
   (`webapp.applying`): the post is locked `FOR UPDATE NOWAIT` through exactly one Telegram call and
   the track is read with a plain `get`, never locked. The caption is rebuilt from the rows, its
@@ -436,6 +447,8 @@ worker image.
   A 409 `stale_data` or `caption_changed` reloads the post, `channel_message_missing` is the only
   thing that shows the archive button, and every server sentence is shown as it came. The caption
   preview renders segments by interpolation, links only for `http(s)`, and never `v-html`.
+  The «Опис» card (`DescriptionEditor`: textarea with the `/api/meta` limit, counter, «Додати посилання» through the
+  pure `editor/description.ts`) sits before the platform links; several problems of one field are shown together.
   The «Фрагмент» section (`FragmentSection`, in `PostEditor`) offers the fragment editor when
   `PostDetail.fragment.choosable`; on `preparable` or `preparing` the button starts
   `useAudioPreparation` (`idle -> requesting -> preparing -> ready | failed | timed_out`, a read of

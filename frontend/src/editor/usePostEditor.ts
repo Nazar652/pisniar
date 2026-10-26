@@ -15,6 +15,7 @@ import {
   type PostDetail,
 } from './form'
 import type { CaptionView } from './caption'
+import { confirmWithHosts, type DescriptionDestination } from './description'
 
 export const PREVIEW_DEBOUNCE_MS = 400
 export const CONFIRM_APPLY_TEXT =
@@ -50,8 +51,14 @@ export interface EditorDeps {
   debounceMs?: number
 }
 
+// a field with several problems (the links of the description) shows all of them
 function fieldErrorMap(failure: Failure): Record<string, string> {
-  return Object.fromEntries(failure.fieldErrors.map((error) => [error.field, error.message]))
+  const messages: Record<string, string> = {}
+  for (const error of failure.fieldErrors) {
+    const earlier = messages[error.field]
+    messages[error.field] = earlier === undefined ? error.message : `${earlier} ${error.message}`
+  }
+  return messages
 }
 
 export function usePostEditor(client: ApiClient, postId: number, deps: EditorDeps) {
@@ -64,6 +71,8 @@ export function usePostEditor(client: ApiClient, postId: number, deps: EditorDep
   const fieldErrors = ref<Record<string, string>>({})
   const notice = ref<Notice | null>(null)
   const preview = shallowRef<CaptionView | null>(null)
+  const descriptionLinks = shallowRef<DescriptionDestination[]>([])
+  const descriptionOverLimit = ref(false)
   const previewMessage = ref('')
   const busy = ref(false)
   const channelMissing = ref(false)
@@ -97,12 +106,19 @@ export function usePostEditor(client: ApiClient, postId: number, deps: EditorDep
       : effectiveRevert(revert.value, form.value, detail.value),
   )
 
+  // a confirmation names the hosts of the saved description, not of what is being typed
+  function storedLinks(): DescriptionDestination[] {
+    return detail.value?.description_links ?? []
+  }
+
   function adopt(next: PostDetail): void {
     detail.value = next
     form.value = formFromDetail(next)
     revert.value = []
     fieldErrors.value = {}
     preview.value = null
+    descriptionLinks.value = []
+    descriptionOverLimit.value = false
     previewMessage.value = ''
   }
 
@@ -179,6 +195,8 @@ export function usePostEditor(client: ApiClient, postId: number, deps: EditorDep
     if (sequence !== previewSequence) return
     if (answer.ok) {
       preview.value = answer.data.caption
+      descriptionLinks.value = answer.data.description_links
+      descriptionOverLimit.value = answer.data.description_over_limit
       previewMessage.value = ''
       fieldErrors.value = {}
       return
@@ -281,7 +299,7 @@ export function usePostEditor(client: ApiClient, postId: number, deps: EditorDep
   async function applyToChannel(): Promise<void> {
     const caption = detail.value?.caption
     if (busy.value || caption === null || caption === undefined) return
-    if (!(await deps.confirm(CONFIRM_APPLY_TEXT))) return
+    if (!(await deps.confirm(confirmWithHosts(CONFIRM_APPLY_TEXT, storedLinks())))) return
 
     busy.value = true
     notice.value = null
@@ -317,7 +335,7 @@ export function usePostEditor(client: ApiClient, postId: number, deps: EditorDep
   async function publishWithoutVideo(): Promise<void> {
     const stored = detail.value
     if (busy.value || stored === null || !canPublishCover.value) return
-    if (!(await deps.confirm(CONFIRM_COVER_TEXT))) return
+    if (!(await deps.confirm(confirmWithHosts(CONFIRM_COVER_TEXT, storedLinks())))) return
 
     busy.value = true
     notice.value = null
@@ -368,6 +386,8 @@ export function usePostEditor(client: ApiClient, postId: number, deps: EditorDep
     fieldErrors,
     notice,
     preview,
+    descriptionLinks,
+    descriptionOverLimit,
     previewMessage,
     busy,
     channelMissing,

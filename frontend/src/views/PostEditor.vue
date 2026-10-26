@@ -6,11 +6,18 @@ import { LEAVE_GUARD } from '../app/leaveGuard'
 import { MAIN_BUTTON_GATE, createMainButtonGate } from '../app/mainButtonGate'
 import ArtistsEditor from '../components/ArtistsEditor.vue'
 import CaptionPreview from '../components/CaptionPreview.vue'
+import DescriptionEditor from '../components/DescriptionEditor.vue'
 import FieldBlock from '../components/FieldBlock.vue'
 import GenresEditor from '../components/GenresEditor.vue'
 import LinksEditor from '../components/LinksEditor.vue'
 import ListEditor from '../components/ListEditor.vue'
 import NoticeBanner from '../components/NoticeBanner.vue'
+import {
+  descriptionBudgetNote,
+  descriptionHelp,
+  destinationsNote,
+  destinationWarnings,
+} from '../editor/description'
 import { inputValue } from '../editor/dom'
 import { FIELD_LABELS, releaseTypeOptions } from '../editor/form'
 import FragmentSection from '../fragment/FragmentSection.vue'
@@ -50,6 +57,18 @@ const releaseTypes = computed(() =>
     ? []
     : releaseTypeOptions(meta.value, form.value.releaseType),
 )
+
+const descriptionNote = computed(() =>
+  form.value === null
+    ? null
+    : descriptionBudgetNote(
+        editor.preview.value,
+        form.value.description,
+        editor.descriptionOverLimit.value,
+      ),
+)
+const hostsNote = computed(() => destinationsNote(editor.descriptionLinks.value))
+const hostWarnings = computed(() => destinationWarnings(editor.descriptionLinks.value))
 
 // the lyrics editor, when open, reads the saved bounds again whenever this moves
 const fragmentRevision = ref(0)
@@ -218,6 +237,21 @@ watchEffect(() => {
           :disabled="locked"
           placeholder="https://open.spotify.com/album/…"
           @input="form.albumLink = inputValue($event)"
+        />
+      </FieldBlock>
+
+      <FieldBlock
+        label="Опис"
+        :hint="descriptionHelp(meta.description_max_links)"
+        :error="editor.errorOf('description')"
+      >
+        <DescriptionEditor
+          v-model="form.description"
+          :disabled="locked"
+          :max-length="meta.description_max_length"
+          :note="descriptionNote"
+          :hosts-note="hostsNote"
+          :warnings="hostWarnings"
         />
       </FieldBlock>
 

@@ -77,6 +77,38 @@ describe('formFromDetail and toFieldsInput', () => {
     expect([form.title, form.year, form.releaseType, form.albumLink]).toEqual(['', '', '', ''])
   })
 
+  it('carries the description both ways and sends an empty one as null', () => {
+    const detail = makeDetail({ description: 'Про пісню\n\n[Кліп](https://youtu.be/x)' })
+    const form = formFromDetail(detail)
+
+    expect(form.description).toBe('Про пісню\n\n[Кліп](https://youtu.be/x)')
+    expect(toFieldsInput(form, []).description).toBe(detail.description)
+    expect(formFromDetail(makeDetail()).description).toBe('')
+
+    form.description = ' \n '
+    expect(toFieldsInput(form, []).description).toBeNull()
+  })
+
+  it('counts an edited description as unsaved work and its removal too', () => {
+    const detail = makeDetail({ description: 'Було' })
+    const form = formFromDetail(detail)
+    expect(isDirty(form, detail)).toBe(false)
+
+    form.description = 'Стало'
+    expect(isDirty(form, detail)).toBe(true)
+
+    form.description = ''
+    expect(isDirty(form, detail)).toBe(true)
+  })
+
+  it('does not freeze any manual field because of the description', () => {
+    const detail = makeDetail()
+    const form = formFromDetail(detail)
+    form.description = 'Опис'
+
+    expect(changedManualFields(form, detail)).toEqual([])
+  })
+
   it('adds the versions the save is checked against', () => {
     const update = toUpdate(formFromDetail(makeDetail()), [], makeDetail())
 

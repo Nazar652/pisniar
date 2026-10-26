@@ -3,6 +3,7 @@ import { renderToString } from 'vue/server-renderer'
 import { describe, expect, it } from 'vitest'
 import ArtistsEditor from '../src/components/ArtistsEditor.vue'
 import CaptionPreview from '../src/components/CaptionPreview.vue'
+import DescriptionEditor from '../src/components/DescriptionEditor.vue'
 import FieldBlock from '../src/components/FieldBlock.vue'
 import GenresEditor from '../src/components/GenresEditor.vue'
 import LinksEditor from '../src/components/LinksEditor.vue'
@@ -263,6 +264,38 @@ describe('GenresEditor', () => {
     expect(html).toContain('value="Рок"')
     expect(html).toContain('placeholder="#Рок"')
     expect(html).toContain('<option value="Рок">')
+  })
+})
+
+describe('DescriptionEditor', () => {
+  it('shows the text with the limit from the server, a counter and the link helper', async () => {
+    const html = await renderModel(DescriptionEditor, 'Про пісню', {
+      disabled: false,
+      maxLength: 500,
+      note: null,
+      hostsNote: null,
+      warnings: [],
+    })
+
+    expect(html).toContain('maxlength="500"')
+    expect(html).toContain('Про пісню')
+    expect(html).toContain('9/500')
+    expect(html).toContain('Додати посилання')
+  })
+
+  it('shows the budget note and locks the controls while busy', async () => {
+    const html = await renderModel(DescriptionEditor, '', {
+      disabled: true,
+      maxLength: 500,
+      note: 'Щоб опис помістився, з підпису прибрано: жанри.',
+      hostsNote: 'Посилання ведуть на: open.spotify.com.',
+      warnings: ['«банк» (xn--a.com): адреса містить нелатинські літери.'],
+    })
+
+    expect(html).toContain('з підпису прибрано: жанри')
+    expect(html).toContain('Посилання ведуть на: open.spotify.com.')
+    expect(html).toContain('адреса містить нелатинські літери')
+    expect(html).toContain('disabled')
   })
 })
 

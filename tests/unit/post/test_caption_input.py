@@ -132,6 +132,7 @@ def test_a_caption_rebuilt_from_rows_is_byte_for_byte_the_resolve_caption() -> N
         languages=STORED_LANGUAGES,
         genres=STORED_GENRES,
         platform_links=STORED_LINKS,
+        description=None,
     )
 
     assert render_html(rebuilt.document) == render_html(expected_document)
@@ -151,6 +152,7 @@ def test_the_report_names_what_did_not_fit() -> None:
         languages=["українська"],
         genres=genres,
         platform_links={},
+        description=None,
     ).degradation
 
     assert degradation.dropped_genres

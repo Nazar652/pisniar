@@ -411,6 +411,31 @@ async def test_re_resolve_keeps_the_manual_link_and_the_artist_hashtag(
     assert "#ZeroPercentMercury" in reloaded_post.caption
 
 
+async def test_re_resolve_keeps_the_description_and_the_draft_caption_shows_it(
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+    deliver_draft_mock: AsyncMock,
+) -> None:
+    post_id = await make_resolving_post(db_session)
+    post = await db_session.get(Post, post_id)
+    assert post is not None
+    post.description = "Про пісню\n\n[Кліп](https://youtu.be/abc)"
+    await db_session.commit()
+
+    resolved = ResolvedTrack(isrc=unique_isrc(), title="Покаяння", artists=[ArtistInfo(name="0%Mercury")])
+    monkeypatch.setattr(worker_tasks, "resolve_track", AsyncMock(return_value=resolved))
+    monkeypatch.setattr(worker_tasks, "resolve_genres", AsyncMock(return_value=[]))
+
+    await worker_tasks.perform_resolve_post(post_id)
+
+    db_session.expire_all()
+    reloaded = await db_session.get(Post, post_id)
+    assert reloaded is not None
+    assert reloaded.description == "Про пісню\n\n[Кліп](https://youtu.be/abc)"
+    assert reloaded.caption is not None
+    assert 'Про пісню\n\n<a href="https://youtu.be/abc">Кліп</a>' in reloaded.caption
+
+
 async def test_duplicate_isrc_raises_an_admin_warning(
     db_session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,

@@ -411,6 +411,18 @@ export interface components {
             /** Status Label */
             status_label: string;
         };
+        /**
+         * DescriptionDestination
+         * @description where one link of the description goes: the host in ASCII and the warnings about it.
+         */
+        DescriptionDestination: {
+            /** Host */
+            host: string;
+            /** Label */
+            label: string;
+            /** Warnings */
+            warnings: string[];
+        };
         /** FieldError */
         FieldError: {
             /** Field */
@@ -427,6 +439,8 @@ export interface components {
             album_link?: string | null;
             /** Artists */
             artists: components["schemas"]["ArtistInput"][];
+            /** Description */
+            description: string | null;
             /** Genres */
             genres: components["schemas"]["GenreInput"][];
             /** Languages */
@@ -461,6 +475,8 @@ export interface components {
             album_link?: string | null;
             /** Artists */
             artists: components["schemas"]["ArtistInput"][];
+            /** Description */
+            description: string | null;
             /**
              * Expected Post Updated At
              * Format: date-time
@@ -700,6 +716,10 @@ export interface components {
         MetaResponse: {
             /** Caption Limit */
             caption_limit: number;
+            /** Description Max Length */
+            description_max_length: number;
+            /** Description Max Links */
+            description_max_links: number;
             /** Genres */
             genres: components["schemas"]["GenreHint"][];
             /** Languages */
@@ -750,6 +770,10 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /** Description */
+            description: string | null;
+            /** Description Links */
+            description_links: components["schemas"]["DescriptionDestination"][];
             /** Editable */
             editable: boolean;
             /**
@@ -834,6 +858,10 @@ export interface components {
         /** PreviewResponse */
         PreviewResponse: {
             caption: components["schemas"]["CaptionView"];
+            /** Description Links */
+            description_links: components["schemas"]["DescriptionDestination"][];
+            /** Description Over Limit */
+            description_over_limit: boolean;
             /** Differs From Stored */
             differs_from_stored: boolean;
             /** Stored Caption Sha256 */
