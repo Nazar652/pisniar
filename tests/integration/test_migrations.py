@@ -18,6 +18,8 @@ pytestmark = pytest.mark.integration
 PREVIOUS_REVISION = "be8d6bff2a6c"
 MANUAL_FIELDS_REVISION = "6134b8e293e1"
 PREVIEW_HASH_REVISION = "ba0fdb351081"
+UNTIMED_LINES_REVISION = "45c8ad2d6e6d"
+RENDER_BOUNDS_REVISION = "c3a91f7d2e54"
 
 RunAlembic = Callable[..., Awaitable[None]]
 
@@ -217,7 +219,7 @@ async def test_untimed_lines_migration_keeps_the_check_and_downgrade_drops_the_u
                 "VALUES (1, 1, NULL, 'untimed', 'manual')"
             )
 
-        await run_alembic(command.upgrade, "head", database_url=migrations_test_database_url)
+        await run_alembic(command.upgrade, UNTIMED_LINES_REVISION, database_url=migrations_test_database_url)
 
         marker = await connection.fetchval("SELECT lyrics_edited_at FROM track WHERE id = 1")
         await connection.execute(
@@ -247,3 +249,82 @@ async def test_untimed_lines_migration_keeps_the_check_and_downgrade_drops_the_u
     assert [record["text"] for record in kept] == ["timed"]
     assert marker_columns == 0
     assert start_ms_nullable == "NO"
+
+
+async def test_render_bounds_backfill_fills_only_the_preview_row_of_a_rendered_post(
+    migrations_test_database_url: str,
+    run_alembic: RunAlembic,
+) -> None:
+    """the row at `preview_params_hash` of a `rendered` post takes the post's bounds and a fresh `updated_at`;
+    every other row stays NULL and untouched; the CHECK refuses a half pair and an empty range."""
+    old_stamp = datetime(2020, 1, 1, tzinfo=UTC)
+    await run_alembic(command.upgrade, UNTIMED_LINES_REVISION, database_url=migrations_test_database_url)
+
+    plain_dsn = (
+        make_url(migrations_test_database_url).set(drivername="postgresql").render_as_string(hide_password=False)
+    )
+    connection = await asyncpg.connect(plain_dsn)
+    try:
+        await connection.execute(
+            "INSERT INTO track (id, source_url, source_url_normalized) "
+            "OVERRIDING SYSTEM VALUE VALUES (1, 'test://1', 'test://1')"
+        )
+        posts = (
+            (1, "rendered", "current", 1_000, 46_000),
+            (2, "published", "current", 2_000, 47_000),
+            (3, "rendered", "current", None, None),
+        )
+        for post_id, status, preview_hash, start_ms, end_ms in posts:
+            await connection.execute(
+                "INSERT INTO post (id, track_id, created_by_user_id, status, preview_chat_id, preview_message_id, "
+                "preview_params_hash, fragment_start_ms, fragment_end_ms) OVERRIDING SYSTEM VALUE "
+                "VALUES ($1, 1, 1, $2, -200, $1, $3, $4, $5)",
+                post_id,
+                status,
+                preview_hash,
+                start_ms,
+                end_ms,
+            )
+        for render_post_id, params_hash in ((1, "current"), (1, "older"), (2, "current"), (3, "current")):
+            await connection.execute(
+                "INSERT INTO render (post_id, params_hash, path, size_bytes, duration_ms, updated_at) "
+                "VALUES ($1, $2, 'p', 1, 1, $3::timestamptz)",
+                render_post_id,
+                params_hash,
+                old_stamp,
+            )
+
+        await run_alembic(command.upgrade, RENDER_BOUNDS_REVISION, database_url=migrations_test_database_url)
+
+        stored = {
+            (record["post_id"], record["params_hash"]): record
+            for record in await connection.fetch(
+                "SELECT post_id, params_hash, fragment_start_ms, fragment_end_ms, "
+                "updated_at > $1::timestamptz AS touched FROM render",
+                old_stamp,
+            )
+        }
+        with pytest.raises(asyncpg.CheckViolationError, match="ck_render_fragment_bounds_valid"):
+            await connection.execute("UPDATE render SET fragment_start_ms = 5 WHERE post_id = 2")
+        with pytest.raises(asyncpg.CheckViolationError, match="ck_render_fragment_bounds_valid"):
+            await connection.execute("UPDATE render SET fragment_start_ms = 5, fragment_end_ms = 5 WHERE post_id = 2")
+
+        await run_alembic(command.downgrade, "-1", database_url=migrations_test_database_url)
+        columns_left = await connection.fetchval(
+            "SELECT count(*) FROM information_schema.columns "
+            "WHERE table_name = 'render' AND column_name LIKE 'fragment_%'"
+        )
+        check_left = await connection.fetchval(
+            "SELECT count(*) FROM pg_constraint WHERE conname = 'ck_render_fragment_bounds_valid'"
+        )
+
+        await run_alembic(command.upgrade, "head", database_url=migrations_test_database_url)
+    finally:
+        await connection.close()
+
+    filled = stored[(1, "current")]
+    assert (filled["fragment_start_ms"], filled["fragment_end_ms"], filled["touched"]) == (1_000, 46_000, True)
+    for untouched in ((1, "older"), (2, "current"), (3, "current")):
+        assert (stored[untouched]["fragment_start_ms"], stored[untouched]["fragment_end_ms"]) == (None, None)
+        assert stored[untouched]["touched"] is False
+    assert (columns_left, check_left) == (0, 0)

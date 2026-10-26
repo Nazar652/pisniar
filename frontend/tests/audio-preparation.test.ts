@@ -18,6 +18,7 @@ const PREPARING: Fragment = {
   preparable: false,
   preparing: true,
   cancellable: false,
+  preview_stale: false,
   reason: 'Аудіо готується.',
 }
 const READY: Fragment = {
@@ -27,6 +28,7 @@ const READY: Fragment = {
   preparable: false,
   preparing: false,
   cancellable: true,
+  preview_stale: false,
   reason: null,
 }
 const FAILED: Fragment = {
@@ -36,6 +38,7 @@ const FAILED: Fragment = {
   preparable: true,
   preparing: false,
   cancellable: false,
+  preview_stale: false,
   reason: 'Минулу підготовку аудіо перервала помилка.',
 }
 

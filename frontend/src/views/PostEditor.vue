@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, inject, onBeforeUnmount, onMounted, provide, watch, watchEffect } from 'vue'
+import { computed, inject, onBeforeUnmount, onMounted, provide, ref, watch, watchEffect } from 'vue'
 import type { ApiClient } from '../api/client'
+import type { Schemas } from '../api/outcome'
 import { LEAVE_GUARD } from '../app/leaveGuard'
 import { MAIN_BUTTON_GATE, createMainButtonGate } from '../app/mainButtonGate'
 import ArtistsEditor from '../components/ArtistsEditor.vue'
@@ -17,6 +18,8 @@ import { usePostEditor } from '../editor/usePostEditor'
 import LyricsSection from '../lyrics/LyricsSection.vue'
 import { applyMainButton, confirmWith, hapticWith } from '../telegram/actions'
 import type { WebApp } from '../telegram/useTelegram'
+
+type FragmentSaved = Schemas['FragmentSaved']
 
 const props = defineProps<{
   client: ApiClient
@@ -47,6 +50,15 @@ const releaseTypes = computed(() =>
     ? []
     : releaseTypeOptions(meta.value, form.value.releaseType),
 )
+
+// the lyrics editor, when open, reads the saved bounds again whenever this moves
+const fragmentRevision = ref(0)
+
+// the post is read again when no field edits are on screen; otherwise only the fragment's own data is patched
+async function fragmentSaved(saved: FragmentSaved, sentStamp: string): Promise<void> {
+  fragmentRevision.value += 1
+  if (!(await editor.reloadIfClean())) editor.adoptFragmentSave(saved, sentStamp)
+}
 
 function saveFromButton(): void {
   void editor.save()
@@ -229,6 +241,7 @@ watchEffect(() => {
         :post-stamp="detail.expected_post_updated_at"
         :web-app="webApp"
         @submitted="editor.reloadIfClean()"
+        @saved="fragmentSaved"
         @prepared="editor.reloadIfClean()"
         @cancelled="editor.reloadIfClean()"
       />
@@ -238,6 +251,7 @@ watchEffect(() => {
         :client="client"
         :post-id="postId"
         :web-app="webApp"
+        :fragment-revision="fragmentRevision"
         @saved="editor.reloadIfClean()"
       />
 

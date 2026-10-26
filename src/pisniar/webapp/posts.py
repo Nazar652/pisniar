@@ -31,6 +31,7 @@ from pisniar.webapp.fragment_choice import (
     choose_fragment,
     enqueue_render,
     release_superseded_preview,
+    save_fragment,
 )
 from pisniar.webapp.fragment_view import build_fragment_view, fetch_fragment_source
 from pisniar.webapp.lyrics_editing import fetch_lyrics_view, replace_lyrics
@@ -52,6 +53,7 @@ from pisniar.webapp.schemas import (
     FieldsUpdate,
     FragmentRenderStarted,
     FragmentRequest,
+    FragmentSaved,
     FragmentView,
     LyricsProposal,
     LyricsSourceName,
@@ -234,6 +236,26 @@ async def read_fragment(
         return await asyncio.to_thread(build_fragment_view, context, source, admin.user_id)
 
 
+async def save_fragment_bounds(
+    request: Request,
+    body: FragmentRequest,
+    admin: Annotated[AdminUser, Depends(require_admin)],
+    post_id: Annotated[int, Path(ge=1, le=POST_ID_MAX)],
+) -> FragmentSaved:
+    logger.info(
+        "fragment_save_requested",
+        user_id=admin.user_id,
+        post_id=post_id,
+        start_ms=body.start_ms,
+        end_ms=body.end_ms,
+    )
+    async with refusals_logged("fragment_save_refused", admin.user_id, post_id):
+        saved = await write_to_database(request, lambda session: save_fragment(session, post_id, body, admin.user_id))
+        if saved is None:
+            raise ApiProblem(404, "post_not_found", POST_NOT_FOUND_MESSAGE)
+        return saved
+
+
 async def start_fragment_render(
     request: Request,
     body: FragmentRequest,
@@ -400,6 +422,14 @@ def register_post_routes(app: FastAPI) -> None:
         read_fragment,
         methods=["GET"],
         response_model=FragmentView,
+        responses=EDIT_ERROR_RESPONSES,
+        dependencies=protected,
+    )
+    app.add_api_route(
+        "/api/posts/{post_id}/fragment",
+        save_fragment_bounds,
+        methods=["PUT"],
+        response_model=FragmentSaved,
         responses=EDIT_ERROR_RESPONSES,
         dependencies=protected,
     )

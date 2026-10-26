@@ -677,6 +677,10 @@
             "title": "Preparing",
             "type": "boolean"
           },
+          "preview_stale": {
+            "title": "Preview Stale",
+            "type": "boolean"
+          },
           "reason": {
             "anyOf": [
               {
@@ -707,6 +711,7 @@
           "preparable",
           "preparing",
           "cancellable",
+          "preview_stale",
           "reason"
         ],
         "title": "FragmentAvailability",
@@ -789,6 +794,41 @@
           "expected_post_updated_at"
         ],
         "title": "FragmentRequest",
+        "type": "object"
+      },
+      "FragmentSaved": {
+        "description": "the bounds now stored on the post, its new version, and whether the preview in the chat was cut with others.",
+        "properties": {
+          "end_ms": {
+            "title": "End Ms",
+            "type": "integer"
+          },
+          "post_id": {
+            "title": "Post Id",
+            "type": "integer"
+          },
+          "post_updated_at": {
+            "format": "date-time",
+            "title": "Post Updated At",
+            "type": "string"
+          },
+          "preview_stale": {
+            "title": "Preview Stale",
+            "type": "boolean"
+          },
+          "start_ms": {
+            "title": "Start Ms",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "post_id",
+          "post_updated_at",
+          "start_ms",
+          "end_ms",
+          "preview_stale"
+        ],
+        "title": "FragmentSaved",
         "type": "object"
       },
       "FragmentView": {
@@ -2492,6 +2532,105 @@
           }
         },
         "summary": "Start Fragment Render"
+      },
+      "put": {
+        "operationId": "save_fragment_bounds_api_posts__post_id__fragment_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "post_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Post Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FragmentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FragmentSaved"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FieldsInvalid"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Save Fragment Bounds"
       }
     },
     "/api/posts/{post_id}/fragment/audio": {

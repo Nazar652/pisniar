@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from pisniar.config import get_settings
 from pisniar.db.models import Post, Track
+from pisniar.db.previews import preview_fragment_bounds, preview_is_stale
 from pisniar.db.session import session_scope
 from pisniar.db.states import IllegalStatusTransitionError, PostStatus, set_post_status
 from pisniar.dispatch import (
@@ -89,6 +90,7 @@ MEDIA_FAILED_STAGES = MEDIA_IN_PROGRESS_STATUSES | {PostStatus.EDITING}
 # a failure here leaves a video to redo; a download failure still allows the cover alone
 VIDEO_FAILED_STAGES = frozenset({PostStatus.DOWNLOADED, PostStatus.RENDERING})
 OUTDATED_PREVIEW_ANSWER = "Пост {post_id}: це застаріле прев'ю. Публікуйте кнопкою під найновішим прев'ю."
+STALE_PREVIEW_ANSWER = "Фрагмент змінено після цього прев'ю. Зробіть відео заново: /edit {post_id}."
 MEDIA_FAILED_PUBLISH_ANSWER = (
     "Відео для поста {post_id} не вдалося підготувати, тож кнопка публікації тут не діє. Спробуйте /retry {post_id}."
 )
@@ -425,7 +427,7 @@ class TapSpec:
     tapped_event: str
     refused_event: str
     keyboard_failure_event: str
-    claim: Callable[[Post | None, int, int], tuple[str | None, tuple[int, int] | None]]
+    claim: Callable[[AsyncSession, Post | None, int, int], Awaitable[tuple[str | None, tuple[int, int] | None]]]
     expected_status: PostStatus
     dispatch_failed_error: str
     dispatched_answer: str
@@ -457,7 +459,7 @@ async def handle_tap(
             refusal = POST_BUSY_ANSWER.format(post_id=post_id)
             logger.warning(spec.refused_event, reason="post_locked", user_id=user_id, post_id=post_id)
         else:
-            refusal, draft_reference = spec.claim(post, post_id, user_id)
+            refusal, draft_reference = await spec.claim(session, post, post_id, user_id)
 
     if refusal is not None:
         await callback.answer(refusal, show_alert=True)
@@ -496,8 +498,8 @@ async def handle_publish_tap(
         tapped_event="publish_button_tapped",
         refused_event="publish_refused",
         keyboard_failure_event="publish_keyboard_removal_failed",
-        claim=lambda post, claimed_id, claimed_user_id: claim_post_for_publishing(
-            post, claimed_id, claimed_user_id, tapped_message_reference(callback)
+        claim=lambda session, post, claimed_id, claimed_user_id: claim_post_for_publishing(
+            session, post, claimed_id, claimed_user_id, tapped_message_reference(callback)
         ),
         expected_status=PostStatus.PUBLISHING,
         dispatch_failed_error=PUBLISH_DISPATCH_FAILED_ERROR,
@@ -529,7 +531,7 @@ async def handle_render_tap(
         tapped_event="render_button_tapped",
         refused_event="render_refused",
         keyboard_failure_event="render_keyboard_removal_failed",
-        claim=claim_post_for_media,
+        claim=claim_media_tap,
         expected_status=PostStatus.DOWNLOADING,
         dispatch_failed_error=DOWNLOAD_DISPATCH_FAILED_ERROR,
         dispatched_answer="Роблю відео… Прев'ю прийде окремим повідомленням.",
@@ -553,14 +555,25 @@ def tapped_message_reference(callback: CallbackQuery) -> tuple[int, int] | None:
     return callback.message.chat.id, callback.message.message_id
 
 
-def claim_post_for_publishing(
+async def claim_media_tap(
+    session: AsyncSession,
+    post: Post | None,
+    post_id: int,
+    user_id: int,
+) -> tuple[str | None, tuple[int, int] | None]:
+    """the render button reads no other row, so the session goes unused."""
+    return claim_post_for_media(post, post_id, user_id)
+
+
+async def claim_post_for_publishing(
+    session: AsyncSession,
     post: Post | None,
     post_id: int,
     user_id: int,
     tapped: tuple[int, int] | None = None,
 ) -> tuple[str | None, tuple[int, int] | None]:
     """returns `(refusal, draft_reference)`, exactly one set, each refusal logged with its
-    own reason; with a preview in the chat only a tap under it publishes."""
+    own reason; with a preview in the chat only a tap under it publishes, and not one cut with other bounds."""
     if post is None:
         logger.warning("publish_refused", reason="post_not_found", user_id=user_id, post_id=post_id)
         return POST_NOT_FOUND_ANSWER.format(post_id=post_id), None
@@ -626,6 +639,18 @@ def claim_post_for_publishing(
             post_id=post_id,
         )
         return MEDIA_FAILED_PUBLISH_ANSWER.format(post_id=post_id), None
+
+    preview_bounds = await preview_fragment_bounds(session, post)
+    if preview_is_stale(post.fragment_start_ms, post.fragment_end_ms, preview_bounds):
+        logger.warning(
+            "publish_refused",
+            reason="stale_preview",
+            post_bounds=(post.fragment_start_ms, post.fragment_end_ms),
+            preview_bounds=preview_bounds,
+            user_id=user_id,
+            post_id=post_id,
+        )
+        return STALE_PREVIEW_ANSWER.format(post_id=post_id), None
 
     try:
         set_post_status(post, PostStatus.PUBLISHING)

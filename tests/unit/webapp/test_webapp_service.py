@@ -175,6 +175,7 @@ def test_the_detail_judges_the_fragment_from_the_status_alone() -> None:
         preparable=False,
         preparing=False,
         cancellable=False,
+        preview_stale=False,
         reason=None,
     )
     assert ready.fragment.cancellable is True
@@ -186,6 +187,20 @@ def test_the_detail_judges_the_fragment_from_the_status_alone() -> None:
     assert (downloading.fragment.preparing, downloading.fragment.choosable) == (True, False)
     assert ready.fragment.choosable is True
     assert ready.status_label == "Аудіо готове — оберіть фрагмент"
+
+
+def test_the_detail_marks_a_preview_cut_with_other_bounds_as_stale() -> None:
+    post = make_post(PostStatus.RENDERED, fragment_start_ms=10_000, fragment_end_ms=55_000)
+
+    same = build_post_detail(post, make_track(), [], (10_000, 55_000))
+    other = build_post_detail(post, make_track(), [], (0, 45_000))
+    unknown = build_post_detail(post, make_track(), [], None)
+
+    assert (same.fragment.preview_stale, other.fragment.preview_stale, unknown.fragment.preview_stale) == (
+        False,
+        True,
+        False,
+    )
 
 
 def test_the_detail_carries_the_cover_publication_verdict_with_the_preview_in_mind() -> None:

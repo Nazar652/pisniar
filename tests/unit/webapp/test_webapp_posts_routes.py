@@ -71,6 +71,7 @@ def make_detail() -> PostDetail:
             preparable=False,
             preparing=False,
             cancellable=False,
+            preview_stale=False,
             reason="Фрагмент ще не обрано.",
         ),
         cover_publication=CoverPublicationAvailability(allowed=True, reason=None),

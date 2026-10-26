@@ -79,9 +79,20 @@ describe('failureMessage', () => {
     expect(failureMessage(409, { message: 'Власне речення.' })).toBe('Власне речення.')
   })
 
-  it.each([401, 403, 413, 422, 503])('has its own sentence for %i', (status) => {
+  it.each([401, 403, 413, 422, 502, 503, 504])('has its own sentence for %i', (status) => {
     expect(failureMessage(status, undefined)).not.toBe(UNKNOWN_FAILURE_MESSAGE)
   })
+
+  it.each([502, 504])(
+    'says the server is restarting for a proxy %i with a body that is not ours',
+    (status) => {
+      const sentence = 'Сервер перезапускається або недоступний. Спробуйте за хвилину.'
+
+      expect(failureMessage(status, undefined)).toBe(sentence)
+      expect(failureMessage(status, '<html>Bad Gateway</html>')).toBe(sentence)
+      expect(failureMessage(status, { message: 'Власне речення.' })).toBe('Власне речення.')
+    },
+  )
 
   it('falls back to a general sentence for any other status', () => {
     expect(failureMessage(418, undefined)).toBe(UNKNOWN_FAILURE_MESSAGE)

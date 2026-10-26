@@ -3,16 +3,22 @@ import { computed, defineAsyncComponent, inject, onBeforeUnmount, onMounted, ref
 import type { ApiClient } from '../api/client'
 import type { Schemas } from '../api/outcome'
 import { LEAVE_GUARD, confirmDiscardOthers } from '../app/leaveGuard'
+import NoticeBanner from '../components/NoticeBanner.vue'
+import type { Notice } from '../editor/usePostEditor'
 import { confirmWith } from '../telegram/actions'
 import type { WebApp } from '../telegram/useTelegram'
 import { formatTime } from './bounds'
 import { useAudioPreparation } from './useAudioPreparation'
 import { useCancelPreparation } from './useCancelPreparation'
-import { useFragmentEditor } from './useFragmentEditor'
+import { useFragmentEditor, type FragmentSaved } from './useFragmentEditor'
 import { CHUNK_FAILED_MESSAGE, useLoadRetry } from './useLoadRetry'
 
 const NOT_CHOOSABLE_FALLBACK = 'Фрагмент зараз обрати не можна.'
 const PREPARING_LINE = 'Готуємо аудіо…'
+const STALE_PREVIEW_NOTICE: Notice = {
+  kind: 'info',
+  text: 'Фрагмент змінено — прев’ю застаріло, зробіть відео заново.',
+}
 
 const props = defineProps<{
   fragment: Schemas['FragmentAvailability']
@@ -21,13 +27,24 @@ const props = defineProps<{
   postStamp: string
   webApp: WebApp | undefined
 }>()
-const emit = defineEmits<{ submitted: []; prepared: []; cancelled: [] }>()
+const emit = defineEmits<{
+  submitted: []
+  saved: [saved: FragmentSaved, sentStamp: string]
+  prepared: []
+  cancelled: []
+}>()
 
 const opened = ref(false)
 const leaveGuard = inject(LEAVE_GUARD, null)
 const confirm = confirmWith(props.webApp)
 const keepOthers = () => confirmDiscardOthers(leaveGuard, 'fragment', confirm)
-const editor = useFragmentEditor(props.client, props.postId, () => emit('submitted'), keepOthers)
+const editor = useFragmentEditor(
+  props.client,
+  props.postId,
+  () => emit('submitted'),
+  keepOthers,
+  (saved, sentStamp) => emit('saved', saved, sentStamp),
+)
 const preparation = useAudioPreparation(props.client, props.postId, () => {
   opened.value = true
   emit('prepared')
@@ -89,8 +106,9 @@ onBeforeUnmount(() => preparation.dispose())
     <h2 class="fragment-section__title">Фрагмент</h2>
     <template v-if="fragment.choosable || opened">
       <p v-if="fragment.choosable && currentRange()" class="muted">
-        Зараз у відео: {{ currentRange() }}
+        {{ fragment.preview_stale ? 'Обраний фрагмент' : 'Зараз у відео' }}: {{ currentRange() }}
       </p>
+      <NoticeBanner :notice="fragment.preview_stale ? STALE_PREVIEW_NOTICE : null" />
       <template v-if="opened">
         <template v-if="chunk.failed.value">
           <p class="error" role="alert">{{ CHUNK_FAILED_MESSAGE }}</p>

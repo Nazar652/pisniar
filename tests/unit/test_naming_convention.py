@@ -90,6 +90,7 @@ def test_media_artifact_constraint_names_are_unchanged() -> None:
         "ck_audio_asset_duration_positive",
         "ck_render_size_positive",
         "ck_render_duration_positive",
+        "ck_render_fragment_bounds_valid",
     }
 
     foreign_key_names = {

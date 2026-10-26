@@ -495,6 +495,17 @@ export function useLyricsEditor(client: ApiClient, postId: number, deps: LyricsD
     return true
   }
 
+  // another editor saved bounds: the render carries them and their stamp, while the text, the audio URL and the
+  // playback stay as they are; a refusal leaves the bounds held, and the render's own stale answer reloads them
+  async function refreshFragment(): Promise<boolean> {
+    if (view.value === null) return false
+    const answer = await fetchFragment()
+    if (!answer.ok) return false
+    fragment.value = answer.data
+    expectedUpdatedAt = answer.data.post_updated_at
+    return true
+  }
+
   // the signed URL lives 15 minutes; one fresh view is asked for, then the admin gets a sentence
   async function refreshMedia(): Promise<boolean> {
     if (mediaRefreshed) {
@@ -571,6 +582,7 @@ export function useLyricsEditor(client: ApiClient, postId: number, deps: LyricsD
     findPlain,
     setPlainSource,
     save,
+    refreshFragment,
     refreshMedia,
     mediaPlayable,
   }

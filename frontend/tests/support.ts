@@ -80,6 +80,7 @@ export function makeDetail(overrides: Partial<PostDetail> = {}): PostDetail {
       preparable: false,
       preparing: false,
       cancellable: false,
+      preview_stale: false,
       reason: 'Фрагмент ще не обрано.',
     },
     cover_publication: { allowed: false, reason: 'Для цього поста вже є відео.' },

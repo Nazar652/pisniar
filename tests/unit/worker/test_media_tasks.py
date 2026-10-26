@@ -169,7 +169,11 @@ def test_the_upsert_refreshes_updated_at_itself() -> None:
         ),
     )
 
-    assert "updated_at" in compile_statement(statement).split("DO UPDATE SET")[1]
+    update_clause = compile_statement(statement).split("DO UPDATE SET")[1]
+    assert "updated_at" in update_clause
+    assert "fragment_start_ms" in update_clause and "fragment_end_ms" in update_clause
+    assert statement.compile().params["fragment_start_ms"] == 0
+    assert statement.compile().params["fragment_end_ms"] == 45_000
 
 
 def test_the_media_tasks_carry_their_own_time_limits() -> None:

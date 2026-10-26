@@ -281,10 +281,20 @@ class Render(IdAndTimestampsMixin, Base):
         UniqueConstraint("post_id", "params_hash"),
         CheckConstraint("size_bytes > 0", name="size_positive"),
         CheckConstraint("duration_ms > 0", name="duration_positive"),
+        # (NULL, NULL) means the bounds are unknown: a row written before they were recorded.
+        CheckConstraint(
+            "num_nonnulls(fragment_start_ms, fragment_end_ms) <> 1 "
+            "AND (fragment_start_ms IS NULL OR fragment_start_ms >= 0) "
+            "AND (fragment_end_ms IS NULL OR fragment_end_ms > fragment_start_ms)",
+            name="fragment_bounds_valid",
+        ),
     )
 
     post_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("post.id", ondelete="CASCADE"), nullable=False)
     params_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    # the bounds the video was cut with, absolute in the full track
+    fragment_start_ms: Mapped[int | None] = mapped_column(BigInteger)
+    fragment_end_ms: Mapped[int | None] = mapped_column(BigInteger)
     # a digest of the `.ass` file, null for a video without text. It is an input
     # to `params_hash`, so the column keeps that hash auditable.
     text_version: Mapped[str | None] = mapped_column(Text)

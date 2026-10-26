@@ -13,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pisniar.db.models import Post, Track
+from pisniar.db.previews import preview_fragment_bounds, preview_is_stale
 from pisniar.db.states import PostStatus
 from pisniar.post.caption import MEDIA_CAPTION_LIMIT, is_shown_in_caption
 from pisniar.post.caption_input import (
@@ -130,13 +131,14 @@ async def detail_of(
             .limit(MAX_OTHER_POSTS)
         )
     )
-    return build_post_detail(post, track, other_post_ids)
+    return build_post_detail(post, track, other_post_ids, await preview_fragment_bounds(session, post))
 
 
 def build_post_detail(
     post: Post,
     track: Track,
     other_post_ids: list[int],
+    preview_bounds: tuple[int, int] | None = None,
 ) -> PostDetail:
     editability = editability_of(post.status, post.failed_from_status)
     choosability = choosability_of(post.status, post.failed_from_status)
@@ -156,6 +158,7 @@ def build_post_detail(
             preparable=choosability.preparable,
             preparing=choosability.preparing,
             cancellable=choosability.cancellable,
+            preview_stale=preview_is_stale(post.fragment_start_ms, post.fragment_end_ms, preview_bounds),
             reason=choosability.reason,
         ),
         cover_publication=CoverPublicationAvailability(allowed=cover.allowed, reason=cover.reason),

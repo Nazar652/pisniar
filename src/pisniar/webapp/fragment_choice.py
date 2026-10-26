@@ -13,6 +13,8 @@ from celery import Celery
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from pisniar.db.locks import lock_post_without_waiting, lock_track_for_write
+from pisniar.db.models import Post
+from pisniar.db.previews import preview_fragment_bounds, preview_is_stale
 from pisniar.db.states import PostStatus, set_post_status
 from pisniar.dispatch import RENDER_DISPATCH_FAILED_ERROR, dispatch_task, mark_dispatch_failure
 from pisniar.logging import get_logger
@@ -21,13 +23,15 @@ from pisniar.webapp.applying import TELEGRAM_TIMEOUT_SECONDS
 from pisniar.webapp.editing import STALE_DATA_MESSAGE, assign_if_changed
 from pisniar.webapp.errors import ApiProblem
 from pisniar.webapp.fragment_view import AUDIO_MISSING_MESSAGE, current_audio_asset
-from pisniar.webapp.schemas import FragmentRequest
+from pisniar.webapp.schemas import FragmentRequest, FragmentSaved
 from pisniar.webapp.status import choosability_of
 from pisniar.worker.celery_app import RENDER_POST_VIDEO_TASK_NAME
 from pisniar.worker.fragment import FragmentBounds, FragmentBoundsError, validate_chosen_bounds
 
 logger = get_logger(__name__)
 
+RENDER_REFUSAL_EVENT = "fragment_render_refused"
+SAVE_REFUSAL_EVENT = "fragment_save_refused"
 INVALID_FRAGMENT_MESSAGE = "Фрагмент не підходить: {reason}."
 DISPATCH_FAILED_MESSAGE = (
     "Не вдалося поставити відео в чергу. Повторіть спробу командою /retry {post_id} у чаті з ботом."
@@ -49,9 +53,83 @@ def refuse(
     message: str,
     user_id: int,
     post_id: int,
+    refusal_event: str = RENDER_REFUSAL_EVENT,
 ) -> NoReturn:
-    logger.warning("fragment_render_refused", reason=code, user_id=user_id, post_id=post_id)
+    logger.warning(refusal_event, reason=code, user_id=user_id, post_id=post_id)
     raise ApiProblem(status_code, code, message)
+
+
+async def claim_fragment_bounds(
+    session: AsyncSession,
+    post_id: int,
+    request: FragmentRequest,
+    user_id: int,
+    refusal_event: str,
+) -> tuple[Post, FragmentBounds] | None:
+    """the post locked without waiting, then its track, and the request's bounds validated against the audio.
+    `None` for a missing post; every refusal is logged as `refusal_event` and leaves the rows untouched."""
+    post = await lock_post_without_waiting(session, post_id)
+    if post is None:
+        return None
+
+    verdict = choosability_of(post.status, post.failed_from_status)
+    if not verdict.choosable:
+        assert verdict.reason is not None
+        refuse(409, "not_choosable", verdict.reason, user_id, post_id, refusal_event)
+    if post.updated_at != request.expected_post_updated_at:
+        refuse(409, "stale_data", STALE_DATA_MESSAGE, user_id, post_id, refusal_event)
+
+    track = await lock_track_for_write(session, post.track_id)
+    if track is None:
+        return None
+
+    asset = await current_audio_asset(session, track)
+    if asset is None:
+        refuse(409, "audio_missing", AUDIO_MISSING_MESSAGE, user_id, post_id, refusal_event)
+
+    try:
+        bounds = validate_chosen_bounds(request.start_ms, request.end_ms, asset.duration_ms)
+    except FragmentBoundsError as error:
+        refuse(422, "invalid_fragment", INVALID_FRAGMENT_MESSAGE.format(reason=error), user_id, post_id, refusal_event)
+
+    return post, bounds
+
+
+async def save_fragment(
+    session: AsyncSession,
+    post_id: int,
+    request: FragmentRequest,
+    user_id: int,
+) -> FragmentSaved | None:
+    """stores the bounds and nothing else: no status change, render, Telegram or queue call. The caller commits."""
+    claimed = await claim_fragment_bounds(session, post_id, request, user_id, SAVE_REFUSAL_EVENT)
+    if claimed is None:
+        return None
+    post, bounds = claimed
+
+    changed = assign_if_changed(post, "fragment_start_ms", bounds.start_ms)
+    changed = assign_if_changed(post, "fragment_end_ms", bounds.end_ms) or changed
+    if changed:
+        await session.flush()
+        await session.refresh(post)
+
+    preview_stale = preview_is_stale(bounds.start_ms, bounds.end_ms, await preview_fragment_bounds(session, post))
+    logger.info(
+        "fragment_saved",
+        user_id=user_id,
+        post_id=post_id,
+        start_ms=bounds.start_ms,
+        end_ms=bounds.end_ms,
+        changed=changed,
+        preview_stale=preview_stale,
+    )
+    return FragmentSaved(
+        post_id=post_id,
+        post_updated_at=post.updated_at,
+        start_ms=bounds.start_ms,
+        end_ms=bounds.end_ms,
+        preview_stale=preview_stale,
+    )
 
 
 async def choose_fragment(
@@ -61,29 +139,10 @@ async def choose_fragment(
     user_id: int,
 ) -> FragmentChoice | None:
     """the caller commits. `None` for a missing post; every refusal leaves the rows untouched."""
-    post = await lock_post_without_waiting(session, post_id)
-    if post is None:
+    claimed = await claim_fragment_bounds(session, post_id, request, user_id, RENDER_REFUSAL_EVENT)
+    if claimed is None:
         return None
-
-    verdict = choosability_of(post.status, post.failed_from_status)
-    if not verdict.choosable:
-        assert verdict.reason is not None
-        refuse(409, "not_choosable", verdict.reason, user_id, post_id)
-    if post.updated_at != request.expected_post_updated_at:
-        refuse(409, "stale_data", STALE_DATA_MESSAGE, user_id, post_id)
-
-    track = await lock_track_for_write(session, post.track_id)
-    if track is None:
-        return None
-
-    asset = await current_audio_asset(session, track)
-    if asset is None:
-        refuse(409, "audio_missing", AUDIO_MISSING_MESSAGE, user_id, post_id)
-
-    try:
-        bounds = validate_chosen_bounds(request.start_ms, request.end_ms, asset.duration_ms)
-    except FragmentBoundsError as error:
-        refuse(422, "invalid_fragment", INVALID_FRAGMENT_MESSAGE.format(reason=error), user_id, post_id)
+    post, bounds = claimed
 
     superseded_preview = (
         None

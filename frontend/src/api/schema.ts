@@ -128,7 +128,8 @@ export interface paths {
         };
         /** Read Fragment */
         get: operations["read_fragment_api_posts__post_id__fragment_get"];
-        put?: never;
+        /** Save Fragment Bounds */
+        put: operations["save_fragment_bounds_api_posts__post_id__fragment_put"];
         /** Start Fragment Render */
         post: operations["start_fragment_render_api_posts__post_id__fragment_post"];
         delete?: never;
@@ -505,6 +506,8 @@ export interface components {
             preparable: boolean;
             /** Preparing */
             preparing: boolean;
+            /** Preview Stale */
+            preview_stale: boolean;
             /** Reason */
             reason: string | null;
             /** Start Ms */
@@ -541,6 +544,25 @@ export interface components {
              * Format: date-time
              */
             expected_post_updated_at: string;
+            /** Start Ms */
+            start_ms: number;
+        };
+        /**
+         * FragmentSaved
+         * @description the bounds now stored on the post, its new version, and whether the preview in the chat was cut with others.
+         */
+        FragmentSaved: {
+            /** End Ms */
+            end_ms: number;
+            /** Post Id */
+            post_id: number;
+            /**
+             * Post Updated At
+             * Format: date-time
+             */
+            post_updated_at: string;
+            /** Preview Stale */
+            preview_stale: boolean;
             /** Start Ms */
             start_ms: number;
         };
@@ -1353,6 +1375,86 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FragmentView"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FieldsInvalid"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    save_fragment_bounds_api_posts__post_id__fragment_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                post_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FragmentRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FragmentSaved"];
                 };
             };
             /** @description Unauthorized */

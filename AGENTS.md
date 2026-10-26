@@ -188,7 +188,12 @@ worker image.
   instead, reason `media_stage_failed`); with a preview it must come from exactly that preview message
   (chat id and message id, an inaccessible message counts), else it is refused as outdated;
   a tap on a `failed` post whose failed stage is a media one is refused with a
-  pointer to `/retry`. «Зробити відео» on a `PUBLISHING` post answers that it is publishing.
+  pointer to `/retry`. A tap under a **stale preview** (the post's bounds differ from the ones recorded
+  on the `render` row at `preview_params_hash`) is refused with `STALE_PREVIEW_ANSWER`, a pointer to
+  `/edit {post_id}` (reason `stale_preview`, the log carries both pairs of bounds); the keyboard stays, nothing
+  is written or dispatched. The claim reads that row under the post lock through `db.previews`
+  (`preview_fragment_bounds`, `preview_is_stale`), the bot's only read of `render`, a leaf the Mini App shares;
+  a row with NULL bounds is never stale. «Зробити відео» on a `PUBLISHING` post answers that it is publishing.
   The cover alone is published only from the Mini App (`POST /api/posts/{id}/publish-cover`),
   so without `WEBAPP_PUBLIC_URL` or in a group chat no path publishes it.
 - **`RESOLVED -> PUBLISHING` stays legal** (the Mini App's cover publication writes it), and an
@@ -338,7 +343,19 @@ worker image.
   `preview_superseded_keyboard_removal_failed` with the `post_id`, any other exception as
   `fragment_preview_keyboard_removal_failed`; neither fails the request. The request model refuses extra fields, `bool` and values
   beyond BIGINT; the response is `FragmentRenderStarted`. Logs: `fragment_render_requested`,
-  `fragment_render_refused` (`reason`), `fragment_render_dispatched`, never a token.
+  `fragment_render_refused` (`reason`), `fragment_render_dispatched`, never a token. Its head is
+  `claim_fragment_bounds` (the locks, the verdict, the stamp, the audio and the rule), shared with the save.
+- **`PUT /api/posts/{id}/fragment` stores the bounds without a render** (`fragment_choice.save_fragment`,
+  body `FragmentRequest`, answer `FragmentSaved {post_id, post_updated_at, start_ms, end_ms, preview_stale}`):
+  `claim_fragment_bounds`, then `assign_if_changed` for both bounds (equal bounds write nothing and leave
+  `updated_at` alone), flush and refresh for the new stamp; no status change, no Telegram, no broker. Refusals
+  are the render route's, logged as `fragment_save_refused` (`reason`); also `fragment_save_requested` and
+  `fragment_saved` (`changed`, `preview_stale`). The post's bounds may then differ from the video's: a
+  `render` row records the bounds it was cut with (`fragment_start_ms`/`fragment_end_ms`, both or none, written
+  by `upsert_render_statement`; NULL on rows that predate them), and `PostDetail.fragment.preview_stale` is
+  `db.previews.preview_is_stale` over the row at `preview_params_hash`. After such a save `post.fragment_*`
+  describes the next render, not the preview. Publication from the chat is refused under a stale preview (see
+  the buttons above); the next render replaces the preview.
 - **The lyrics routes (`webapp.lyrics_editing`, `lyrics_proposals`, `lyrics_rules`) are offered like the
   fragment view**: `status.choosability_of` (else 409 `not_choosable`) and the audio of the current
   `youtubeMusic` videoId (409 `audio_missing`), since every time is checked against its measured duration.
@@ -426,7 +443,16 @@ worker image.
   emits `prepared`, which `PostEditor` answers with `reloadIfClean()`; otherwise the reason sentence.
   With `fragment.cancellable` a quiet «Скасувати підготовку» (`useCancelPreparation`, no `showConfirm`:
   the step is reversible) posts the server's stamp (`postStamp` prop) and emits `cancelled`, again
-  answered with `reloadIfClean()`; `stale_data` and `not_cancellable` reload too. A quiet card at
+  answered with `reloadIfClean()`; `stale_data` and `not_cancellable` reload too. `FragmentEditor` has a
+  quiet «Зберегти фрагмент» (`useFragmentEditor.save`, state `saving`, `canSave` = moved and within the rules,
+  no discard question): it keeps the view, so the waveform is not rebuilt, moves the stored bounds and the
+  stamp, and says «Фрагмент збережено.» or, with `preview_stale`, that the preview is out of date and the
+  video must be made again. `FragmentSection` then shows «Обраний фрагмент» and a notice instead of «Зараз у
+  відео»; `PostEditor` answers `saved` with `reloadIfClean()` or, over unsaved fields, `adoptFragmentSave`
+  (only the fragment data and the stamp, only while the stamp is the one the save was sent with), and bumps
+  `fragmentRevision`, which makes an open `useLyricsEditor` call `refreshFragment()` (bounds and stamp; text
+  and audio stay). `client.ts` answers a proxy's 502/504 with «Сервер перезапускається або недоступний…» unless
+  the body carries a server sentence. A quiet card at
   the bottom of `PostEditor` offers «Опублікувати без відео» (`usePostEditor.publishWithoutVideo`)
   when `cover_publication.allowed`; it needs a saved caption (`stored_caption_matches`, nothing
   dirty), asks `showConfirm` and posts the server's `expected_post_updated_at` string. `FragmentEditor` loads as its own
@@ -924,6 +950,8 @@ worker image.
   depend on, `text_version` included, so a render never reuses a file with
   other text or none. Both tables refuse a zero size or a zero duration at the
   CHECK level — that is the shape a silent ffmpeg or yt-dlp failure takes.
+  `fragment_start_ms`/`fragment_end_ms` (nullable BIGINT, a CHECK keeps them both NULL or a valid range) are
+  the bounds the file was cut with; the migration backfilled them for the preview of each `rendered` post.
 - `lyric` is one line per row, keyed to a **track**
   (`ON DELETE CASCADE`, like `audio_asset`), so posts of one recording share
   the text. `start_ms` is nullable: NULL is a line not yet timed (the `>= 0`

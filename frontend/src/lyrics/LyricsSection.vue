@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { defineAsyncComponent, inject, ref } from 'vue'
+import { defineAsyncComponent, inject, ref, watch } from 'vue'
 import type { ApiClient } from '../api/client'
 import { LEAVE_GUARD, confirmDiscardOthers } from '../app/leaveGuard'
 import { useLoadRetry } from '../fragment/useLoadRetry'
@@ -14,6 +14,7 @@ const props = defineProps<{
   client: ApiClient
   postId: number
   webApp: WebApp | undefined
+  fragmentRevision: number
 }>()
 const emit = defineEmits<{ saved: [] }>()
 
@@ -26,6 +27,12 @@ const editor = useLyricsEditor(props.client, props.postId, {
   beforeRender: () => confirmDiscardOthers(leaveGuard, 'lyrics', confirm),
 })
 const chunk = useLoadRetry()
+
+// the fragment editor saved other bounds: the open editor takes them, its text and audio stay
+watch(
+  () => props.fragmentRevision,
+  () => void editor.refreshFragment(),
+)
 
 // the editor loads only when the admin opens it, so the post editor stays light
 const LyricsEditor = defineAsyncComponent({

@@ -9,11 +9,15 @@ export interface ClientOptions {
   fetch?: typeof fetch
 }
 
+// a proxy answers 502/504 with a body that is not ours while the server restarts
+const RESTARTING_MESSAGE = 'Сервер перезапускається або недоступний. Спробуйте за хвилину.'
 const FAILURE_MESSAGES: Record<number, string> = {
   401: 'Сесія недійсна. Закрийте застосунок і відкрийте його знову.',
   403: 'Доступ лише для адміністраторів.',
   413: 'Запит завеликий.',
   422: 'Некоректний запит.',
+  502: RESTARTING_MESSAGE,
+  504: RESTARTING_MESSAGE,
   503: 'Сервер зараз недоступний. Спробуйте за хвилину.',
 }
 export const NETWORK_FAILURE_MESSAGE =

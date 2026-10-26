@@ -1,6 +1,6 @@
 import { computed, ref, shallowRef, watch } from 'vue'
 import type { ApiClient } from '../api/client'
-import { outcomeOf, type Failure } from '../api/outcome'
+import { outcomeOf, type Failure, type Schemas } from '../api/outcome'
 import type { Confirm, Haptic } from '../telegram/actions'
 import {
   effectiveRevert,
@@ -38,6 +38,7 @@ const APPLY_RESULTS: Record<string, string> = {
   stored_only: 'Збережено. Повідомлень для оновлення немає.',
 }
 
+type FragmentSaved = Schemas['FragmentSaved']
 export type EditorStatus = 'loading' | 'ready' | 'failed'
 export interface Notice {
   kind: 'success' | 'error' | 'info'
@@ -139,6 +140,23 @@ export function usePostEditor(client: ApiClient, postId: number, deps: EditorDep
     if (dirty.value || busy.value) return false
     await load(true)
     return true
+  }
+
+  // a fragment save with unsaved field edits on screen cannot reload: only the bounds, the verdict and the stamp
+  // move, and only while the post is still the version the save was sent against
+  function adoptFragmentSave(saved: FragmentSaved, sentStamp: string): void {
+    const current = detail.value
+    if (current === null || current.expected_post_updated_at !== sentStamp) return
+    detail.value = {
+      ...current,
+      expected_post_updated_at: saved.post_updated_at,
+      fragment: {
+        ...current.fragment,
+        start_ms: saved.start_ms,
+        end_ms: saved.end_ms,
+        preview_stale: saved.preview_stale,
+      },
+    }
   }
 
   function schedulePreview(): void {
@@ -363,6 +381,7 @@ export function usePostEditor(client: ApiClient, postId: number, deps: EditorDep
     warning,
     load,
     reloadIfClean,
+    adoptFragmentSave,
     save,
     applyToChannel,
     archive,

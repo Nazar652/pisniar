@@ -1846,6 +1846,8 @@ def upsert_render_statement(claim: RenderClaim, outcome: RenderOutcome) -> Postg
         .values(
             post_id=claim.post_id,
             params_hash=outcome.params_hash,
+            fragment_start_ms=claim.fragment_start_ms,
+            fragment_end_ms=claim.fragment_end_ms,
             text_version=outcome.text_version,
             path=str(outcome.path),
             size_bytes=outcome.size_bytes,
@@ -1854,6 +1856,8 @@ def upsert_render_statement(claim: RenderClaim, outcome: RenderOutcome) -> Postg
         .on_conflict_do_update(
             index_elements=[Render.post_id, Render.params_hash],
             set_={
+                "fragment_start_ms": claim.fragment_start_ms,
+                "fragment_end_ms": claim.fragment_end_ms,
                 "path": str(outcome.path),
                 "size_bytes": outcome.size_bytes,
                 "duration_ms": outcome.duration_ms,

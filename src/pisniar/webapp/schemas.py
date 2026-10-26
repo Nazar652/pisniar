@@ -113,6 +113,7 @@ class FragmentAvailability(BaseModel):
     preparable: bool
     preparing: bool
     cancellable: bool
+    preview_stale: bool
     reason: str | None
 
 
@@ -179,6 +180,16 @@ class FragmentRenderStarted(BaseModel):
     status_label: str
     start_ms: int
     end_ms: int
+
+
+class FragmentSaved(BaseModel):
+    """the bounds now stored on the post, its new version, and whether the preview in the chat was cut with others."""
+
+    post_id: int
+    post_updated_at: datetime
+    start_ms: int
+    end_ms: int
+    preview_stale: bool
 
 
 class AudioPreparationStarted(BaseModel):

@@ -60,7 +60,7 @@ const notice = computed<Notice | null>(() =>
   props.editor.message.value === ''
     ? null
     : {
-        kind: props.editor.status.value === 'submitted' ? 'success' : 'error',
+        kind: props.editor.messageKind.value,
         text: props.editor.message.value,
       },
 )
@@ -323,6 +323,15 @@ onBeforeUnmount(() => {
       <button
         v-if="editor.status.value !== 'submitted'"
         type="button"
+        class="btn btn--quiet fragment__save"
+        :disabled="!editor.canSave.value"
+        @click="editor.save()"
+      >
+        {{ editor.status.value === 'saving' ? 'Збереження…' : 'Зберегти фрагмент' }}
+      </button>
+      <button
+        v-if="editor.status.value !== 'submitted'"
+        type="button"
         class="btn fragment__submit"
         :disabled="!editor.canSubmit.value"
         @click="editor.submit()"
@@ -380,6 +389,7 @@ onBeforeUnmount(() => {
   gap: 8px;
 }
 
+.fragment__save,
 .fragment__submit {
   width: 100%;
   margin-top: 6px;

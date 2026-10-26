@@ -100,7 +100,7 @@ def tap(monkeypatch: pytest.MonkeyPatch) -> Tap:
 
 
 async def test_handle_tap_commits_then_removes_the_keyboard_then_dispatches(tap: Tap, fake_logger: MagicMock) -> None:
-    claim = MagicMock(return_value=(None, (555, 41)))
+    claim = AsyncMock(return_value=(None, (555, 41)))
 
     await tap.run(claim)
 
@@ -114,7 +114,7 @@ async def test_handle_tap_commits_then_removes_the_keyboard_then_dispatches(tap:
 async def test_handle_tap_keeps_the_keyboard_and_dispatches_nothing_after_a_refusal(
     tap: Tap, fake_logger: MagicMock
 ) -> None:
-    await tap.run(MagicMock(return_value=("Refused.", None)))
+    await tap.run(AsyncMock(return_value=("Refused.", None)))
 
     assert tap.order == ["commit", "answer"]
     tap.callback.answer.assert_awaited_once_with("Refused.", show_alert=True)
@@ -122,7 +122,7 @@ async def test_handle_tap_keeps_the_keyboard_and_dispatches_nothing_after_a_refu
 
 async def test_handle_tap_refuses_a_locked_post_with_the_busy_sentence(tap: Tap, fake_logger: MagicMock) -> None:
     tap.lock_error = True
-    claim = MagicMock()
+    claim = AsyncMock()
 
     await tap.run(claim)
 
@@ -134,7 +134,7 @@ async def test_handle_tap_refuses_a_locked_post_with_the_busy_sentence(tap: Tap,
 async def test_handle_tap_fails_the_post_when_the_dispatch_fails(tap: Tap, fake_logger: MagicMock) -> None:
     tap.dispatch_result = False
 
-    await tap.run(MagicMock(return_value=(None, None)))
+    await tap.run(AsyncMock(return_value=(None, None)))
 
     tap.mark_failure.assert_awaited_once_with(
         tap.session_factory,
