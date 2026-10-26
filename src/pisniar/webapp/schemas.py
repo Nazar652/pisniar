@@ -82,6 +82,7 @@ class PlatformLinkDetail(BaseModel):
     url: str
     source: str
     match: str
+    shown_in_caption: bool
 
 
 class CaptionSegmentView(BaseModel):

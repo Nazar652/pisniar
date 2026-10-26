@@ -1195,6 +1195,10 @@
             "title": "Match",
             "type": "string"
           },
+          "shown_in_caption": {
+            "title": "Shown In Caption",
+            "type": "boolean"
+          },
           "source": {
             "title": "Source",
             "type": "string"
@@ -1207,7 +1211,8 @@
         "required": [
           "url",
           "source",
-          "match"
+          "match",
+          "shown_in_caption"
         ],
         "title": "PlatformLinkDetail",
         "type": "object"

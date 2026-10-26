@@ -37,6 +37,7 @@ TIDAL_LINK = {
     "source": "songlink",
     "match": "aggregator",
 }
+DEEZER_LINK = {"url": "https://www.deezer.com/track/1", "source": "deezer", "match": "exact_isrc"}
 YOUTUBE_MUSIC_URL = "https://music.youtube.com/watch?v=n4bPzdIs_nc"
 YOUTUBE_MUSIC_LINK = {"url": YOUTUBE_MUSIC_URL, "source": "ytmusic", "match": "confirmed"}
 
@@ -419,11 +420,33 @@ def test_a_stored_link_missing_from_the_input_is_removed_for_good() -> None:
     errors: list[FieldError] = []
 
     links, removed, _ = plan_platform_links(
-        {"spotify": SPOTIFY_LINK["url"]}, {"spotify": SPOTIFY_LINK, "tidal": TIDAL_LINK}, [], errors
+        {"spotify": SPOTIFY_LINK["url"]}, {"spotify": SPOTIFY_LINK, "deezer": DEEZER_LINK}, [], errors
     )
 
     assert set(links) == {"spotify"}
-    assert removed == ["tidal"]
+    assert removed == ["deezer"]
+
+
+def test_a_stored_link_the_caption_never_shows_is_kept_when_the_input_lacks_it() -> None:
+    errors: list[FieldError] = []
+
+    links, removed, _ = plan_platform_links(
+        {"spotify": SPOTIFY_LINK["url"]}, {"spotify": SPOTIFY_LINK, "tidal": TIDAL_LINK}, [], errors
+    )
+
+    assert links == {"spotify": SPOTIFY_LINK, "tidal": TIDAL_LINK}
+    assert links["tidal"] is TIDAL_LINK
+    assert removed == []
+
+
+def test_saving_the_form_without_the_hidden_link_changes_nothing_and_keeps_it() -> None:
+    hidden_free = make_unchanged_update(platform_links={"spotify": TRACK_URL, "youtubeMusic": YOUTUBE_MUSIC_URL})
+
+    planned = plan(hidden_free)
+
+    assert planned.platform_links == make_stored().platform_links
+    assert planned.removed_platforms == []
+    assert "platform_links" not in planned.changed_fields
 
 
 def test_adding_a_removed_platform_by_hand_lifts_its_removal() -> None:
@@ -517,8 +540,8 @@ def test_the_plan_carries_the_genres_languages_and_links_as_the_rows_expect_them
 
     assert planned.languages == ["англійська"]
     assert planned.genres == [{"name": "поп", "hashtag": None, "source": "manual"}]
-    assert set(planned.platform_links) == {"spotify"}
-    assert planned.removed_platforms == ["tidal", "youtubeMusic"]
+    assert set(planned.platform_links) == {"spotify", "tidal"}
+    assert planned.removed_platforms == ["youtubeMusic"]
     assert set(planned.changed_fields) == {"languages", "genres", "platform_links"}
 
 

@@ -504,8 +504,9 @@ async def test_the_first_preview_comes_from_the_fragment_chosen_before_any_video
     assert (rendered.fragment_start_ms, rendered.fragment_end_ms) == (60_000, 105_000)
     assert len(worker.subtitles) == 1
     assert worker.subtitles[0] is not None
-    assert f"current,,0,0,0,,{{\\pos(360,{ass.CURRENT_SLOT_Y})}}Пізно" in worker.subtitles[0]
-    assert f"current,,0,0,0,,{{\\pos(360,{ass.CURRENT_SLOT_Y})}}Рано" not in worker.subtitles[0]
+    current = f"current,,0,0,0,,{{\\pos(360,{ass.CURRENT_SLOT_Y})}}"
+    assert f"0:00:00.00,0:00:10.00,{current}Рано" in worker.subtitles[0]
+    assert f"0:00:10.00,0:00:18.00,{current}Пізно" in worker.subtitles[0]
 
 
 async def test_a_render_task_that_finds_ready_audio_does_nothing(

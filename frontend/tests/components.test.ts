@@ -273,13 +273,14 @@ describe('LinksEditor', () => {
     const html = await renderModel(LinksEditor, rows, {
       disabled: false,
       meta: makeMeta(),
-      removed: ['tidal'],
+      removed: ['deezer'],
       errorOf: noError,
     })
 
     expect(html).toContain('Spotify')
     expect(html).toContain('YouTube Music (аудіо для відео)')
-    expect(html).toContain('Tidal (прибрано)')
+    expect(html).toContain('Deezer (прибрано)')
+    expect(html).not.toContain('tidal')
     expect(html).toContain('YouTube (кліп)')
   })
 

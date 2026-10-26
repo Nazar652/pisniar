@@ -1,5 +1,7 @@
-"""Builds a `CaptionDocument` at the media caption limit (1024) and, on overflow, degrades it deterministically: genres
-from the tail, then platforms from the tail (Spotify/YT Music last), then the release title. Nothing else."""
+"""Builds a `CaptionDocument` at the media caption limit (1024): `Artists — Title`, the «Release title» line (album/ep
+only), `#artists · year`, `#languages · #genres`, then the platform links and the channel link. On overflow it degrades
+deterministically: genres from the tail, then platforms from the tail (Spotify/YT Music last), then the release
+title."""
 
 from __future__ import annotations
 
@@ -30,7 +32,8 @@ RELEASE_TYPE_NAMES = {
 # the types whose release title (and album link) the caption shows
 RELEASE_TYPES_WITH_TITLE = ("album", "ep")
 
-PLATFORM_DISPLAY_ORDER = ["spotify", "youtubeMusic", "appleMusic", "bandcamp", "deezer", "tidal"]
+# the only platforms a caption links to, in this order; any other stored link stays stored and unshown
+PLATFORM_DISPLAY_ORDER = ["spotify", "youtubeMusic", "appleMusic", "deezer", "youtube", "soundcloud", "bandcamp"]
 PLATFORM_PROTECTED_UNTIL_LAST = {"spotify", "youtubeMusic"}
 PLATFORM_DISPLAY_NAMES = {
     "spotify": "Spotify",
@@ -85,13 +88,12 @@ def clip_platform(platform_links: dict[str, PlatformLink]) -> str | None:
 
 def platforms_in_display_order(platform_links: dict[str, PlatformLink]) -> list[str]:
     clip = clip_platform(platform_links)
-    ordered = [platform for platform in PLATFORM_DISPLAY_ORDER if platform in platform_links]
-    rest = sorted(
-        platform for platform in platform_links if platform not in PLATFORM_DISPLAY_ORDER and platform != clip
-    )
-
     head = [clip] if clip is not None else []
-    return head + ordered + rest
+    return head + [platform for platform in PLATFORM_DISPLAY_ORDER if platform in platform_links and platform != clip]
+
+
+def is_shown_in_caption(platform: str) -> bool:
+    return platform in PLATFORM_DISPLAY_ORDER
 
 
 ARTIST_WITHOUT_HASHTAG_WARNING = "хештег для артиста «{name}» не згенеровано (лише цифри)"
@@ -134,31 +136,29 @@ def build_document(
 
     artist_names = ", ".join(artist.name for artist in artists)
     document.append_text(f"{artist_names} — {title}")
-    document.append_line_break()
-    document.append_line_break()
+
+    if include_release_title and release_title and release_type in RELEASE_TYPES_WITH_TITLE:
+        document.append_line_break()
+        document.append_text("«")
+        if album_id_spotify and is_valid_spotify_id(album_id_spotify):
+            document.append_link(release_title, f"https://open.spotify.com/album/{album_id_spotify}")
+        else:
+            if album_id_spotify:
+                # a stray space in the id is a Telegram 400 on the whole
+                # post; plain text loses a link, not the post.
+                warnings.append(f"album_id_spotify «{album_id_spotify}» не base62, лінк знято")
+            document.append_text(release_title)
+        document.append_text("»")
 
     artist_hashtags = collect_hashtags(
         [(artist.hashtag, artist.name) for artist in artists],
         ARTIST_WITHOUT_HASHTAG_WARNING,
         warnings,
     )
-    document.append_text(" ".join(artist_hashtags))
-    if year is not None:
-        document.append_text(f" · {year}")
-    if release_type is not None:
-        release_type_name = RELEASE_TYPE_NAMES.get(release_type, release_type)
-        document.append_text(f" · {release_type_name}")
-        if include_release_title and release_title and release_type in RELEASE_TYPES_WITH_TITLE:
-            document.append_text(" «")
-            if album_id_spotify and is_valid_spotify_id(album_id_spotify):
-                document.append_link(release_title, f"https://open.spotify.com/album/{album_id_spotify}")
-            else:
-                if album_id_spotify:
-                    # a stray space in the id is a Telegram 400 on the whole
-                    # post; plain text loses a link, not the post.
-                    warnings.append(f"album_id_spotify «{album_id_spotify}» не base62, лінк знято")
-                document.append_text(release_title)
-            document.append_text("»")
+    year_parts = [part for part in (" ".join(artist_hashtags), str(year) if year is not None else "") if part]
+    if year_parts:
+        document.append_line_break()
+        document.append_text(" · ".join(year_parts))
 
     # languages lead the line and are never dropped: they are always
     # present, while genres are the first thing degradation gives up.
@@ -212,7 +212,7 @@ def build_caption_with_report(
     remaining_genres = list(genres)
     dropped_genres: list[str] = []
     dropped_platforms: list[str] = []
-    remaining_platforms = dict(platform_links)
+    remaining_platforms = {platform: link for platform, link in platform_links.items() if is_shown_in_caption(platform)}
     include_release_title = True
 
     def attempt() -> tuple[CaptionDocument, list[str]]:

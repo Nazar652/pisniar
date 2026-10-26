@@ -37,17 +37,28 @@ describe('formFromDetail and toFieldsInput', () => {
     })
   })
 
+  it('gives a link the caption never shows no row and does not send it', () => {
+    const detail = makeDetail()
+
+    const form = formFromDetail(detail)
+
+    expect(detail.platform_links).toHaveProperty('tidal')
+    expect(form.links.map((row) => row.platform)).toEqual(['spotify', 'youtubeMusic'])
+    expect(toFieldsInput(form, []).platform_links).not.toHaveProperty('tidal')
+    expect(isDirty(form, detail)).toBe(false)
+  })
+
   it('sends empty text as null and drops link rows without an address', () => {
     const form = formFromDetail(makeDetail())
     form.year = ' '
     form.releaseTitle = ''
     form.albumLink = '  '
-    form.links.push({ platform: 'tidal', url: '' })
+    form.links.push({ platform: 'deezer', url: '' })
 
     const input = toFieldsInput(form, ['year'])
 
     expect([input.year, input.release_title, input.album_link]).toEqual([null, null, null])
-    expect(input.platform_links).not.toHaveProperty('tidal')
+    expect(input.platform_links).not.toHaveProperty('deezer')
     expect(input.revert_to_automatic).toEqual(['year'])
   })
 
@@ -179,8 +190,8 @@ describe('platform helpers', () => {
 
     expect(platformLabel(meta, 'youtube')).toBe('YouTube (кліп)')
     expect(platformLabel(meta, 'youtubeMusic')).toContain('YouTube Music')
-    expect(platformLabel(meta, 'tidal')).toBe('Tidal')
-    expect(platformLabel(null, 'tidal')).toBe('tidal')
+    expect(platformLabel(meta, 'deezer')).toBe('Deezer')
+    expect(platformLabel(null, 'deezer')).toBe('deezer')
   })
 
   it('lists the platforms without a row, removed ones first', () => {
@@ -188,10 +199,10 @@ describe('platform helpers', () => {
 
     expect(platformsToAdd(meta, ['spotify'], ['youtube'])).toEqual([
       'youtube',
-      'tidal',
+      'deezer',
       'youtubeMusic',
     ])
-    expect(platformsToAdd(meta, ['spotify', 'tidal', 'youtube', 'youtubeMusic'], [])).toEqual([])
+    expect(platformsToAdd(meta, ['spotify', 'deezer', 'youtube', 'youtubeMusic'], [])).toEqual([])
   })
 
   it('finds the default hashtag of a known genre only', () => {

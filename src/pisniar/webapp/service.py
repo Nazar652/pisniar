@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from pisniar.db.models import Post, Track
 from pisniar.db.states import PostStatus
-from pisniar.post.caption import MEDIA_CAPTION_LIMIT
+from pisniar.post.caption import MEDIA_CAPTION_LIMIT, is_shown_in_caption
 from pisniar.post.caption_input import (
     build_caption_from_rows,
     genres_from_stored,
@@ -282,7 +282,12 @@ def stored_platform_links(stored: dict[str, object]) -> dict[str, PlatformLinkDe
     for platform, raw_link in stored.items():
         link = platform_link_from_stored(raw_link)
         if link is not None:
-            links[platform] = PlatformLinkDetail(url=link.url, source=link.source, match=link.match.value)
+            links[platform] = PlatformLinkDetail(
+                url=link.url,
+                source=link.source,
+                match=link.match.value,
+                shown_in_caption=is_shown_in_caption(platform),
+            )
     return links
 
 

@@ -63,10 +63,10 @@ export function formFromDetail(detail: PostDetail): FormState {
     releaseType: detail.release_type ?? '',
     releaseTitle: detail.release_title ?? '',
     albumLink: detail.album_url ?? '',
-    links: Object.entries(detail.platform_links).map(([platform, link]) => ({
-      platform,
-      url: link.url,
-    })),
+    // a link the caption never shows stays stored: it has no row, and the server keeps what is absent
+    links: Object.entries(detail.platform_links)
+      .filter(([, link]) => link.shown_in_caption)
+      .map(([platform, link]) => ({ platform, url: link.url })),
   }
 }
 

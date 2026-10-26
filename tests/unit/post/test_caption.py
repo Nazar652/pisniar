@@ -42,10 +42,8 @@ def test_simple_single_matches_template_shape() -> None:
     )
 
     text = plain_text(document)
-    assert text.startswith("Krovna — Berserker\n\n")
-    assert "#Krovna · 2026 · сингл" in text
-    assert "#українська · #рок" in text
-    assert "Spotify · YouTube Music" in text
+    assert text.startswith("Krovna — Berserker\n#Krovna · 2026\n#українська · #рок\n\nSpotify · YouTube Music\n")
+    assert "сингл" not in text
     assert text.endswith("Піснярня 🇺🇦")
     assert warnings == []
 
@@ -63,7 +61,7 @@ def test_album_with_link_uses_named_release_title() -> None:
         platform_links={"spotify": SPOTIFY_LINK},
     )
 
-    assert "альбом «Синдром Бажання»" in plain_text(document)
+    assert plain_text(document).startswith("Тол — Сумніви\n«Синдром Бажання»\n#Тол · 2013\n")
     release_links = [
         segment
         for segment in document.segments
@@ -144,7 +142,8 @@ def test_a_rich_post_fits_the_media_limit_without_degrading() -> None:
     text = plain_text(document)
     assert visible_length(document) <= MEDIA_CAPTION_LIMIT
     assert "#альтернатива" in text
-    assert "TIDAL" in text
+    assert "Spotify · YouTube Music · Deezer" in text
+    assert "TIDAL" not in text
     assert warnings == []
 
 
@@ -250,14 +249,14 @@ def many_genres(count: int) -> list[GenreInfo]:
     return [GenreInfo(name=f"жанр{index}", hashtag=f"Жанр{index}", source="deezer") for index in range(count)]
 
 
-def many_platforms(count: int) -> dict[str, PlatformLink]:
+SHOWN_EXTRA_PLATFORMS = ("appleMusic", "deezer", "youtube", "soundcloud", "bandcamp")
+HIDDEN_PLATFORMS = ("tidal", "pandora", "amazonMusic", "amazonStore", "napster")
+
+
+def many_platforms(count: int, names: tuple[str, ...] = SHOWN_EXTRA_PLATFORMS) -> dict[str, PlatformLink]:
     base = {"spotify": SPOTIFY_LINK, "youtubeMusic": YOUTUBE_MUSIC_LINK}
-    for index in range(count):
-        base[f"platform{index}"] = PlatformLink(
-            url=f"https://example.com/platform{index}",
-            source="songlink",
-            match=MatchClass.EXACT_ISRC,
-        )
+    for name in names[:count]:
+        base[name] = PlatformLink(url=f"https://example.com/{name}", source="songlink", match=MatchClass.EXACT_ISRC)
     return base
 
 
@@ -272,7 +271,7 @@ def test_caption_degrades_to_fit_1024_limit() -> None:
         album_id_spotify="alb1",
         languages=["українська"],
         genres=many_genres(15),
-        platform_links=many_platforms(15),
+        platform_links=many_platforms(5),
         limit=1024,
     )
 
@@ -310,14 +309,45 @@ def test_degradation_protects_spotify_and_youtube_music_until_last() -> None:
         album_id_spotify=None,
         languages=["українська"],
         genres=[],
-        platform_links=many_platforms(30),
+        platform_links=many_platforms(5),
         limit=72,
     )
 
     text = plain_text(document)
     assert "Spotify" in text
     assert "YouTube Music" in text
-    assert "platform0" not in text
+    assert "Apple Music" not in text
+
+
+def test_hidden_platforms_are_filtered_before_degradation_and_never_cost_length() -> None:
+    shown = build_caption_with_report(
+        artists=[ArtistInfo(name="A")],
+        title="T",
+        year=2020,
+        release_type=None,
+        release_title=None,
+        album_id_spotify=None,
+        languages=["українська"],
+        genres=[],
+        platform_links=many_platforms(0),
+        limit=1024,
+    )
+    with_hidden = build_caption_with_report(
+        artists=[ArtistInfo(name="A")],
+        title="T",
+        year=2020,
+        release_type=None,
+        release_title=None,
+        album_id_spotify=None,
+        languages=["українська"],
+        genres=[],
+        platform_links=many_platforms(5, HIDDEN_PLATFORMS),
+        limit=visible_length(shown.document),
+    )
+
+    assert plain_text(with_hidden.document) == plain_text(shown.document)
+    assert with_hidden.degradation.dropped_platforms == ()
+    assert not with_hidden.degradation.over_limit
 
 
 def test_degradation_never_touches_first_line_or_channel_link() -> None:
@@ -330,7 +360,7 @@ def test_degradation_never_touches_first_line_or_channel_link() -> None:
         album_id_spotify="alb1",
         languages=["українська"],
         genres=many_genres(20),
-        platform_links=many_platforms(20),
+        platform_links=many_platforms(5),
         limit=50,
     )
 
@@ -341,6 +371,24 @@ def test_degradation_never_touches_first_line_or_channel_link() -> None:
     assert text.endswith("Піснярня 🇺🇦")
     channel_links = [segment for segment in document.segments if getattr(segment, "href", None) == CHANNEL_LINK_URL]
     assert len(channel_links) == 1
+
+
+def test_a_dropped_release_title_removes_its_line() -> None:
+    result = build_caption_with_report(
+        artists=[ArtistInfo(name="A")],
+        title="T",
+        year=2020,
+        release_type="album",
+        release_title="Дуже довга назва релізу " * 4,
+        album_id_spotify=None,
+        languages=["українська"],
+        genres=[],
+        platform_links={"spotify": SPOTIFY_LINK},
+        limit=110,
+    )
+
+    assert result.degradation.release_title_dropped
+    assert plain_text(result.document).startswith("A — T\n#A · 2020\n")
 
 
 def test_degradation_reports_warning_when_still_over_limit() -> None:
@@ -375,7 +423,7 @@ def test_a_malformed_album_id_degrades_to_plain_text_with_a_warning() -> None:
         platform_links={"spotify": SPOTIFY_LINK},
     )
 
-    assert "альбом «Синдром Бажання»" in plain_text(document)
+    assert "\n«Синдром Бажання»\n" in plain_text(document)
     assert not [
         segment for segment in document.segments if isinstance(segment, LinkSegment) and "/album/" in segment.href
     ]

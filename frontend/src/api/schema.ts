@@ -693,6 +693,8 @@ export interface components {
         PlatformLinkDetail: {
             /** Match */
             match: string;
+            /** Shown In Caption */
+            shown_in_caption: boolean;
             /** Source */
             source: string;
             /** Url */

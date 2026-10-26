@@ -250,7 +250,8 @@ def test_the_meta_route_serves_the_policy_tables(settings: Settings) -> None:
 
     body = client.get("/api/meta", headers=bearer()).json()
 
-    assert {rule["key"] for rule in body["platforms"]} >= {"spotify", "youtubeMusic", "tidal"}
+    assert {rule["key"] for rule in body["platforms"]} >= {"spotify", "youtubeMusic", "deezer"}
+    assert "tidal" not in {rule["key"] for rule in body["platforms"]}
     assert body["caption_limit"] == 1024
     assert body["manual_field_names"][0] == "title"
     session_factory.assert_not_called()

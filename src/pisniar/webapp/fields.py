@@ -11,7 +11,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
 from pisniar.db.models import MANUAL_FIELD_NAMES
-from pisniar.post.caption import RELEASE_TYPE_NAMES
+from pisniar.post.caption import RELEASE_TYPE_NAMES, is_shown_in_caption
 from pisniar.post.caption_input import genres_from_stored
 from pisniar.resolve.json_utils import as_dict, as_nonempty_str
 from pisniar.resolve.link_policy import ALLOWED_HOSTS, check_manual_link, parse_spotify_album_link
@@ -222,7 +222,8 @@ def plan_platform_links(
     errors: list[FieldError],
 ) -> tuple[dict[str, object], list[str], bool]:
     """an unchanged link stays as stored, a new or edited one becomes a validated manual link
-    and lifts the platform's removal; a stored link missing from the input is removed."""
+    and lifts the platform's removal; a stored link missing from the input is removed, except one the caption
+    never shows: the editor does not list it, so its absence means «unchanged»."""
     links: dict[str, object] = {}
     for platform, raw_url in inputs.items():
         stored_entry = stored_links.get(platform)
@@ -241,6 +242,10 @@ def plan_platform_links(
             collect(errors, field, checked.problem or "Посилання не підходить.")
             continue
         links[platform] = {"url": checked.url, "source": MANUAL_SOURCE, "match": MANUAL_MATCH}
+
+    for platform, stored_entry in stored_links.items():
+        if platform not in inputs and not is_shown_in_caption(platform):
+            links[platform] = stored_entry
 
     removed = [name for name in stored_removed if isinstance(name, str) and name not in links]
     for platform in stored_links:

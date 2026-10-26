@@ -5,6 +5,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from pisniar.post import caption
 from pisniar.post.render import LinkSegment, plain_text
 from pisniar.resolve.types import ArtistInfo, GenreInfo, MatchClass, PlatformLink
@@ -37,13 +39,40 @@ def build(warnings: list[str] | None = None, **overrides: Any) -> tuple[str, lis
 def test_the_first_line_is_the_artists_and_the_title() -> None:
     text, _, _ = build(artists=[ArtistInfo(name="Тол"), ArtistInfo(name="Друга Ріка")])
 
-    assert text.startswith("Тол, Друга Ріка — Сумніви\n\n")
+    assert text.startswith("Тол, Друга Ріка — Сумніви\n«Синдром Бажання»\n")
+
+
+def test_a_full_album_post_is_four_lines_then_the_links_then_the_channel() -> None:
+    text, _, _ = build(
+        platform_links={
+            "tidal": PlatformLink(url="https://tidal.com/track/1", source="songlink", match=MatchClass.AGGREGATOR),
+            "spotify": SPOTIFY_LINK,
+            "bandcamp": PlatformLink(url="https://a.bandcamp.com/track/b", source="songlink", match=MatchClass.MANUAL),
+        }
+    )
+
+    assert text == (
+        "Тол — Сумніви\n"
+        "«Синдром Бажання»\n"
+        "#Тол · 2013\n"
+        "#українська · #рок\n"
+        "\n"
+        "Spotify · Bandcamp\n"
+        "\n"
+        f"{caption.CHANNEL_LINK_TEXT}"
+    )
+
+
+def test_a_single_is_three_lines_without_a_release_line_or_a_type_word() -> None:
+    text, _, _ = build(release_type="single", release_title=None)
+
+    assert text == (f"Тол — Сумніви\n#Тол · 2013\n#українська · #рок\n\nSpotify\n\n{caption.CHANNEL_LINK_TEXT}")
 
 
 def test_a_named_album_links_to_spotify_when_the_id_is_valid() -> None:
     text, warnings, document = build()
 
-    assert "#Тол · 2013 · альбом «Синдром Бажання»" in text
+    assert "\n«Синдром Бажання»\n" in text
     links = [segment for segment in document.segments if isinstance(segment, LinkSegment)]
     assert (links[0].text, links[0].href) == (
         "Синдром Бажання",
@@ -55,7 +84,7 @@ def test_a_named_album_links_to_spotify_when_the_id_is_valid() -> None:
 def test_an_album_id_that_is_not_base62_degrades_to_plain_text_with_a_warning() -> None:
     text, warnings, document = build(album_id_spotify="bad id")
 
-    assert "альбом «Синдром Бажання»" in text
+    assert "«Синдром Бажання»" in text
     assert not [
         segment for segment in document.segments if isinstance(segment, LinkSegment) and "album" in segment.href
     ]
@@ -65,27 +94,30 @@ def test_an_album_id_that_is_not_base62_degrades_to_plain_text_with_a_warning() 
 def test_the_release_title_is_left_out_when_the_caller_dropped_it() -> None:
     text, _, _ = build(include_release_title=False)
 
-    assert "#Тол · 2013 · альбом" in text
+    assert text.startswith("Тол — Сумніви\n#Тол · 2013\n")
     assert "Синдром" not in text
 
 
-def test_a_single_never_shows_a_release_title() -> None:
-    text, _, _ = build(release_type="single")
+@pytest.mark.parametrize("release_type", ["single", "compilation", "mixtape", None])
+def test_only_an_album_or_an_ep_shows_a_release_title(release_type: str | None) -> None:
+    text, _, _ = build(release_type=release_type)
 
-    assert "#Тол · 2013 · сингл" in text
+    assert text.startswith("Тол — Сумніви\n#Тол · 2013\n")
     assert "Синдром" not in text
+    assert "сингл" not in text
 
 
-def test_an_unknown_release_type_is_shown_as_the_source_gave_it() -> None:
-    text, _, _ = build(release_type="mixtape", release_title=None)
+def test_an_album_without_a_release_title_has_no_second_line() -> None:
+    text, _, _ = build(release_title=None)
 
-    assert "#Тол · 2013 · mixtape" in text
+    assert text.startswith("Тол — Сумніви\n#Тол · 2013\n")
 
 
-def test_an_ep_is_a_mini_album_with_its_release_title_and_album_link() -> None:
+def test_an_ep_shows_its_release_title_and_album_link() -> None:
     text, _, document = build(release_type="ep")
 
-    assert "#Тол · 2013 · міні-альбом «Синдром Бажання»" in text
+    assert "\n«Синдром Бажання»\n" in text
+    assert "міні-альбом" not in text
     assert any(
         getattr(segment, "href", "") == f"https://open.spotify.com/album/{ALBUM_ID}" for segment in document.segments
     )
@@ -94,7 +126,7 @@ def test_an_ep_is_a_mini_album_with_its_release_title_and_album_link() -> None:
 def test_the_year_and_the_release_type_are_optional() -> None:
     text, _, _ = build(year=None, release_type=None)
 
-    assert "#Тол\n" in text
+    assert "\n#Тол\n" in text
 
 
 def test_languages_lead_the_hashtag_line_and_genres_follow() -> None:
@@ -124,6 +156,31 @@ def test_a_manual_clip_comes_first_and_is_labelled() -> None:
     text, _, _ = build(platform_links={"spotify": SPOTIFY_LINK, "youtube": CLIP_LINK})
 
     assert "YouTube (кліп) · Spotify" in text
+
+
+def test_the_platforms_follow_the_display_order_and_an_automatic_youtube_is_fifth() -> None:
+    automatic = PlatformLink(url="https://www.youtube.com/watch?v=a", source="songlink", match=MatchClass.AGGREGATOR)
+    links = {
+        platform: PlatformLink(url=f"https://{platform}.example/x", source="s", match=MatchClass.AGGREGATOR)
+        for platform in ("bandcamp", "soundcloud", "deezer", "appleMusic", "youtubeMusic", "spotify")
+    }
+
+    text, _, _ = build(platform_links={**links, "youtube": automatic})
+
+    assert "\nSpotify · YouTube Music · Apple Music · Deezer · YouTube · SoundCloud · Bandcamp\n" in text
+
+
+def test_a_platform_the_caption_does_not_show_is_left_out() -> None:
+    hidden = {
+        platform: PlatformLink(url=f"https://{platform}.example/x", source="s", match=MatchClass.AGGREGATOR)
+        for platform in ("tidal", "pandora", "amazonMusic", "napster")
+    }
+
+    text, _, _ = build(platform_links={"spotify": SPOTIFY_LINK, **hidden})
+
+    assert "\nSpotify\n" in text
+    assert "TIDAL" not in text
+    assert "Pandora" not in text
 
 
 def test_the_document_ends_with_the_channel_link() -> None:

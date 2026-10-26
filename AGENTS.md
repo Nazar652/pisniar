@@ -534,6 +534,13 @@ worker image.
   and the Mini App read `track`/`post` JSONB through the same
   `build_caption_from_rows`, which also returns what did not fit
   (`CaptionDegradation`). Keep it that way — a second conversion drifts.
+- **The caption has four lines, no blank between them** (`post.caption`): `Artists — Title`; `«Release title»`
+  (album/ep with a title only, linked to the Spotify album when the id is valid, no type word anywhere);
+  `#artists · year`; `#languages · #genres`. Then a blank, the links, a blank, the channel link. Shown platforms are
+  `PLATFORM_DISPLAY_ORDER` (spotify, youtubeMusic, appleMusic, deezer, youtube, soundcloud, bandcamp), a manual
+  `youtube` clip first as «YouTube (кліп)»; every other stored link stays in `platform_links` but is filtered before
+  degradation (never in `dropped_platforms`). The Mini App lists only shown platforms (`/api/meta`,
+  `PlatformLinkDetail.shown_in_caption`), and `plan_platform_links` keeps a hidden stored link the input omits.
 - `track.artists` = `[{"name", "hashtag", "spotify_id"}]`; `hashtag` is
   `null` until a human overrides it (`post.hashtags.default_hashtag()`
   computes the display default at caption-build time, it is not stored).

@@ -6,15 +6,17 @@ import pytest
 
 import pisniar.webapp.meta as meta_module
 from pisniar.db.models import MANUAL_FIELD_NAMES
+from pisniar.post.caption import PLATFORM_DISPLAY_ORDER
 from pisniar.resolve.genres import DEEZER_GENRE_NAMES
 from pisniar.resolve.link_policy import ALLOWED_HOST_SUFFIXES, ALLOWED_HOSTS, CLASSIFIED_PLATFORMS
 from pisniar.webapp.meta import LANGUAGE_HINTS, build_meta
 
 
-def test_every_platform_and_host_of_the_link_policy_is_offered() -> None:
+def test_exactly_the_platforms_a_caption_shows_are_offered_with_the_hosts_of_the_link_policy() -> None:
     meta = build_meta()
 
-    assert {rule.key for rule in meta.platforms} == set(ALLOWED_HOSTS)
+    assert {rule.key for rule in meta.platforms} == set(PLATFORM_DISPLAY_ORDER)
+    assert set(PLATFORM_DISPLAY_ORDER) <= set(ALLOWED_HOSTS)
     for rule in meta.platforms:
         assert set(rule.hosts) == set(ALLOWED_HOSTS[rule.key])
         assert rule.hosts == sorted(rule.hosts)
@@ -26,12 +28,12 @@ def test_every_platform_and_host_of_the_link_policy_is_offered() -> None:
 def test_a_host_added_to_the_policy_shows_up_without_touching_meta(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    extended = {**ALLOWED_HOSTS, "tidal": ALLOWED_HOSTS["tidal"] | {"new.tidal.example"}}
+    extended = {**ALLOWED_HOSTS, "deezer": ALLOWED_HOSTS["deezer"] | {"new.deezer.example"}}
     monkeypatch.setattr(meta_module, "ALLOWED_HOSTS", extended)
 
     rules = {rule.key: rule for rule in build_meta().platforms}
 
-    assert "new.tidal.example" in rules["tidal"].hosts
+    assert "new.deezer.example" in rules["deezer"].hosts
 
 
 def test_the_release_types_are_the_ones_the_caption_knows() -> None:

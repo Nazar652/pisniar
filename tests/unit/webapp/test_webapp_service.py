@@ -96,6 +96,15 @@ def test_the_detail_carries_every_editable_field() -> None:
     assert detail.other_post_ids == [9, 8]
 
 
+def test_the_detail_marks_a_stored_link_the_caption_never_shows() -> None:
+    tidal = {"url": "https://listen.tidal.com/track/1", "source": "songlink", "match": "aggregator"}
+
+    detail = build_post_detail(make_post(), make_track(platform_links={**STORED_LINKS, "tidal": tidal}), [])
+
+    assert detail.platform_links["tidal"].shown_in_caption is False
+    assert detail.platform_links["spotify"].shown_in_caption is True
+
+
 def test_the_detail_says_whether_the_post_has_a_video() -> None:
     plain = build_post_detail(make_post(), make_track(), [])
     previewed = build_post_detail(make_post(PostStatus.RENDERED, preview_message_id=5), make_track(), [])

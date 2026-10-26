@@ -1,11 +1,11 @@
-"""The static facts the editor needs: which hosts a platform may link to, the release types,
-and the language and genre suggestions. Taken from the same tables the server validates with.
+"""The static facts the editor needs: which hosts a platform may link to (only the platforms a caption shows),
+the release types, and the language and genre suggestions. Taken from the same tables the server validates with.
 """
 
 from __future__ import annotations
 
 from pisniar.db.models import DEFAULT_LANGUAGES, MANUAL_FIELD_NAMES
-from pisniar.post.caption import MEDIA_CAPTION_LIMIT, RELEASE_TYPE_NAMES, platform_display_name
+from pisniar.post.caption import MEDIA_CAPTION_LIMIT, RELEASE_TYPE_NAMES, is_shown_in_caption, platform_display_name
 from pisniar.post.hashtags import default_hashtag
 from pisniar.resolve.genres import DEEZER_GENRE_NAMES
 from pisniar.resolve.link_policy import ALLOWED_HOST_SUFFIXES, ALLOWED_HOSTS, CLASSIFIED_PLATFORMS
@@ -25,6 +25,7 @@ def build_meta() -> MetaResponse:
                 requires_track_link=platform in CLASSIFIED_PLATFORMS,
             )
             for platform in sorted(ALLOWED_HOSTS)
+            if is_shown_in_caption(platform)
         ],
         release_types=[ReleaseTypeOption(value=value, label=label) for value, label in RELEASE_TYPE_NAMES.items()],
         languages=list(LANGUAGE_HINTS),

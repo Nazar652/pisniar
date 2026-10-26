@@ -33,6 +33,7 @@ NOW = 1_800_000_000
 ALBUM_ID = "4yYXqedvSKuJlgI2IWsB0j"
 SPOTIFY_URL = "https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT"
 TIDAL_URL = "https://listen.tidal.com/track/1"
+DEEZER_URL = "https://www.deezer.com/track/1"
 MUSIC_URL = "https://music.youtube.com/watch?v=n4bPzdIs_nc"
 OTHER_MUSIC_URL = "https://music.youtube.com/watch?v=dQw4w9WgXcQ"
 MEDIA_STATUSES = [
@@ -69,7 +70,9 @@ class Environment:
             "release_type": detail["release_type"],
             "release_title": detail["release_title"],
             "album_link": detail["album_url"],
-            "platform_links": {key: link["url"] for key, link in detail["platform_links"].items()},
+            "platform_links": {
+                key: link["url"] for key, link in detail["platform_links"].items() if link["shown_in_caption"]
+            },
             "expected_post_updated_at": detail["expected_post_updated_at"],
             "expected_track_updated_at": detail["expected_track_updated_at"],
         }
@@ -127,6 +130,7 @@ async def seeded(environment: Environment) -> AsyncIterator[Seeded]:
             platform_links={
                 "spotify": {"url": SPOTIFY_URL, "source": "spotify", "match": "exact_isrc"},
                 "tidal": {"url": TIDAL_URL, "source": "songlink", "match": "aggregator"},
+                "deezer": {"url": DEEZER_URL, "source": "deezer", "match": "exact_isrc"},
                 "youtubeMusic": {"url": MUSIC_URL, "source": "ytmusic", "match": "confirmed"},
             },
         )
@@ -344,12 +348,12 @@ async def test_other_fields_and_links_stay_editable_while_a_media_post_exists(
     environment: Environment, seeded: Seeded
 ) -> None:
     body = await environment.form_of(seeded.post_id, title="Нова")
-    body["platform_links"]["tidal"] = "https://listen.tidal.com/track/2"
+    body["platform_links"]["deezer"] = "https://www.deezer.com/track/2"
 
     response = await environment.save(seeded.post_id, body)
 
     assert response.status_code == 200
-    assert response.json()["platform_links"]["tidal"]["source"] == "manual"
+    assert response.json()["platform_links"]["deezer"]["source"] == "manual"
 
 
 async def test_the_youtube_music_link_changes_once_no_post_is_in_media(
@@ -371,24 +375,39 @@ async def test_a_removed_platform_is_remembered_and_adding_it_back_lifts_the_rem
     environment: Environment, seeded: Seeded
 ) -> None:
     body = await environment.form_of(seeded.post_id)
-    del body["platform_links"]["tidal"]
+    del body["platform_links"]["deezer"]
     assert (await environment.save(seeded.post_id, body)).status_code == 200
     track = await stored_track(environment, seeded.track_id)
-    assert track.removed_platforms == ["tidal"]
-    assert "tidal" not in track.platform_links
+    assert track.removed_platforms == ["deezer"]
+    assert "deezer" not in track.platform_links
 
     again = await environment.form_of(seeded.post_id)
-    again["platform_links"]["tidal"] = TIDAL_URL
+    again["platform_links"]["deezer"] = DEEZER_URL
     response = await environment.save(seeded.post_id, again)
 
     assert response.status_code == 200
     track = await stored_track(environment, seeded.track_id)
     assert track.removed_platforms == []
-    assert links_of(track)["tidal"] == {
-        "url": TIDAL_URL,
+    assert links_of(track)["deezer"] == {
+        "url": DEEZER_URL,
         "source": "manual",
         "match": "manual",
     }
+
+
+async def test_a_save_from_the_editor_keeps_a_stored_link_the_caption_never_shows(
+    environment: Environment, seeded: Seeded
+) -> None:
+    body = await environment.form_of(seeded.post_id, title="Нова")
+    assert "tidal" not in body["platform_links"]
+
+    response = await environment.save(seeded.post_id, body)
+
+    assert response.status_code == 200
+    track = await stored_track(environment, seeded.track_id)
+    assert links_of(track)["tidal"]["url"] == TIDAL_URL
+    assert track.removed_platforms == []
+    assert "tidal" in response.json()["platform_links"]
 
 
 async def test_going_back_to_automatic_takes_the_name_off_the_list(environment: Environment, seeded: Seeded) -> None:
@@ -419,13 +438,13 @@ async def test_invalid_fields_are_a_422_listing_each_and_write_nothing(
     environment: Environment, seeded: Seeded
 ) -> None:
     body = await environment.form_of(seeded.post_id, title=" ", year=1500)
-    body["platform_links"]["tidal"] = "https://evil.example/track/1"
+    body["platform_links"]["deezer"] = "https://evil.example/track/1"
 
     response = await environment.save(seeded.post_id, body)
 
     assert response.status_code == 422
     fields = {error["field"] for error in response.json()["errors"]}
-    assert {"title", "year", "platform_links.tidal"} <= fields
+    assert {"title", "year", "platform_links.deezer"} <= fields
     assert (await stored_track(environment, seeded.track_id)).title == "Тема"
 
 
