@@ -133,7 +133,7 @@ async def test_a_preview_delivered_to_a_private_chat_carries_the_edit_button(
 ) -> None:
     video_path = tmp_path / "render.mp4"
     video_path.write_bytes(b"video bytes")
-    video = RenderedVideo(path=video_path, width=720, height=1280, duration_ms=45_000)
+    video = RenderedVideo(path=video_path, width=720, height=896, duration_ms=45_000)
     bot = AsyncMock()
     bot.send_video.return_value.message_id = 43
     post = Post(id=7, track_id=1, created_by_user_id=1, caption="caption")
@@ -146,7 +146,7 @@ async def test_a_preview_delivered_to_a_private_chat_carries_the_edit_button(
 async def test_a_preview_delivered_to_a_group_never_carries_it(tmp_path: Path) -> None:
     video_path = tmp_path / "render.mp4"
     video_path.write_bytes(b"video bytes")
-    video = RenderedVideo(path=video_path, width=720, height=1280, duration_ms=45_000)
+    video = RenderedVideo(path=video_path, width=720, height=896, duration_ms=45_000)
     bot = AsyncMock()
     bot.send_video.return_value.message_id = 43
     post = Post(id=7, track_id=1, created_by_user_id=1, caption="caption")

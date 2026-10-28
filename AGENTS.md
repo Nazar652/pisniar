@@ -695,13 +695,15 @@ worker image.
   every coordinate and imports nothing, `worker/turntable.py` is the only module that imports PIL and
   `pillow` lives in the `worker` uv group alone, so `bot` and `webapp` never carry it). `write_layers` paints five
   PNGs per render from fixed seeds (wood body, vinyl, label mask, hub, and the overlay with the tonearm);
-  the cover is cropped into the 300 px label, the vinyl layer rotates at 33⅓ rpm
+  the frame is 720x896 (4:5) with the safe zone y 80…816 (`layout.SAFE_ZONE_*`: a wide caption makes Android
+  crop the top and bottom, so only the body and the wood lie outside it); the tonearm sizes follow
+  `layout.TONEARM_SCALE`; the cover is cropped into the 190 px label, the vinyl layer rotates at 33⅓ rpm
   (`render.DISC_REVOLUTIONS_PER_SECOND`), and the title and artists are always drawn on the display
-  pane (`ass.build_display_subtitles`), even for a song without text. The lyrics sit on the **glass screen**
-  (`layout.SCREEN_BOX_PX`, 44…676 x 842…1228): three slots, previous, current, next, centred by `\an5` plus an
-  explicit `\pos` at `ass.PREVIOUS_SLOT_Y`/`CURRENT_SLOT_Y`/`NEXT_SLOT_Y` (905/1035/1165, `SLOT_SPACING_PX`
-  130). The current line is 52 px white and wraps to two lines, the neighbours 38 px grey and one line; the
-  rest is cut with `…`. `test_ass.py` pins the slots inside the screen and measures a two-line current line
+  pane (44…676, 580 px of text; `ass.build_display_subtitles`), even for a song without text. The lyrics sit on the
+  **glass screen** (`layout.SCREEN_BOX_PX`, 44…676 x 584…812): three slots, previous, current, next, centred by
+  `\an5` plus an explicit `\pos` at `ass.PREVIOUS_SLOT_Y`/`CURRENT_SLOT_Y`/`NEXT_SLOT_Y` (610/698/786,
+  `SLOT_SPACING_PX` 88; the slot and display positions and font sizes live in `layout`). The current line is
+  46 px white and wraps to two lines, the neighbours 34 px grey and one line; the rest is cut with `…`. `test_ass.py` pins the slots inside the screen and measures a two-line current line
   against its neighbours. The neighbours are the nearest lines that draw something. An entry lasts until
   the next one starts, with no ceiling (`ass.LAST_LINE_MAX_MS`, 8 s, is the last entry's alone, and the fragment
   bounds everything), so a long gap never blanks the glass. A pause empties the middle slot and keeps the sides;
@@ -711,13 +713,13 @@ worker image.
   everything that moves, is composed in `gbrp` and converted per frame. `scale=...:in_range=pc` reads the
   full-range JPEG cover, every YUV conversion is `out_range=tv` and `-color_range tv` is set, because a naive
   `format=yuv420p` yields `yuvj420p`; `subtitles=` takes `yuv420p` directly and changes neither. The video
-  is 720x1280, H.264 high 4.0 + AAC, 30 fps, `+faststart`, `-maxrate`/`-bufsize`; its size is asserted against
+  is 720x896, H.264 high 4.0 + AAC, 30 fps, `+faststart`, `-maxrate`/`-bufsize`; its size is asserted against
   the 50 MB Telegram ceiling with exactly one lower-bitrate retry (`REDUCED_QUALITY`) before the post fails.
-  A 120 s fragment renders to ~22 MB, so that branch guards a render defect, not normal input.
+  A 120 s fragment renders to ~13.6 MB, so that branch guards a render defect, not normal input.
 - `render.RenderParameters.subtitles_path` is an **optional path passed in from
   outside**, not a flag decided inside: `None` means the filtergraph has no lyrics
   `subtitles=` step at all, never an empty file. The display's `.ass` is a required path of its own.
-- **`render.RENDERER_VERSION` (`turntable-1`) is bumped with any change to the graph, the encoder, `layout`
+- **`render.RENDERER_VERSION` (`turntable-2`) is bumped with any change to the graph, the encoder, `layout`
   or the drawing**; it is an input to `params_hash`, and `test_video_render.py` pins it to a digest of the
   graph and the layout, so a forgotten bump fails.
 - **`make bench-render` runs in its own `bench` service** (`compose.yaml`, profile `bench`, the `worker`
@@ -1016,7 +1018,7 @@ caption as `send_photo` and records
 «Зробити відео» starts the media chain instead: the worker downloads the
 audio from `youtubeMusic`, picks the fragment, takes the track's stored
 lyric lines or fetches them (YouTube Music, LRCLIB; plain text from Genius afterwards), renders a verified
-720x1280 turntable video (the cover as the record's label, the title and artists on the display, the
+720x896 turntable video (the cover as the record's label, the title and artists on the display, the
 previous, current and next line on the glass screen) on the `render` queue, and delivers it as a
 **preview with a publish button**. A video without text still reaches the
 preview, with a notice under it saying why. Publication sends that same file

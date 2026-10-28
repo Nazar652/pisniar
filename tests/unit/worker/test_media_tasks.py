@@ -407,7 +407,7 @@ async def test_the_same_text_on_the_volume_means_ffmpeg_is_never_invoked(
         size_bytes=final_path.stat().st_size,
         duration_ms=45_000,
         streams=(
-            media_tools.StreamInfo("video", "h264", 720, 1280, "yuv420p", "tv"),
+            media_tools.StreamInfo("video", "h264", 720, 896, "yuv420p", "tv"),
             media_tools.StreamInfo("audio", "aac", None, None, None, None),
         ),
     )
@@ -452,7 +452,7 @@ async def test_a_reused_render_logs_the_text_it_was_rendered_with(
         path=final_path,
         size_bytes=final_path.stat().st_size,
         duration_ms=45_000,
-        streams=(media_tools.StreamInfo("video", "h264", 720, 1280, "yuv420p", "tv"),),
+        streams=(media_tools.StreamInfo("video", "h264", 720, 896, "yuv420p", "tv"),),
     )
     monkeypatch.setattr(worker_tasks.media_tools, "verify_media", lambda path, **k: probe)
 
@@ -497,7 +497,7 @@ class RecordingRenderer:
             path=output_path,
             size_bytes=8,
             duration_ms=45_000,
-            streams=(media_tools.StreamInfo("video", "h264", 720, 1280, "yuv420p", "tv"),),
+            streams=(media_tools.StreamInfo("video", "h264", 720, 896, "yuv420p", "tv"),),
         )
         return probe, worker_tasks.video_render.DEFAULT_QUALITY
 
@@ -1002,7 +1002,7 @@ async def test_a_previewed_post_with_its_file_sends_the_renderers_own_dimensions
     video = await worker_tasks.video_for_publication(session, rendered_post())
 
     assert video is not None
-    assert (video.width, video.height) == (720, 1280)
+    assert (video.width, video.height) == (720, 896)
     assert video.duration_ms == 45_000
     assert video.thumbnail_path is None
 
@@ -1515,7 +1515,7 @@ async def test_a_reused_file_without_text_is_explained_too(tmp_path: Path, monke
         path=final_path,
         size_bytes=final_path.stat().st_size,
         duration_ms=45_000,
-        streams=(media_tools.StreamInfo("video", "h264", 720, 1280, "yuv420p", "tv"),),
+        streams=(media_tools.StreamInfo("video", "h264", 720, 896, "yuv420p", "tv"),),
     )
     monkeypatch.setattr(worker_tasks.media_tools, "verify_media", lambda path, **k: probe)
     monkeypatch.setattr(worker_tasks.video_render, "render_fragment_within_size_limit", fail_if_called)

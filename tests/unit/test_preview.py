@@ -39,7 +39,7 @@ def make_post(
 def make_video(tmp_path: Path) -> RenderedVideo:
     video_path = tmp_path / "render.mp4"
     video_path.write_bytes(b"video bytes")
-    return RenderedVideo(path=video_path, width=720, height=1280, duration_ms=45_000)
+    return RenderedVideo(path=video_path, width=720, height=896, duration_ms=45_000)
 
 
 def make_bot(message_id: int = 42) -> AsyncMock:

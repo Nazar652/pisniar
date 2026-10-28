@@ -37,10 +37,10 @@ SPEED_LABELS = ("33", "45")
 BLACK_VINYL = (12, 12, 13)
 RIM_COLOUR = (52, 52, 56)
 RIM_WIDTH_PX = 3
-GROOVE_PERIOD_PX = 6
+GROOVE_PERIOD_PX = 4
 GROOVE_BAND_INNER_PX = layout.LABEL_DIAMETER_PX // 2 + 10
 GROOVE_BAND_OUTER_PX = layout.VINYL_RADIUS_PX - 12
-SPINDLE_HOLE_DIAMETER_PX = 16
+SPINDLE_HOLE_DIAMETER_PX = 12
 RECORD_SIZE_PX = layout.VINYL_DIAMETER_PX * RECORD_SUPERSAMPLE
 RECORD_CENTRE = RECORD_SIZE_PX / 2
 
@@ -193,7 +193,15 @@ def wood_texture(
 def vignette(image: Image.Image, strength: float) -> Image.Image:
     centre_y = layout.FRAME_HEIGHT_PX // 2
     mask = Image.new("L", image.size, 0)
-    ImageDraw.Draw(mask).ellipse((-120, centre_y - 760, image.width + 120, centre_y + 760), fill=255)
+    ImageDraw.Draw(mask).ellipse(
+        (
+            -120,
+            centre_y - layout.VIGNETTE_HALF_HEIGHT_PX,
+            image.width + 120,
+            centre_y + layout.VIGNETTE_HALF_HEIGHT_PX,
+        ),
+        fill=255,
+    )
     mask = mask.filter(ImageFilter.GaussianBlur(160)).point(lambda value: 255 - value)
     return fill(image, mask, (0, 0, 0), strength)
 
@@ -606,21 +614,25 @@ def build_tonearm() -> Image.Image:
     angle = math.radians(NEEDLE_ANGLE_DEGREES)
     reach = NEEDLE_RADIUS_FRACTION * layout.VINYL_RADIUS_PX
     target = (centre_x + reach * math.cos(angle), centre_y + reach * math.sin(angle))
-    end = (target[0] + 4, target[1] - 44)
+
+    def scaled(value: float) -> float:
+        return value * layout.TONEARM_SCALE
+
+    end = (target[0] + scaled(4), target[1] - scaled(44))
     span = end[1] - pivot_y
     path = bezier(
         (pivot_x, pivot_y),
-        (pivot_x + 50, pivot_y + 0.2 * span),
-        (end[0] + 5, end[1] - 0.4 * span),
+        (pivot_x + scaled(50), pivot_y + 0.2 * span),
+        (end[0] + scaled(5), end[1] - 0.4 * span),
         end,
     )
     tx, ty = path[-1][0] - path[-4][0], path[-1][1] - path[-4][1]
     norm = math.hypot(tx, ty)
     direction = (tx / norm, ty / norm)
-    tip = (end[0] + direction[0] * 44, end[1] + direction[1] * 44)
+    tip = (end[0] + direction[0] * scaled(44), end[1] + direction[1] * scaled(44))
     bx, by = path[0][0] - path[3][0], path[0][1] - path[3][1]
     back = math.hypot(bx, by)
-    weight = (pivot_x + bx / back * 48, pivot_y + by / back * 48)
+    weight = (pivot_x + bx / back * scaled(48), pivot_y + by / back * scaled(48))
 
     def headshell_centre(
         distance: float,
@@ -631,36 +643,43 @@ def build_tonearm() -> Image.Image:
 
     shadow = Image.new("RGBA", frame_canvas(), (0, 0, 0, 0))
     black = (0, 0, 0, 255)
-    draw_line(shadow, path, black, 11, 8, 12)
-    draw_dot(shadow, weight[0] + 8, weight[1] + 12, 19, black)
-    draw_dot(shadow, pivot_x + 8, pivot_y + 12, 32, black)
-    draw_headshell(shadow, headshell_centre(22, 8, 12), direction, 44, 26, black)
-    softened = shadow.getchannel("A").filter(ImageFilter.GaussianBlur(up(5)))
+    draw_line(shadow, path, black, scaled(11), scaled(8), scaled(12))
+    draw_dot(shadow, weight[0] + scaled(8), weight[1] + scaled(12), scaled(19), black)
+    draw_dot(shadow, pivot_x + scaled(8), pivot_y + scaled(12), scaled(32), black)
+    draw_headshell(
+        shadow,
+        headshell_centre(scaled(22), scaled(8), scaled(12)),
+        direction,
+        scaled(44),
+        scaled(26),
+        black,
+    )
+    softened = shadow.getchannel("A").filter(ImageFilter.GaussianBlur(up(scaled(5))))
     shadow.putalpha(softened.point(lambda value: round(value * 0.5)))
 
     arm = Image.new("RGBA", frame_canvas(), (0, 0, 0, 0))
-    draw_line(arm, [weight, (pivot_x, pivot_y)], (46, 46, 50, 255), 3.5)
+    draw_line(arm, [weight, (pivot_x, pivot_y)], (46, 46, 50, 255), scaled(3.5))
     for radius, colour in (
         (19, (40, 40, 44, 255)),
         (16, (170, 172, 178, 255)),
         (11, (132, 134, 140, 255)),
     ):
-        draw_dot(arm, weight[0], weight[1], radius, colour)
-    draw_dot(arm, weight[0] - 3, weight[1] - 4, 5, (222, 224, 228, 200))
-    draw_line(arm, path, (120, 122, 128, 255), 10)
-    draw_line(arm, path, (176, 179, 186, 255), 7)
-    draw_line(arm, path, (232, 234, 238, 255), 2.6, -1.4, -1.4)
+        draw_dot(arm, weight[0], weight[1], scaled(radius), colour)
+    draw_dot(arm, weight[0] - scaled(3), weight[1] - scaled(4), scaled(5), (222, 224, 228, 200))
+    draw_line(arm, path, (120, 122, 128, 255), scaled(10))
+    draw_line(arm, path, (176, 179, 186, 255), scaled(7))
+    draw_line(arm, path, (232, 234, 238, 255), scaled(2.6), scaled(-1.4), scaled(-1.4))
     for radius, colour in (
         (33, (38, 38, 42, 255)),
         (29, (112, 114, 120, 255)),
         (22, (170, 172, 178, 255)),
         (12, (60, 60, 66, 255)),
     ):
-        draw_dot(arm, pivot_x, pivot_y, radius, colour)
-    draw_dot(arm, pivot_x - 4, pivot_y - 5, 6, (225, 227, 232, 180))
-    draw_headshell(arm, headshell_centre(22), direction, 44, 25, (22, 22, 25, 255))
-    draw_headshell(arm, headshell_centre(20), direction, 30, 15, (46, 46, 52, 255))
-    draw_dot(arm, tip[0], tip[1], 2.2, (230, 230, 235, 255))
+        draw_dot(arm, pivot_x, pivot_y, scaled(radius), colour)
+    draw_dot(arm, pivot_x - scaled(4), pivot_y - scaled(5), scaled(6), (225, 227, 232, 180))
+    draw_headshell(arm, headshell_centre(scaled(22)), direction, scaled(44), scaled(25), (22, 22, 25, 255))
+    draw_headshell(arm, headshell_centre(scaled(20)), direction, scaled(30), scaled(15), (46, 46, 52, 255))
+    draw_dot(arm, tip[0], tip[1], scaled(2.2), (230, 230, 235, 255))
     return shrink_frame(Image.alpha_composite(shadow, arm))
 
 

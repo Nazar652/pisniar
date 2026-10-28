@@ -18,7 +18,7 @@ FRAGMENT_END_MS = 45_000
 LINE_HEIGHT_RATIO = 1.2
 
 # measured on the worker image: libass stacks lines one `Fontsize` apart, so a
-# two-line 52 px block inks about 89 px where this model claims 104, the safe direction.
+# two-line block inks less than the 1.2x model claims, the safe direction.
 MEASURED_LINE_HEIGHT_RATIO = 1.0
 
 # a 123-character line, too long for one line of the band.
@@ -26,8 +26,8 @@ LONG_LINE_OF_123_CHARACTERS = (
     "Цей рядок навмисно довгий, бо гейт показав, що стовідсотково "
     "не влізе в один рядок і його доведеться таки розбивати надвоє."
 )
-# 576 usable px / (52 px * 0.52 em): the budget of an average glyph width.
-CHARACTERS_AT_AN_AVERAGE_GLYPH_WIDTH = 21
+# 580 usable px / (46 px * 0.52 em): the budget of an average glyph width.
+CHARACTERS_AT_AN_AVERAGE_GLYPH_WIDTH = 24
 
 
 def lines_of(*pairs: tuple[int, str]) -> list[ass.LyricLine]:
@@ -72,7 +72,7 @@ def test_the_script_declares_the_frame_it_is_drawn_onto() -> None:
     document = build(lines_of((1_000, "рядок")))
 
     assert "PlayResX: 720" in document
-    assert "PlayResY: 1280" in document
+    assert "PlayResY: 896" in document
     assert "ScriptType: v4.00+" in document
     assert "WrapStyle: 2" in document
 
@@ -153,10 +153,10 @@ def test_the_first_and_last_lines_have_one_neighbour_each() -> None:
 
 
 def test_the_slots_are_the_screen_slots_centred_on_the_frame() -> None:
-    assert (ass.PREVIOUS_SLOT_Y, ass.CURRENT_SLOT_Y, ass.NEXT_SLOT_Y) == (905, 1035, 1165)
+    assert (ass.PREVIOUS_SLOT_Y, ass.CURRENT_SLOT_Y, ass.NEXT_SLOT_Y) == (610, 698, 786)
     assert ass.SLOT_CENTER_X == 360
-    assert (ass.FONT_SIZE_CURRENT_PX, ass.FONT_SIZE_ADJACENT_PX) == (52, 38)
-    assert ass.USABLE_TEXT_WIDTH_PX == layout.LYRICS_TEXT_WIDTH_PX == 576
+    assert (ass.FONT_SIZE_CURRENT_PX, ass.FONT_SIZE_ADJACENT_PX) == (46, 34)
+    assert ass.USABLE_TEXT_WIDTH_PX == layout.LYRICS_TEXT_WIDTH_PX == 580
     assert ass.PLAY_RES_X == layout.FRAME_WIDTH_PX
     assert ass.PLAY_RES_Y == layout.FRAME_HEIGHT_PX
 
@@ -194,8 +194,8 @@ def test_the_lyrics_styles_use_the_screen_colours_and_a_glass_coloured_outline()
     assert set(rows) == {ass.STYLE_CURRENT, ass.STYLE_ADJACENT}
     assert rows[ass.STYLE_CURRENT][colour] == "&H00FFFFFF"
     assert rows[ass.STYLE_ADJACENT][colour] == "&H00AA9C96"
-    assert rows[ass.STYLE_CURRENT][size] == "52"
-    assert rows[ass.STYLE_ADJACENT][size] == "38"
+    assert rows[ass.STYLE_CURRENT][size] == "46"
+    assert rows[ass.STYLE_ADJACENT][size] == "34"
     for values in rows.values():
         assert values[outline_colour] == "&H000B0805"
         assert values[outline] == "2"
@@ -214,7 +214,7 @@ def block_extent(
 
 def test_a_current_line_that_wraps_to_two_still_clears_its_smaller_neighbours() -> None:
     """the tightest case: the current block doubles while the side slots stay one
-    smaller line; 59 px of glass is left on each side, 45 px under the 1.2x reading."""
+    smaller line; 25 px of glass is left on each side, 12 px under the 1.2x reading."""
     current_top, current_bottom = block_extent(
         ass.CURRENT_SLOT_Y,
         wrapped_lines=ass.MAX_CURRENT_WRAPPED_LINES,
@@ -667,7 +667,7 @@ def test_the_display_has_two_events_per_line_at_the_display_positions() -> None:
         f"pos({ass.SLOT_CENTER_X},{ass.DISPLAY_ARTISTS_Y})",
         f"pos({ass.SLOT_CENTER_X},{ass.DISPLAY_ARTISTS_Y})",
     ]
-    assert (ass.DISPLAY_TITLE_Y, ass.DISPLAY_ARTISTS_Y, ass.SLOT_CENTER_X) == (746, 775, 360)
+    assert (ass.DISPLAY_TITLE_Y, ass.DISPLAY_ARTISTS_Y, ass.SLOT_CENTER_X) == (523, 552, 360)
 
 
 def test_each_display_line_is_a_glow_layer_under_a_crisp_layer() -> None:
@@ -780,8 +780,8 @@ def test_display_text_escapes_before_it_measures() -> None:
 
 
 def test_display_events_are_empty_for_empty_text_and_a_pair_otherwise() -> None:
-    assert ass.display_events("", 746, ass.STYLE_DISPLAY_TITLE, (1, 2, 3), 1_000) == []
-    pair = ass.display_events("текст", 746, ass.STYLE_DISPLAY_TITLE, (1, 2, 3), 1_000)
+    assert ass.display_events("", ass.DISPLAY_TITLE_Y, ass.STYLE_DISPLAY_TITLE, (1, 2, 3), 1_000) == []
+    pair = ass.display_events("текст", ass.DISPLAY_TITLE_Y, ass.STYLE_DISPLAY_TITLE, (1, 2, 3), 1_000)
 
     assert [event["Layer"] for event in pair] == ["0", "1"]
     assert "\\3c&H030201&" in pair[0]["Text"]

@@ -31,10 +31,10 @@ LAYERS = turntable.TurntableLayers(
     label_mask=Path("/data/tmp/7/label-mask.png"),
     hub=Path("/data/tmp/7/hub.png"),
     overlay=Path("/data/tmp/7/overlay.png"),
-    overlay_x=60,
-    overlay_y=60,
-    overlay_width=644,
-    overlay_height=616,
+    overlay_x=170,
+    overlay_y=92,
+    overlay_width=504,
+    overlay_height=370,
 )
 
 
@@ -60,8 +60,8 @@ def test_the_cover_is_read_full_range_into_the_label_and_nowhere_else() -> None:
 
     assert graph.count("in_range=pc") == 1
     assert graph.startswith(
-        "[0:v]scale=300:300:force_original_aspect_ratio=increase:flags=lanczos:in_range=pc,"
-        "crop=300:300,format=rgba[cover]"
+        "[0:v]scale=190:190:force_original_aspect_ratio=increase:flags=lanczos:in_range=pc,"
+        "crop=190:190,format=rgba[cover]"
     )
     assert "[cover][mask]alphamerge[label]" in graph
 
@@ -74,11 +74,11 @@ def test_every_pixel_is_converted_to_yuv_once_in_one_of_two_separate_areas() -> 
     assert graph.count("out_range=tv") == 2
     assert "[floor_source]scale=out_range=tv,format=yuv420p," in graph
     assert "[square]scale=out_range=tv,format=yuv420p[square_yuv]" in graph
-    assert "[floor][square_yuv]overlay=60:60:format=yuv420,setsar=1" in graph
+    assert "[floor][square_yuv]overlay=170:92:format=yuv420,setsar=1" in graph
 
 
 def test_the_disc_square_is_the_even_box_around_the_disc_and_the_overlay() -> None:
-    assert video_render.disc_square(LAYERS) == (60, 60, 644, 638)
+    assert video_render.disc_square(LAYERS) == (170, 92, 504, 384)
     wider = turntable.TurntableLayers(
         background=LAYERS.background,
         vinyl=LAYERS.vinyl,
@@ -100,7 +100,7 @@ def test_the_disc_turns_once_from_rgba_with_transparent_corners() -> None:
     graph = graph_of()
 
     assert graph.count("rotate=") == 1
-    assert "rotate=a=2*PI*t*100/180:c=none:ow=600:oh=600" in graph
+    assert "rotate=a=2*PI*t*100/180:c=none:ow=380:oh=380" in graph
     assert "[seated][hub]overlay=0:0:format=auto,loop=loop=-1:size=1,setpts=N/30/TB,rotate" in graph
     assert "[2:v]format=rgba[vinyl]" in graph
     assert "[3:v]format=rgba[hub]" in graph
@@ -111,8 +111,8 @@ def test_the_square_is_cropped_looped_and_composed_in_planar_rgb() -> None:
     graph = graph_of()
 
     assert "[4:v]split[floor_source][square_source]" in graph
-    assert "[square_source]crop=644:638:60:60,format=gbrp,loop=loop=-1:size=1,setpts=N/30/TB[ground]" in graph
-    assert "[ground][spin]overlay=0:38:format=gbrp[disc]" in graph
+    assert "[square_source]crop=504:384:170:92,format=gbrp,loop=loop=-1:size=1,setpts=N/30/TB[ground]" in graph
+    assert "[ground][spin]overlay=0:4:format=gbrp[disc]" in graph
     assert "[disc][top]overlay=0:0:format=gbrp[square]" in graph
     assert "[5:v]format=rgba[top]" in graph
 
@@ -124,16 +124,16 @@ def test_the_overlay_sits_where_the_drawing_said() -> None:
         label_mask=LAYERS.label_mask,
         hub=LAYERS.hub,
         overlay=LAYERS.overlay,
-        overlay_x=62,
-        overlay_y=64,
-        overlay_width=642,
-        overlay_height=612,
+        overlay_x=172,
+        overlay_y=94,
+        overlay_width=502,
+        overlay_height=368,
     )
 
     graph = video_render.build_filter_complex(moved, DISPLAY_PATH)
 
     assert "[disc][top]overlay=2:0:format=gbrp[square]" in graph
-    assert "[floor][square_yuv]overlay=60:64:format=yuv420" in graph
+    assert "[floor][square_yuv]overlay=170:94:format=yuv420" in graph
 
 
 def test_the_display_is_drawn_once_on_the_still_floor_and_the_song_text_comes_last() -> None:
@@ -292,7 +292,7 @@ def make_probe(size_bytes: int, duration_ms: int = 45_000) -> media_tools.MediaP
         size_bytes=size_bytes,
         duration_ms=duration_ms,
         streams=(
-            media_tools.StreamInfo("video", "h264", 720, 1280, "yuv420p", "tv"),
+            media_tools.StreamInfo("video", "h264", 720, 896, "yuv420p", "tv"),
             media_tools.StreamInfo("audio", "aac", None, None, None, None),
         ),
     )
@@ -468,7 +468,7 @@ async def test_a_failed_cover_request_propagates_rather_than_being_isolated(
 
 def test_the_thumbnail_is_taken_from_the_rendered_file_itself(tmp_path: Path) -> None:
     """from the video, not the raw cover: the frame it shows is the padded
-    720x1280 one the subscriber sees, letterboxing included."""
+    720x896 one the subscriber sees, letterboxing included."""
     arguments = video_render.build_thumbnail_arguments(tmp_path / "a.mp4", tmp_path / "a.jpg")
 
     assert arguments[arguments.index("-i") + 1] == str(tmp_path / "a.mp4")
@@ -547,8 +547,8 @@ def test_text_digest_is_short_stable_and_follows_the_text() -> None:
 
 # the digest of the graph, the encoder arguments and every `layout` constant. A change to any of
 # them, or to the drawing in `turntable`, needs a new `RENDERER_VERSION` and a new digest here.
-PINNED_RENDERER_VERSION = "turntable-1"
-PINNED_DIGEST = "76e7a25e0488bd148832a5cb12a197830ac557623be2d9da27b7568e45d1853f"
+PINNED_RENDERER_VERSION = "turntable-2"
+PINNED_DIGEST = "ea5a25a51beea282a9bb8cb43662848758420ff99ba22e222b396c79539543fa"
 
 
 def renderer_material() -> str:

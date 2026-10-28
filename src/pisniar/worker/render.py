@@ -1,4 +1,4 @@
-"""The 720x1280 turntable filtergraph and the assertions that make its output trustworthy.
+"""The 720x896 turntable filtergraph and the assertions that make its output trustworthy.
 The cover is read full range (`in_range=pc`), every YUV conversion is `out_range=tv`, and
 `-color_range tv` is set: a plain `format=yuv420p` on a full-range JPEG yields `yuvj420p`.
 """
@@ -46,7 +46,7 @@ THUMBNAIL_TIMEOUT_SECONDS = 30.0
 
 # bumped with any change to the graph, encoder, `layout` or `turntable` drawing; it is an
 # input to `params_hash`, and `test_video_render.py` pins it to a digest of graph and layout.
-RENDERER_VERSION = "turntable-1"
+RENDERER_VERSION = "turntable-2"
 
 
 class RenderError(RuntimeError):

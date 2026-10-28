@@ -14,7 +14,7 @@ Mini App's **Редагувати**; nothing in the chat publishes the cover alo
 
 **Зробити відео** starts the media chain: the worker downloads the
 track's audio from YouTube Music, takes a 45-second fragment from the start,
-renders a 720x1280 video, and sends it
+renders a 720x896 (4:5) video, and sends it
 back as a **preview with its own publish button**. Publishing from there
 puts that exact file, with that exact caption, into the channel as a video.
 The preview is not a convenience — a published post cannot be revoked, so
@@ -30,7 +30,7 @@ The video is a **turntable**: the cover is the label of a record that turns at
 lyrics** show on a glass screen below, the previous, current and next line
 synced to the audio (an instrumental gap shows a note, ♪). The still layers are
 drawn with Pillow and only the record is composed per frame, so a 120-second
-fragment renders in about two minutes on two shared vCPUs. Lyrics come from
+fragment renders in under a minute on two shared vCPUs. Lyrics come from
 YouTube Music and [LRCLIB](https://lrclib.net) and are stored per track, so a
 second post of the same recording reuses them without asking again; plain text
 without times is fetched afterwards (Genius, YouTube Music, LRCLIB) and kept for

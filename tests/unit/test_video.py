@@ -25,7 +25,7 @@ def make_video(tmp_path: Path, *, with_thumbnail: bool) -> RenderedVideo:
     return RenderedVideo(
         path=video_path,
         width=720,
-        height=1280,
+        height=896,
         duration_ms=45_000,
         thumbnail_path=thumbnail_path,
     )
@@ -33,7 +33,7 @@ def make_video(tmp_path: Path, *, with_thumbnail: bool) -> RenderedVideo:
 
 @pytest.mark.parametrize(("duration_ms", "expected_seconds"), [(45_000, 45), (45_400, 45), (45_600, 46), (31_000, 31)])
 def test_the_duration_reaches_telegram_in_whole_seconds(duration_ms: int, expected_seconds: int) -> None:
-    video = RenderedVideo(path=Path("x.mp4"), width=720, height=1280, duration_ms=duration_ms)
+    video = RenderedVideo(path=Path("x.mp4"), width=720, height=896, duration_ms=duration_ms)
 
     assert video.duration_seconds == expected_seconds
 
@@ -48,7 +48,7 @@ async def test_the_send_carries_the_dimensions_and_streaming_flag(tmp_path: Path
     sent = bot.send_video.await_args.kwargs
     assert sent["chat_id"] == 999
     assert sent["width"] == 720
-    assert sent["height"] == 1280
+    assert sent["height"] == 896
     assert sent["duration"] == 45
     assert sent["supports_streaming"] is True
 

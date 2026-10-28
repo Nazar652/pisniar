@@ -61,14 +61,18 @@ def disc_bounds(centre: tuple[int, int], radius: int) -> tuple[int, int, int, in
     return (centre[0] - radius, centre[1] - radius, centre[0] + radius, centre[1] + radius)
 
 
+def box_centre(box: tuple[int, int, int, int]) -> tuple[int, int]:
+    return ((box[0] + box[2]) // 2, (box[1] + box[3]) // 2)
+
+
 def sector_means(vinyl: Image.Image) -> list[float]:
-    """mean brightness of 72 sectors, each averaged over r 200..240 so the grooves cancel out."""
+    """mean brightness of 72 sectors, each averaged over the groove band so the grooves cancel out."""
     middle = layout.VINYL_RADIUS_PX
     means = []
     for sector in range(72):
         angle = math.radians(sector * 5)
         values = []
-        for radius in range(200, 240):
+        for radius in range(turntable.GROOVE_BAND_INNER_PX + 20, turntable.GROOVE_BAND_INNER_PX + 60):
             red, green, blue = pixel(
                 vinyl,
                 round(middle + radius * math.cos(angle)),
@@ -153,6 +157,33 @@ def test_the_display_and_the_screen_overlap_neither_the_platter_nor_each_other()
     assert boxes_apart(switch_bounds, layout.DISPLAY_BOX_PX)
 
 
+def test_every_part_but_the_body_lies_inside_the_safe_zone(layers: turntable.TurntableLayers) -> None:
+    safe = (0, layout.SAFE_ZONE_TOP_PX, layout.FRAME_WIDTH_PX, layout.SAFE_ZONE_BOTTOM_PX)
+    pivot_ring = round(33 * layout.TONEARM_SCALE)
+    for part in (
+        disc_bounds(layout.VINYL_CENTER_PX, layout.PLATTER_RADIUS_PX),
+        layout.DISPLAY_BOX_PX,
+        layout.SCREEN_BOX_PX,
+        disc_bounds(layout.KNOB_CENTER_PX, layout.KNOB_RADIUS_PX),
+        disc_bounds(layout.SWITCH_CENTER_PX, layout.KNOB_RADIUS_PX),
+        disc_bounds(layout.TONEARM_PIVOT_PX, pivot_ring),
+    ):
+        assert inside(part, safe)
+    assert layout.SCREEN_BOX_PX[3] + 2 <= layout.SAFE_ZONE_BOTTOM_PX
+    assert layers.overlay_y >= layout.SAFE_ZONE_TOP_PX
+
+
+def test_the_knob_and_the_switch_clear_the_platter() -> None:
+    for centre in (layout.KNOB_CENTER_PX, layout.SWITCH_CENTER_PX):
+        distance = math.hypot(centre[0] - layout.VINYL_CENTER_PX[0], centre[1] - layout.VINYL_CENTER_PX[1])
+        assert distance > layout.PLATTER_RADIUS_PX + layout.KNOB_RADIUS_PX
+
+
+def test_the_disc_square_never_covers_the_display(layers: turntable.TurntableLayers) -> None:
+    square_bottom = layout.VINYL_OVERLAY_Y_PX + layout.VINYL_DIAMETER_PX
+    assert max(square_bottom, layers.overlay_y + layers.overlay_height) <= layout.DISPLAY_BOX_PX[1]
+
+
 def test_everything_but_the_tonearm_is_symmetric_about_the_centre_line() -> None:
     centre_line = layout.FRAME_CENTER_X_PX
     assert 2 * centre_line == layout.FRAME_WIDTH_PX
@@ -166,15 +197,15 @@ def test_everything_but_the_tonearm_is_symmetric_about_the_centre_line() -> None
 def test_overlay_sizes_and_offsets_are_even() -> None:
     assert layout.VINYL_DIAMETER_PX % 2 == 0
     assert layout.LABEL_DIAMETER_PX % 2 == 0
-    assert (layout.VINYL_OVERLAY_X_PX, layout.VINYL_OVERLAY_Y_PX) == (60, 98)
+    assert (layout.VINYL_OVERLAY_X_PX, layout.VINYL_OVERLAY_Y_PX) == (170, 96)
     assert layout.VINYL_OVERLAY_X_PX % 2 == 0
     assert layout.VINYL_OVERLAY_Y_PX % 2 == 0
 
 
 def test_shared_widths_and_the_glass_colour() -> None:
     assert layout.GLASS_RGB == (5, 8, 11)
-    assert layout.LYRICS_TEXT_WIDTH_PX == 576
-    assert layout.DISPLAY_TEXT_WIDTH_PX == 340
+    assert layout.LYRICS_TEXT_WIDTH_PX == 580
+    assert layout.DISPLAY_TEXT_WIDTH_PX == 580
     assert layout.SCREEN_BOX_PX[2] - layout.SCREEN_BOX_PX[0] > layout.LYRICS_TEXT_WIDTH_PX
     assert layout.DISPLAY_BOX_PX[2] - layout.DISPLAY_BOX_PX[0] > layout.DISPLAY_TEXT_WIDTH_PX
 
@@ -234,7 +265,7 @@ def test_vinyl_is_transparent_in_the_corners_and_opaque_inside_the_rim(
 
 def test_vinyl_edge_falls_monotonically_from_opaque_to_transparent(vinyl: Image.Image) -> None:
     middle = layout.VINYL_RADIUS_PX
-    alphas = [pixel(vinyl, middle + step, middle + step)[3] for step in range(190, 290)]
+    alphas = [pixel(vinyl, middle + step, middle + step)[3] for step in range(middle * 2 // 3, middle - 5)]
     assert alphas == sorted(alphas, reverse=True)
     assert alphas[0] == 255
     assert alphas[-1] == 0
@@ -242,7 +273,7 @@ def test_vinyl_edge_falls_monotonically_from_opaque_to_transparent(vinyl: Image.
 
 def test_vinyl_colour_outside_the_circle_is_the_rim_colour(vinyl: Image.Image) -> None:
     middle = layout.VINYL_RADIUS_PX
-    for step in (230, 250, 280):
+    for step in (140, 160, 180):
         for sign in (1, -1):
             red, green, blue, alpha = pixel(vinyl, middle + sign * step, middle + step)
             assert alpha == 0
@@ -308,7 +339,7 @@ def test_background_is_an_opaque_frame_with_the_glass_colour_on_both_panes(
 
 
 def test_background_body_is_dark_and_the_wood_outside_it_is_warm(background: Image.Image) -> None:
-    body = pixel(background, layout.BODY_BOX_PX[0] + 12, 1000)
+    body = pixel(background, layout.BODY_BOX_PX[0] + 12, 698)
     assert max(body) < 60
     red, green, blue = pixel(background, 5, layout.FRAME_HEIGHT_PX // 2)
     assert red > green > blue
@@ -349,7 +380,8 @@ def test_overlay_has_a_bright_opaque_needle_tip_near_the_needle_point(
 def test_overlay_leaves_free_points_transparent_and_covers_the_spindle(
     layers: turntable.TurntableLayers, overlay: Image.Image
 ) -> None:
-    free_x, free_y = 680, 600
+    free_x = layers.overlay_x + overlay.width - 8
+    free_y = layers.overlay_y + overlay.height - 8
     assert pixel(overlay, free_x - layers.overlay_x, free_y - layers.overlay_y)[3] == 0
     centre_x, centre_y = layout.VINYL_CENTER_PX
     assert pixel(overlay, centre_x - layers.overlay_x, centre_y - layers.overlay_y)[3] == 255
@@ -359,9 +391,9 @@ def test_overlay_reflection_over_the_record_is_faint(layers: turntable.Turntable
     centre_x, centre_y = layout.VINYL_CENTER_PX
     alphas = [
         pixel(overlay, centre_x + dx - layers.overlay_x, centre_y + dy - layers.overlay_y)[3]
-        for dx in range(-200, -19, 20)
-        for dy in range(-200, 201, 20)
-        if 12 < math.hypot(dx, dy) < 250
+        for dx in range(-(layout.VINYL_RADIUS_PX - 10), -19, 20)
+        for dy in range(-(layout.VINYL_RADIUS_PX - 10), layout.VINYL_RADIUS_PX - 9, 20)
+        if 12 < math.hypot(dx, dy) < layout.VINYL_RADIUS_PX - 4 and centre_y + dy - layers.overlay_y < overlay.height
     ]
     assert 0 < max(alphas) <= 30
 
@@ -376,8 +408,8 @@ def test_write_layers_writes_the_five_files_under_fixed_names(
     assert {path.name for path in paths} == LAYER_FILE_NAMES
     assert {path.name for path in layers.background.parent.iterdir()} == LAYER_FILE_NAMES
     assert all(path.stat().st_size > 0 for path in paths)
-    assert (layers.overlay_x, layers.overlay_y) == (60, 60)
-    assert (layers.overlay_width, layers.overlay_height) == (644, 616)
+    assert (layers.overlay_x, layers.overlay_y) == (170, 92)
+    assert (layers.overlay_width, layers.overlay_height) == (504, 370)
 
 
 def test_a_second_drawing_gives_the_same_pixels(background: Image.Image, overlay: Image.Image) -> None:
@@ -497,12 +529,12 @@ def test_vignette_darkens_the_edges_more_than_the_middle() -> None:
 @pytest.mark.parametrize(
     ("draw", "touched"),
     [
-        (turntable.draw_body, (360, 640)),
-        (turntable.draw_platter, (360, 640)),
+        (turntable.draw_body, (layout.FRAME_CENTER_X_PX, layout.FRAME_HEIGHT_PX // 2)),
+        (turntable.draw_platter, layout.VINYL_CENTER_PX),
         (turntable.draw_knob, layout.KNOB_CENTER_PX),
         (turntable.draw_speed_switch, layout.SWITCH_CENTER_PX),
-        (turntable.draw_display, (360, 759)),
-        (turntable.draw_screen, (360, 1035)),
+        (turntable.draw_display, box_centre(layout.DISPLAY_BOX_PX)),
+        (turntable.draw_screen, box_centre(layout.SCREEN_BOX_PX)),
     ],
 )
 def test_each_part_draws_where_it_belongs_and_leaves_the_far_corner(
@@ -558,7 +590,8 @@ def test_grooves_mask_has_rings_only_inside_the_groove_band() -> None:
     outer = record_up(turntable.GROOVE_BAND_OUTER_PX + 4)
     assert level(mask, centre + outer, centre) == 0
     samples = [
-        level(mask, centre + record_up(radius), centre) for radius in range(turntable.GROOVE_BAND_INNER_PX + 10, 280)
+        level(mask, centre + record_up(radius), centre)
+        for radius in range(turntable.GROOVE_BAND_INNER_PX + 10, turntable.GROOVE_BAND_OUTER_PX)
     ]
     assert max(samples) > 200
     assert min(samples) < 60
@@ -627,8 +660,8 @@ def test_build_tonearm_is_a_frame_layer_with_the_pivot_opaque() -> None:
 def test_even_bounds_grow_outwards_to_even_numbers_inside_the_frame() -> None:
     assert turntable.even_bounds((61, 99, 301, 401)) == (60, 98, 302, 402)
     assert turntable.even_bounds((60, 98, 300, 400)) == (60, 98, 300, 400)
-    assert turntable.even_bounds((0, 0, 719, 1279)) == (0, 0, 720, 1280)
-    assert turntable.even_bounds((0, 0, 721, 1281)) == (0, 0, 720, 1280)
+    assert turntable.even_bounds((0, 0, 719, 895)) == (0, 0, 720, 896)
+    assert turntable.even_bounds((0, 0, 721, 897)) == (0, 0, 720, 896)
 
 
 def test_build_overlay_crops_to_what_it_draws(layers: turntable.TurntableLayers, overlay: Image.Image) -> None:

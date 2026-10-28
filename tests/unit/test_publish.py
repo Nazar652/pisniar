@@ -105,7 +105,7 @@ def make_bot(
 def make_video(tmp_path: Path) -> RenderedVideo:
     video_path = tmp_path / "render.mp4"
     video_path.write_bytes(b"video bytes")
-    return RenderedVideo(path=video_path, width=720, height=1280, duration_ms=45_000)
+    return RenderedVideo(path=video_path, width=720, height=896, duration_ms=45_000)
 
 
 async def test_a_rendered_post_goes_out_as_a_video_not_a_photo(tmp_path: Path) -> None:

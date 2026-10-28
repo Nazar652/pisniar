@@ -27,8 +27,8 @@ QUIET = ["-nostdin", "-hide_banner", "-loglevel", "error", "-y"]
 
 # `render.RENDERER_VERSION` and the sha256 of the five drawn layers, which `tobytes()` makes exact for one
 # image and one Pillow: a drawing change needs a new version and a new digest here, in that order.
-PINNED_RENDERER_VERSION = "turntable-1"
-PINNED_LAYERS_DIGEST = "73b12a595326b96ccd7729deefbfa79316206647f1b29a46ed3ebc61c41d2f05"
+PINNED_RENDERER_VERSION = "turntable-2"
+PINNED_LAYERS_DIGEST = "475aa6a61fd3d917e134cb5af22ed9448adbfdec0b346f0ec7759b5a6c41b764"
 
 # lyric lines in absolute track time: the note, a Cyrillic line and one more, so every slot is exercised.
 LYRIC_LINES = (
@@ -53,9 +53,10 @@ MID_Y = layout.FRAME_HEIGHT_PX // 2
 # inside the paper label, clear of the spindle hub.
 LABEL_SAMPLE_RADIUS_PX = layout.LABEL_DIAMETER_PX // 3
 # inside the groove band, where the smoke blotches make every angle differ.
-GROOVE_SAMPLE_RADIUS_PX = layout.VINYL_RADIUS_PX - 70
+GROOVE_SAMPLE_RADIUS_PX = (turntable.GROOVE_BAND_INNER_PX + turntable.GROOVE_BAND_OUTER_PX) // 2
 # the lower glass is flat; the upper left carries the diagonal highlight.
-GLASS_POINT = (200, layout.SCREEN_BOX_PX[3] - 33)
+GLASS_POINT = (layout.SCREEN_BOX_PX[0] + 20, layout.SCREEN_BOX_PX[3] - 20)
+GLASS_MIRROR_POINT = (layout.SCREEN_BOX_PX[2] - 20, GLASS_POINT[1])
 BODY_LEFT_X = layout.BODY_BOX_PX[0] + 15
 BODY_RIGHT_X = layout.BODY_BOX_PX[2] - 20
 WOOD_POINT = (layout.BODY_BOX_PX[0] - 15, MID_Y)
@@ -64,7 +65,7 @@ STATIC_HEIGHTS = (layout.VINYL_CENTER_PX[1], MID_Y, GLASS_POINT[1])
 STATIC_POINTS = [
     *((x, y) for x in (BODY_LEFT_X, BODY_RIGHT_X) for y in STATIC_HEIGHTS),
     GLASS_POINT,
-    (layout.FRAME_CENTER_X_PX + 140, GLASS_POINT[1]),
+    GLASS_MIRROR_POINT,
 ]
 FRAME_BYTES = layout.FRAME_WIDTH_PX * layout.FRAME_HEIGHT_PX * 3
 
@@ -267,7 +268,7 @@ def test_the_file_has_the_promised_streams_range_rate_and_faststart(rendered: Re
     video, audio = probe.video_streams[0], probe.audio_streams[0]
 
     assert probe.size_bytes > 0
-    assert (video.codec_name, video.width, video.height) == ("h264", 720, 1280)
+    assert (video.codec_name, video.width, video.height) == ("h264", layout.FRAME_WIDTH_PX, layout.FRAME_HEIGHT_PX)
     assert (video.pix_fmt, video.color_range, audio.codec_name) == ("yuv420p", "tv", "aac")
     stream = probe_json(rendered.video)["streams"]
     assert isinstance(stream, list)
@@ -327,7 +328,7 @@ def test_the_note_is_drawn_as_a_glyph_and_not_as_a_missing_glyph_box(rendered: R
     )
     assert reference_ass is not None
     (tmp_path / "tofu.ass").write_text(reference_ass, encoding="utf-8")
-    glass = "color=c=0x05080B:s=720x1280:r=30:d=1"
+    glass = f"color=c=0x05080B:s={layout.FRAME_WIDTH_PX}x{layout.FRAME_HEIGHT_PX}:r=30:d=1"
     subtitles = f"subtitles={render.escape_filter_path(tmp_path / 'tofu.ass')}"
     run_ffmpeg(["-f", "lavfi", "-i", glass, "-vf", subtitles, "-frames:v", "1", str(tmp_path / "tofu.png")])
     tofu = ink_mask(frame_of_image(tmp_path / "tofu.png"), CURRENT_SLOT_BAND)
