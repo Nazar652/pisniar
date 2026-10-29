@@ -1,0 +1,48 @@
+# production overlay: `COMPOSE_FILE=compose.yaml:compose.prod.yml`, images built by CI and pulled by sha.
+# The server builds nothing and publishes no port; the only way in is the Funnel.
+
+x-prod-environment: &prod-environment
+  DATABASE_URL: postgresql+asyncpg://pisniar:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/pisniar
+
+x-bot-image: &bot-image ghcr.io/nazar652/pisniar-bot:${PISNIAR_IMAGE_TAG:?set PISNIAR_IMAGE_TAG to the image sha}
+x-worker-image: &worker-image ghcr.io/nazar652/pisniar-worker:${PISNIAR_IMAGE_TAG:?set PISNIAR_IMAGE_TAG to the image sha}
+x-webapp-image: &webapp-image ghcr.io/nazar652/pisniar-webapp:${PISNIAR_IMAGE_TAG:?set PISNIAR_IMAGE_TAG to the image sha}
+
+services:
+  postgres:
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    restart: unless-stopped
+
+  redis:
+    restart: unless-stopped
+
+  migrate:
+    image: *bot-image
+    environment: *prod-environment
+
+  bot:
+    image: *bot-image
+    environment: *prod-environment
+    restart: unless-stopped
+
+  # the grace period outlasts the task hard limit, so a deploy lets a running task finish.
+  worker:
+    image: *worker-image
+    environment: *prod-environment
+    restart: unless-stopped
+    stop_grace_period: 7m
+
+  worker-render:
+    image: *worker-image
+    environment: *prod-environment
+    restart: unless-stopped
+    stop_grace_period: 12m
+
+  bench:
+    image: *worker-image
+
+  webapp:
+    image: *webapp-image
+    environment: *prod-environment
+    restart: unless-stopped

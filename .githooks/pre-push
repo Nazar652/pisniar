@@ -1,0 +1,57 @@
+#!/bin/sh
+# A push to master runs the Docker suites first, once per commit, against the running dev stack.
+# `git push --no-verify` skips this hook, and only this machine knows it did.
+set -eu
+
+zero_sha=0000000000000000000000000000000000000000
+stamp_file=$(git rev-parse --git-path pisniar-pre-push-passed)
+
+pushes_master=false
+while read -r _ local_sha remote_ref _; do
+    if [ "$remote_ref" = "refs/heads/master" ] && [ "$local_sha" != "$zero_sha" ]; then
+        pushes_master=true
+        pushed_sha=$local_sha
+    fi
+done
+
+if [ "$pushes_master" = false ]; then
+    exit 0
+fi
+
+if [ "$pushed_sha" != "$(git rev-parse HEAD)" ]; then
+    echo "pre-push: HEAD is not the pushed commit $pushed_sha: push from a checkout of it" >&2
+    exit 1
+fi
+
+if [ -n "$(git status --porcelain)" ]; then
+    echo "pre-push: the working tree has uncommitted changes, and the suites test the tree: commit or stash first" >&2
+    exit 1
+fi
+
+if [ -f "$stamp_file" ] && [ "$(cat "$stamp_file")" = "$pushed_sha" ]; then
+    echo "pre-push: the suites already passed for $pushed_sha"
+    exit 0
+fi
+
+checkout_root=$(git rev-parse --show-toplevel)
+if [ ! -f "$checkout_root/.env" ]; then
+    echo "pre-push: there is no .env in $checkout_root: copy .env.example and run make up, or push with --no-verify" >&2
+    exit 1
+fi
+
+if ! docker info >/dev/null 2>&1; then
+    echo "pre-push: Docker is not running: start it, or push with --no-verify" >&2
+    exit 1
+fi
+
+# the compose project name is shared by every checkout; only containers started from this one may be used.
+for service in postgres redis; do
+    running=$(docker ps -q --filter "label=com.docker.compose.project.working_dir=$checkout_root" --filter "label=com.docker.compose.service=$service")
+    if [ -z "$running" ]; then
+        echo "pre-push: no running $service from $checkout_root (a stack started from another checkout does not count): run make up here" >&2
+        exit 1
+    fi
+done
+
+make -k test-int test-fonts test-media
+printf '%s\n' "$pushed_sha" >"$stamp_file"

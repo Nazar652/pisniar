@@ -54,6 +54,7 @@ make bench-render   # time a 45 s and a 120 s render in the isolated `bench` ser
 make funnel-init    # create the external volume holding the Tailscale node state (once)
 make funnel-up      # start the Tailscale Funnel service
 make funnel-down    # remove the Funnel container; the node state stays on its volume
+make hooks         # a push to master runs test-int, test-fonts and test-media first (once per commit)
 make shell         # shell in the bot container
 make verify        # full local + Docker verification in one entrypoint
 ```
@@ -1005,6 +1006,17 @@ worker image.
   `channel_message_id` points at, which decides how that message can be edited.
   `publish_to_channel` writes it in the same assignment as the message id, and a
   CHECK keeps the two NULL together.
+
+## Production deployment (`compose.prod.yml`, `deploy/`, `.github/workflows/`)
+
+- Production is `compose.yaml` + `compose.prod.yml`: images come from CI by commit sha (`pisniar-{bot,worker,webapp}`),
+  the server builds nothing, and no service publishes a port; the Funnel is the only way in.
+- The server's `.env` and `.env.tailscale` are written on every deploy by `deploy/write-env.sh` from GitHub Secrets and
+  Variables, so a new `Settings` key goes into that script, both key lists of `deploy.yml` and `tests/unit/test_deploy.py`.
+- `deploy/deploy.sh` is the only deploy order: pull, stop the writers, migrate and `alembic check`, then `up --wait`.
+  The Actions logs are public: no script prints a value, `config` or the environment.
+- The Docker suites gate a push to master locally (`.githooks/pre-push`, `make hooks`); CI runs `make -k check` only.
+  The runbook is `deploy/README.md`.
 
 ## The flow end to end
 

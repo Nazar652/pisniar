@@ -11,7 +11,7 @@ COMPOSE := docker compose
 	api-types api-types-check frontend-build frontend-watch \
 	build up down ps logs restart clean test-int test-fonts test-media migrate revision downgrade \
 	alembic-check psql shell verify funnel-init funnel-up funnel-down dev-token peaks \
-	bench-render
+	bench-render hooks
 
 help: ## Show this list of targets
 	@grep -h -E '^[a-zA-Z0-9_-]+:.*##' $(MAKEFILE_LIST) | sed 's/:.*##/\t/' | sort
@@ -151,6 +151,11 @@ psql: ## interactive psql in the postgres container
 
 shell: ## shell in the bot container
 	$(COMPOSE) exec bot sh
+
+# the committed hook is versioned with the code and replaces no hook in `.git/hooks`
+hooks: ## use the committed .githooks: a push to master runs the Docker suites first
+	git config core.hooksPath .githooks
+	chmod +x .githooks/pre-push
 
 # the Tailscale state volume is external, so `clean` and `verify` (`down -v`) cannot remove
 # it and the node keeps its URL; see `.env.tailscale.example`

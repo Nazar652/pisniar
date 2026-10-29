@@ -1,0 +1,164 @@
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "master commit to deploy; its image must exist (a rollback builds nothing)"
+        required: false
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+env:
+  IMAGE_PREFIX: ghcr.io/nazar652
+
+jobs:
+  # the one guard: only a green push to master of this repository, or a dispatch from master
+  target:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master') ||
+      (github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'master' &&
+      github.event.workflow_run.head_repository.full_name == github.repository)
+    outputs:
+      sha: ${{ steps.resolve.outputs.sha }}
+      build: ${{ steps.resolve.outputs.build }}
+    steps:
+      - id: resolve
+        env:
+          INPUT_SHA: ${{ inputs.sha }}
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+          EVENT_SHA: ${{ github.sha }}
+        run: |
+          set -eu
+          sha=${INPUT_SHA:-${RUN_SHA:-$EVENT_SHA}}
+          if ! printf '%s' "$sha" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "the sha is not a 40-character commit id" >&2
+            exit 1
+          fi
+          build=true
+          if [ -n "$INPUT_SHA" ]; then
+            build=false
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+
+  build-push:
+    needs: target
+    if: needs.target.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.target.outputs.sha }}
+          persist-credentials: false
+
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: bot
+          push: true
+          tags: ${{ env.IMAGE_PREFIX }}/pisniar-bot:${{ needs.target.outputs.sha }}
+          cache-from: type=gha,scope=bot
+          cache-to: type=gha,scope=bot,mode=max
+
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: worker
+          push: true
+          tags: ${{ env.IMAGE_PREFIX }}/pisniar-worker:${{ needs.target.outputs.sha }}
+          cache-from: type=gha,scope=worker
+          cache-to: type=gha,scope=worker,mode=max
+
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: webapp
+          push: true
+          tags: ${{ env.IMAGE_PREFIX }}/pisniar-webapp:${{ needs.target.outputs.sha }}
+          cache-from: type=gha,scope=webapp
+          cache-to: type=gha,scope=webapp,mode=max
+
+  deploy:
+    needs: [target, build-push]
+    if: ${{ !cancelled() && !failure() && needs.target.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions: {}
+    steps:
+      # an empty fingerprint turns host key verification off in ssh-action
+      - name: Require the SSH host fingerprint
+        env:
+          SSH_FINGERPRINT: ${{ secrets.SSH_FINGERPRINT }}
+        run: |
+          if ! printf '%s' "$SSH_FINGERPRINT" | grep -Eq '^SHA256:[A-Za-z0-9+/]{43}$'; then
+            echo "the secret SSH_FINGERPRINT is missing or not a SHA256:... fingerprint" >&2
+            exit 1
+          fi
+
+      - uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
+        env:
+          IMAGE_SHA: ${{ needs.target.outputs.sha }}
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          ADMIN_IDS: ${{ secrets.ADMIN_IDS }}
+          ALERT_CHAT_ID: ${{ secrets.ALERT_CHAT_ID }}
+          CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
+          SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
+          SPOTIFY_CLIENT_SECRET: ${{ secrets.SPOTIFY_CLIENT_SECRET }}
+          REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          TS_AUTHKEY: ${{ secrets.TS_AUTHKEY }}
+          WEBAPP_PUBLIC_URL: ${{ secrets.WEBAPP_PUBLIC_URL }}
+          MUSICBRAINZ_CONTACT: ${{ secrets.MUSICBRAINZ_CONTACT }}
+          LOG_LEVEL: ${{ vars.LOG_LEVEL }}
+          ITUNES_COUNTRY: ${{ vars.ITUNES_COUNTRY }}
+          SOURCE_FETCH_TTL_SECONDS: ${{ vars.SOURCE_FETCH_TTL_SECONDS }}
+          MEDIA_MIN_FREE_BYTES: ${{ vars.MEDIA_MIN_FREE_BYTES }}
+          DOWNLOAD_TASK_SOFT_TIME_LIMIT_SECONDS: ${{ vars.DOWNLOAD_TASK_SOFT_TIME_LIMIT_SECONDS }}
+          DOWNLOAD_TASK_TIME_LIMIT_SECONDS: ${{ vars.DOWNLOAD_TASK_TIME_LIMIT_SECONDS }}
+          RENDER_TASK_SOFT_TIME_LIMIT_SECONDS: ${{ vars.RENDER_TASK_SOFT_TIME_LIMIT_SECONDS }}
+          RENDER_TASK_TIME_LIMIT_SECONDS: ${{ vars.RENDER_TASK_TIME_LIMIT_SECONDS }}
+          PLAIN_LYRICS_TASK_SOFT_TIME_LIMIT_SECONDS: ${{ vars.PLAIN_LYRICS_TASK_SOFT_TIME_LIMIT_SECONDS }}
+          PLAIN_LYRICS_TASK_TIME_LIMIT_SECONDS: ${{ vars.PLAIN_LYRICS_TASK_TIME_LIMIT_SECONDS }}
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          fingerprint: ${{ secrets.SSH_FINGERPRINT }}
+          timeout: 30s
+          command_timeout: 40m
+          envs: IMAGE_SHA,BOT_TOKEN,ADMIN_IDS,ALERT_CHAT_ID,CHANNEL_ID,SPOTIFY_CLIENT_ID,SPOTIFY_CLIENT_SECRET,REDIS_PASSWORD,POSTGRES_PASSWORD,TS_AUTHKEY,WEBAPP_PUBLIC_URL,MUSICBRAINZ_CONTACT,LOG_LEVEL,ITUNES_COUNTRY,SOURCE_FETCH_TTL_SECONDS,MEDIA_MIN_FREE_BYTES,DOWNLOAD_TASK_SOFT_TIME_LIMIT_SECONDS,DOWNLOAD_TASK_TIME_LIMIT_SECONDS,RENDER_TASK_SOFT_TIME_LIMIT_SECONDS,RENDER_TASK_TIME_LIMIT_SECONDS,PLAIN_LYRICS_TASK_SOFT_TIME_LIMIT_SECONDS,PLAIN_LYRICS_TASK_TIME_LIMIT_SECONDS
+          script: |
+            set -eu
+            cd ~/pisniar
+            git fetch --quiet origin master
+            git merge-base --is-ancestor "$IMAGE_SHA" origin/master
+            git reset --quiet --hard "$IMAGE_SHA"
+            sh deploy/write-env.sh
+            sh deploy/deploy.sh "$IMAGE_SHA"

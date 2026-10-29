@@ -263,6 +263,7 @@ make peaks         # write missing or outdated waveform files for stored audio, 
 make funnel-init   # create the Tailscale state volume (once)
 make funnel-up     # start the Funnel
 make funnel-down   # stop it; the node and its URL stay
+make hooks         # a push to master runs test-int, test-fonts and test-media first (once per commit)
 make shell         # shell in the bot container
 make psql          # interactive psql in the postgres container
 make logs          # follow logs from every service
@@ -272,6 +273,12 @@ make logs          # follow logs from every service
 ending with a clean
 `down -v` + `up -d --wait` to confirm the stack is reproducible from
 scratch.
+
+## Production
+
+Production is `compose.yaml` plus `compose.prod.yml` on a Hetzner host: GitHub Actions builds the images, pushes
+them by commit sha and deploys over SSH. Setup, secrets, rollback and teardown of the old k3s are in
+[`deploy/README.md`](deploy/README.md).
 
 ## Manual acceptance checklist
 
