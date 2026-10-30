@@ -618,6 +618,9 @@ worker image.
   clip with an intro, an outro or a different mastering). The id then goes
   through `matching.is_valid_youtube_video_id()` and **we** build the watch
   URL from it — the stored URL string is never handed to `yt-dlp`.
+- **YouTube refuses data-centre IPs**, so `Settings.ytdlp_proxy` (`YTDLP_PROXY`, optional) sends yt-dlp alone through a
+  residential proxy; `redaction_secrets` carries the URL and its password. The refusal is `YtdlpBotCheckError`, checked
+  before the extractor markers because the same stderr carries the JavaScript runtime warning.
 - **A long task holds no lock.** The pattern is three phases, and it is not
   negotiable: transaction 1 (milliseconds) locks the post, guards the status,
   writes `DOWNLOADING`/`RENDERING`, commits; then yt-dlp or ffmpeg runs for

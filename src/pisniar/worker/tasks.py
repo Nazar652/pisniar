@@ -1161,6 +1161,7 @@ def download_audio_off_transaction(claim: DownloadClaim, temporary_directory: Pa
         video_id,
         temporary_directory,
         timeout_seconds=settings.download_task_soft_time_limit_seconds,
+        proxy=settings.ytdlp_proxy.get_secret_value() if settings.ytdlp_proxy else None,
     )
     probe = audio_download.verify_downloaded_audio(downloaded, claim.track_duration_ms)
 

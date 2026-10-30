@@ -98,13 +98,23 @@ def test_the_arguments_are_a_list_with_the_url_last_and_no_self_update() -> None
     assert "/data/tmp/7/audio.%(ext)s" in arguments
 
 
+def test_the_proxy_goes_before_the_url_and_only_when_it_is_set() -> None:
+    url = "https://www.youtube.com/watch?v=n4bPzdIs_nc"
+
+    with_proxy = audio_download.build_ytdlp_arguments(url, "audio.%(ext)s", proxy="http://u:p@proxy:8080")
+    without_proxy = audio_download.build_ytdlp_arguments(url, "audio.%(ext)s")
+
+    assert with_proxy[with_proxy.index("--proxy") + 1] == "http://u:p@proxy:8080"
+    assert with_proxy[-2:] == ["--", url]
+    assert "--proxy" not in without_proxy
+
+
 @pytest.mark.parametrize(
     "stderr",
     [
         "ERROR: [youtube] abc: Unable to extract player response",
         "WARNING: No supported JavaScript runtime could be found",
         "ERROR: nsig extraction failed: Some formats may be missing",
-        "ERROR: [youtube] abc: Sign in to confirm you're not a bot",
         "ERROR: unable to download API page",
     ],
 )
@@ -115,6 +125,22 @@ def test_a_broken_extractor_gets_its_own_loud_class(stderr: str) -> None:
 
     assert isinstance(error, audio_download.YtdlpExtractorBrokenError)
     assert "ІНШІ треки" in str(error)
+
+
+@pytest.mark.parametrize(
+    "stderr",
+    [
+        "ERROR: [youtube] abc: Sign in to confirm you're not a bot",
+        "ERROR: [youtube] abc: Sign in to confirm you\u2019re not a bot. Use --cookies",
+        "WARNING: No supported JavaScript runtime could be found\nERROR: abc: Sign in to confirm you\u2019re not a bot",
+    ],
+)
+def test_the_bot_check_gets_its_own_class_not_the_broken_extractor(stderr: str) -> None:
+    """the fix is another IP, not a new yt-dlp, and the runtime warning in the same stderr must not change that."""
+    error = audio_download.classify_ytdlp_failure(1, stderr)
+
+    assert isinstance(error, audio_download.YtdlpBotCheckError)
+    assert "YTDLP_PROXY" in str(error)
 
 
 @pytest.mark.parametrize(

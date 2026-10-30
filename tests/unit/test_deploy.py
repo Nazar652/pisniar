@@ -31,7 +31,7 @@ pytestmark = pytest.mark.skipif(
 
 PROD_RESTARTED_SERVICES = ["postgres", "redis", "bot", "worker", "worker-render", "webapp"]
 DATABASE_SERVICES = ["migrate", "bot", "worker", "worker-render", "webapp"]
-SECRET_KEYS_BEYOND_REQUIRED = {"TS_AUTHKEY", "WEBAPP_PUBLIC_URL", "MUSICBRAINZ_CONTACT"}
+SECRET_KEYS_BEYOND_REQUIRED = {"TS_AUTHKEY", "WEBAPP_PUBLIC_URL", "MUSICBRAINZ_CONTACT", "YTDLP_PROXY"}
 FAKE_VALUES = {
     "BOT_TOKEN": "111111111:fake-bot-token-value",
     "ADMIN_IDS": "111111111,222222222",

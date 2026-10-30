@@ -80,6 +80,8 @@ class Settings(BaseSettings):
     spotify_client_secret: SecretStr
     # optional: the `musicbrainz` source stays disabled without a contact, per MusicBrainz's own policy.
     musicbrainz_contact: str | None = None
+    # optional: YouTube refuses data-centre IPs, so yt-dlp alone goes out through this URL; nothing else uses it.
+    ytdlp_proxy: SecretStr | None = None
     itunes_country: str = "UA"
     # both a hit and a `{"found": false}` go stale after an hour, so `/retry` can recover a release song.link has not
     # indexed yet.
@@ -198,14 +200,18 @@ def redaction_secrets(settings: Settings) -> list[str]:
     if password:
         secrets.append(password)
 
-    secrets.extend(redis_password_forms(settings.redis_url))
+    secrets.extend(url_password_forms(settings.redis_url))
+    if settings.ytdlp_proxy is not None:
+        proxy_url = settings.ytdlp_proxy.get_secret_value()
+        secrets.append(proxy_url)
+        secrets.extend(url_password_forms(proxy_url))
     return secrets
 
 
-def redis_password_forms(redis_url: str) -> list[str]:
+def url_password_forms(url: str) -> list[str]:
     """both forms: a leaked URL carries the percent-encoded password, while redis-py/kombu unquote it before it
     reaches a client-side message."""
-    quoted_password = urlsplit(redis_url).password
+    quoted_password = urlsplit(url).password
     if not quoted_password:
         return []
 

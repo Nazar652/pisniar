@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from celery.exceptions import SoftTimeLimitExceeded
+from pydantic import SecretStr
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.dialects.postgresql import Insert as PostgresInsert
 
@@ -323,6 +324,34 @@ def test_peaks_are_written_for_a_fresh_download_from_its_published_path(
     published = tmp_path / "audio" / "3" / "n4bPzdIs_nc.opus"
     assert outcome.path == published
     assert calls == [(tmp_path, 3, "n4bPzdIs_nc", published, temporary_directory)]
+
+
+@pytest.mark.parametrize(
+    ("configured", "passed"), [(SecretStr("http://u:p@proxy:8080"), "http://u:p@proxy:8080"), (None, None)]
+)
+def test_the_download_gets_the_configured_proxy_as_plain_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, configured: SecretStr | None, passed: str | None
+) -> None:
+    monkeypatch.setattr(worker_tasks.settings, "media_root", tmp_path)
+    monkeypatch.setattr(worker_tasks.settings, "ytdlp_proxy", configured)
+    temporary_directory = tmp_path / "tmp" / "7"
+    temporary_directory.mkdir(parents=True)
+    downloaded = temporary_directory / "n4bPzdIs_nc.opus"
+    downloaded.write_bytes(b"fresh audio")
+    received: list[str | None] = []
+
+    def fake_download(*args: Any, **kwargs: Any) -> tuple[Path, str]:
+        received.append(kwargs["proxy"])
+        return downloaded, "2026.1.1"
+
+    monkeypatch.setattr(worker_tasks.media_storage, "ensure_free_space", lambda root, size: size)
+    monkeypatch.setattr(worker_tasks.audio_download, "download_audio", fake_download)
+    monkeypatch.setattr(worker_tasks.audio_download, "verify_downloaded_audio", lambda path, duration: audio_probe())
+    record_peaks_calls(monkeypatch)
+
+    worker_tasks.download_audio_off_transaction(DOWNLOAD_CLAIM, temporary_directory)
+
+    assert received == [passed]
 
 
 def render_claim() -> worker_tasks.RenderClaim:

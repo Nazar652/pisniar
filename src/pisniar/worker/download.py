@@ -47,6 +47,10 @@ class YtdlpExtractorBrokenError(AudioDownloadError):
     fails at once — and that must not read as "this song is missing"."""
 
 
+class YtdlpBotCheckError(AudioDownloadError):
+    """YouTube refuses the IP the request came from: every track fails until it goes out through another one."""
+
+
 class YtdlpVideoUnavailableError(AudioDownloadError):
     """this one recording is gone, private, geo-blocked or taken down."""
 
@@ -55,7 +59,10 @@ class DownloadedAudioMismatchError(AudioDownloadError):
     """`ffprobe` says the file is not the track the resolve measured."""
 
 
-# checked first, on purpose: the expensive misdiagnosis is a mass extractor
+# ahead of the extractor markers: the same stderr usually carries the JavaScript runtime warning too.
+BOT_CHECK_MARKERS = ("not a bot",)
+
+# checked before the per-track markers, on purpose: the expensive misdiagnosis is a mass extractor
 # failure read as a per-track problem, never the other way round.
 EXTRACTOR_BROKEN_MARKERS = (
     "unable to extract",
@@ -63,7 +70,6 @@ EXTRACTOR_BROKEN_MARKERS = (
     "nsig extraction failed",
     "signature extraction failed",
     "no supported javascript runtime",
-    "sign in to confirm you're not a bot",
     "sign in to confirm your age",
     "unable to download api page",
     "requested format is not available",
@@ -109,8 +115,10 @@ def read_ytdlp_version(*, timeout_seconds: float = VERSION_TIMEOUT_SECONDS) -> s
     return completed.stdout.strip() or "unknown"
 
 
-def build_ytdlp_arguments(url: str, output_template: str) -> list[str]:
+def build_ytdlp_arguments(url: str, output_template: str, *, proxy: str | None = None) -> list[str]:
     """`--no-update` is explicit: a runtime self-update is prohibited, not merely unasked."""
+    proxy_arguments = ["--proxy", proxy] if proxy else []
+
     return [
         "--no-update",
         "--no-playlist",
@@ -127,6 +135,7 @@ def build_ytdlp_arguments(url: str, output_template: str) -> list[str]:
         AUDIO_FORMAT_SELECTOR,
         "--output",
         output_template,
+        *proxy_arguments,
         "--",
         url,
     ]
@@ -138,6 +147,11 @@ def classify_ytdlp_failure(exit_code: int, stderr: str) -> AudioDownloadError:
     tail = stderr_tail(stderr)
     lowered = tail.lower()
 
+    if any(marker in lowered for marker in BOT_CHECK_MARKERS):
+        return YtdlpBotCheckError(
+            "YouTube вимагає підтвердити, що запит не від бота: він блокує IP сервера, а не цей трек, "
+            f"тому /retry сам не допоможе. Перевірте проксі YTDLP_PROXY. Код {exit_code}: {tail}"
+        )
     if any(marker in lowered for marker in EXTRACTOR_BROKEN_MARKERS):
         return YtdlpExtractorBrokenError(
             "yt-dlp не зміг витягти трек — схоже, зламався екстрактор YouTube, "
@@ -156,6 +170,7 @@ def download_audio(
     destination_directory: Path,
     *,
     timeout_seconds: float,
+    proxy: str | None = None,
 ) -> tuple[Path, str]:
     """only downloads into the tmp dir; publishing the file is the caller's job."""
     url = build_watch_url(video_id)
@@ -167,7 +182,7 @@ def download_audio(
     logger.info("audio_download_started", video_id=video_id, ytdlp_version=ytdlp_version)
     completed = run_media_tool(
         YTDLP_BINARY,
-        build_ytdlp_arguments(url, output_template),
+        build_ytdlp_arguments(url, output_template, proxy=proxy),
         timeout_seconds=timeout_seconds,
     )
 

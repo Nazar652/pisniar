@@ -288,6 +288,16 @@ def test_redaction_secrets_covers_a_percent_encoded_redis_password() -> None:
     assert "pa@ss/word" in secrets
 
 
+def test_redaction_secrets_covers_the_ytdlp_proxy_url_and_its_password() -> None:
+    settings = build_settings(ytdlp_proxy="http://proxy-user:pa%40ss@proxy-host:8080")
+
+    secrets = redaction_secrets(settings)
+
+    assert "http://proxy-user:pa%40ss@proxy-host:8080" in secrets
+    assert "pa%40ss" in secrets
+    assert "pa@ss" in secrets
+
+
 def test_redaction_secrets_has_nothing_to_add_for_a_passwordless_redis_url() -> None:
     settings = build_settings(redis_url="redis://redis:6379/0")
 

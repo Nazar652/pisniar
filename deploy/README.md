@@ -110,6 +110,7 @@ from these; editing `.env` by hand is overwritten by the next deploy.
 | `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET` | |
 | `REDIS_PASSWORD`, `POSTGRES_PASSWORD` | `openssl rand -hex 24` each (hex only: the database URL embeds it) |
 | `WEBAPP_PUBLIC_URL`, `MUSICBRAINZ_CONTACT` | `https://pisniar.<tailnet>.ts.net`, a contact address |
+| `YTDLP_PROXY` | residential proxy with a sticky session, `http://user:password@host:port`: YouTube refuses Hetzner's IPs, so without it every download fails with the bot check |
 | `TS_AUTHKEY` | first registration only (section 7) |
 
 | Variables (tuning, optional; empty means the default) | |

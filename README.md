@@ -108,7 +108,8 @@ token, admin ids, alert chat id, `CHANNEL_ID`,
 `SPOTIFY_CLIENT_ID`/`SPOTIFY_CLIENT_SECRET`, and a generated
 `REDIS_PASSWORD`. `ITUNES_COUNTRY` defaults to `UA`;
 `MUSICBRAINZ_CONTACT` is optional — the `musicbrainz` source stays disabled
-without it. **Never commit `.env`** — it is git-ignored. `DATABASE_URL` /
+without it. `YTDLP_PROXY` is optional too: yt-dlp alone goes out through it,
+which is needed where YouTube refuses the host's IP. **Never commit `.env`** — it is git-ignored. `DATABASE_URL` /
 `REDIS_URL` are deliberately not in `.env.example`: they are the in-network
 DNS names of the `postgres` / `redis` compose services, fixed in
 `compose.yaml`, not something you fill in.
