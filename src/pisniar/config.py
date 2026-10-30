@@ -80,8 +80,9 @@ class Settings(BaseSettings):
     spotify_client_secret: SecretStr
     # optional: the `musicbrainz` source stays disabled without a contact, per MusicBrainz's own policy.
     musicbrainz_contact: str | None = None
-    # optional: YouTube refuses data-centre IPs, so yt-dlp alone goes out through this URL; nothing else uses it.
-    ytdlp_proxy: SecretStr | None = None
+    # optional: sources refuse data-centre IPs, and httpx, requests and yt-dlp read this variable from the environment
+    # themselves, while Telegram's aiohttp ignores it. It is a field only so that redaction knows the value.
+    https_proxy: SecretStr | None = None
     itunes_country: str = "UA"
     # both a hit and a `{"found": false}` go stale after an hour, so `/retry` can recover a release song.link has not
     # indexed yet.
@@ -201,8 +202,8 @@ def redaction_secrets(settings: Settings) -> list[str]:
         secrets.append(password)
 
     secrets.extend(url_password_forms(settings.redis_url))
-    if settings.ytdlp_proxy is not None:
-        proxy_url = settings.ytdlp_proxy.get_secret_value()
+    if settings.https_proxy is not None:
+        proxy_url = settings.https_proxy.get_secret_value()
         secrets.append(proxy_url)
         secrets.extend(url_password_forms(proxy_url))
     return secrets

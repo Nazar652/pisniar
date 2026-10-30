@@ -31,7 +31,7 @@ pytestmark = pytest.mark.skipif(
 
 PROD_RESTARTED_SERVICES = ["postgres", "redis", "bot", "worker", "worker-render", "webapp"]
 DATABASE_SERVICES = ["migrate", "bot", "worker", "worker-render", "webapp"]
-SECRET_KEYS_BEYOND_REQUIRED = {"TS_AUTHKEY", "WEBAPP_PUBLIC_URL", "MUSICBRAINZ_CONTACT", "YTDLP_PROXY"}
+SECRET_KEYS_BEYOND_REQUIRED = {"TS_AUTHKEY", "WEBAPP_PUBLIC_URL", "MUSICBRAINZ_CONTACT", "OUTBOUND_PROXY"}
 FAKE_VALUES = {
     "BOT_TOKEN": "111111111:fake-bot-token-value",
     "ADMIN_IDS": "111111111,222222222",
@@ -189,6 +189,17 @@ def test_write_env_writes_quoted_lines_with_mode_600_and_prints_no_value(tmp_pat
     assert not any(value in output for value in [*FAKE_VALUES.values(), "tskey-fake-auth-key"])
 
 
+def test_write_env_turns_the_outbound_proxy_into_https_proxy(tmp_path: Path) -> None:
+    """the deploy job's own git and curl must not see `HTTPS_PROXY`, so only the `.env` carries that name."""
+    result = run_write_env(tmp_path, {**FAKE_VALUES, "OUTBOUND_PROXY": "http://u:fake-proxy-password@proxy:10000"})
+
+    assert result.returncode == 0
+    written = (tmp_path / ".env").read_text(encoding="utf-8")
+    assert "HTTPS_PROXY='http://u:fake-proxy-password@proxy:10000'" in written
+    assert "OUTBOUND_PROXY" not in written
+    assert "fake-proxy-password" not in result.stdout + result.stderr
+
+
 def test_write_env_leaves_the_tailscale_file_empty_without_a_key(tmp_path: Path) -> None:
     result = run_write_env(tmp_path, FAKE_VALUES)
 
@@ -226,7 +237,7 @@ def test_write_env_requires_what_settings_requires_and_the_workflow_passes_every
     }
     step = ssh_step(read_yaml(DEPLOY_WORKFLOW))
     passed = set(step["with"]["envs"].split(","))
-    all_keys = {*required, *optional, "TS_AUTHKEY"}
+    all_keys = {*required, *optional, "TS_AUTHKEY", "OUTBOUND_PROXY"}
 
     assert settings_required <= set(required)
     assert {"REDIS_PASSWORD", "POSTGRES_PASSWORD"} <= set(required)

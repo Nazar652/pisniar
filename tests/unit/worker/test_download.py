@@ -98,17 +98,6 @@ def test_the_arguments_are_a_list_with_the_url_last_and_no_self_update() -> None
     assert "/data/tmp/7/audio.%(ext)s" in arguments
 
 
-def test_the_proxy_goes_before_the_url_and_only_when_it_is_set() -> None:
-    url = "https://www.youtube.com/watch?v=n4bPzdIs_nc"
-
-    with_proxy = audio_download.build_ytdlp_arguments(url, "audio.%(ext)s", proxy="http://u:p@proxy:8080")
-    without_proxy = audio_download.build_ytdlp_arguments(url, "audio.%(ext)s")
-
-    assert with_proxy[with_proxy.index("--proxy") + 1] == "http://u:p@proxy:8080"
-    assert with_proxy[-2:] == ["--", url]
-    assert "--proxy" not in without_proxy
-
-
 @pytest.mark.parametrize(
     "stderr",
     [
@@ -140,7 +129,7 @@ def test_the_bot_check_gets_its_own_class_not_the_broken_extractor(stderr: str) 
     error = audio_download.classify_ytdlp_failure(1, stderr)
 
     assert isinstance(error, audio_download.YtdlpBotCheckError)
-    assert "YTDLP_PROXY" in str(error)
+    assert "OUTBOUND_PROXY" in str(error)
 
 
 @pytest.mark.parametrize(

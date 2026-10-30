@@ -115,10 +115,8 @@ def read_ytdlp_version(*, timeout_seconds: float = VERSION_TIMEOUT_SECONDS) -> s
     return completed.stdout.strip() or "unknown"
 
 
-def build_ytdlp_arguments(url: str, output_template: str, *, proxy: str | None = None) -> list[str]:
+def build_ytdlp_arguments(url: str, output_template: str) -> list[str]:
     """`--no-update` is explicit: a runtime self-update is prohibited, not merely unasked."""
-    proxy_arguments = ["--proxy", proxy] if proxy else []
-
     return [
         "--no-update",
         "--no-playlist",
@@ -135,7 +133,6 @@ def build_ytdlp_arguments(url: str, output_template: str, *, proxy: str | None =
         AUDIO_FORMAT_SELECTOR,
         "--output",
         output_template,
-        *proxy_arguments,
         "--",
         url,
     ]
@@ -150,7 +147,7 @@ def classify_ytdlp_failure(exit_code: int, stderr: str) -> AudioDownloadError:
     if any(marker in lowered for marker in BOT_CHECK_MARKERS):
         return YtdlpBotCheckError(
             "YouTube вимагає підтвердити, що запит не від бота: він блокує IP сервера, а не цей трек, "
-            f"тому /retry сам не допоможе. Перевірте проксі YTDLP_PROXY. Код {exit_code}: {tail}"
+            f"тому /retry сам не допоможе. Перевірте проксі OUTBOUND_PROXY. Код {exit_code}: {tail}"
         )
     if any(marker in lowered for marker in EXTRACTOR_BROKEN_MARKERS):
         return YtdlpExtractorBrokenError(
@@ -170,7 +167,6 @@ def download_audio(
     destination_directory: Path,
     *,
     timeout_seconds: float,
-    proxy: str | None = None,
 ) -> tuple[Path, str]:
     """only downloads into the tmp dir; publishing the file is the caller's job."""
     url = build_watch_url(video_id)
@@ -182,7 +178,7 @@ def download_audio(
     logger.info("audio_download_started", video_id=video_id, ytdlp_version=ytdlp_version)
     completed = run_media_tool(
         YTDLP_BINARY,
-        build_ytdlp_arguments(url, output_template, proxy=proxy),
+        build_ytdlp_arguments(url, output_template),
         timeout_seconds=timeout_seconds,
     )
 
