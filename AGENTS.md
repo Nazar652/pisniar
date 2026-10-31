@@ -497,6 +497,21 @@ worker image.
   unsaved work (the fields form, lyrics, fragment) reports to `app/leaveGuard.ts`: the Telegram back button
   asks once, and the closing confirmation follows «any source dirty».
 
+- **Errors go to sentry.io, with local variables, so `pisniar.sentry.scrub_event` is the credential barrier.**
+  `SENTRY_DSN` (backend) and `SENTRY_FRONTEND_DSN` (Mini App) are optional; none means no SDK, no meta tag, today's CSP.
+  `init_sentry` runs after `configure_logging` in `bot`, `webapp` and, on `celeryd_init`, `worker`; no default
+  integrations, no tracing or breadcrumbs, release is the image sha. The logging processor `report_error_to_sentry`
+  (before `format_exc_info`) reports each own ERROR line and a third party's only with an exception. `scrub_event` fails
+  closed: `vars` survive only in `pisniar.*` frames except `webapp.auth`, `config` and `resolve.sources.spotify` (add any
+  new credential-handling module there), keys named like a credential (`FILTERED_NAME`) are filtered at any depth in
+  `vars` and the log context, every string passes exact redaction and the token/`initData` patterns, and one cut at
+  `MAX_EVENT_TEXT_LENGTH` is filtered whole.
+- **The Mini App DSN is delivered at runtime**: `GET /` inserts `<meta name="sentry-dsn">` (escaped, with environment and
+  release) and `connect-src` gains the DSN's ingest origin (`frontend_ingest_origin`; an invalid DSN logs
+  `sentry_frontend_dsn_invalid` and changes nothing). `frontend/src/sentry/install.ts` uses `@sentry/vue` with
+  `defaultIntegrations: false` (the URL carries `initData`), `attachProps: false` and a `beforeSend` that drops `propsData`
+  and scrubs strings by shape; no source maps.
+
 ## Resolver conventions (`pisniar/resolve/`)
 
 - Every adapter call goes through `registry.isolated_source_call()`: one
@@ -620,7 +635,8 @@ worker image.
   URL from it — the stored URL string is never handed to `yt-dlp`.
 - **YouTube and Genius refuse data-centre IPs**, so production sets `HTTPS_PROXY` in `.env` (a residential proxy, the
   deploy secret `OUTBOUND_PROXY`). httpx, requests and yt-dlp read it from the environment and nothing passes it along;
-  Telegram's aiohttp ignores it and stays direct. `Settings.https_proxy` exists so `redaction_secrets` carries the URL
+  Telegram's aiohttp ignores it and stays direct, and so does Sentry (`init_sentry` passes `https_proxy=""`, since an
+  unset one would read this variable). `Settings.https_proxy` exists so `redaction_secrets` carries the URL
   and its password. The refusal is `YtdlpBotCheckError`, checked before the extractor markers because the same stderr
   carries the JavaScript runtime warning.
 - **A long task holds no lock.** The pattern is three phases, and it is not

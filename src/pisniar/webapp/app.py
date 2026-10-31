@@ -6,6 +6,7 @@ and every other route sits behind `require_admin`. The production CSP lives only
 
 from __future__ import annotations
 
+import html
 import re
 import time
 from collections.abc import Awaitable, Callable
@@ -19,6 +20,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from pisniar.config import Settings
+from pisniar.sentry import frontend_ingest_origin
 from pisniar.webapp.api import register_api_routes
 from pisniar.webapp.auth import AuthWindow, WebappContext
 from pisniar.webapp.errors import ApiProblem, error_response, register_error_handlers
@@ -27,23 +29,44 @@ from pisniar.webapp.errors import ApiProblem, error_response, register_error_han
 # height); it belongs to this version only
 WAVESURFER_VERSION = "7.12.12"
 WAVESURFER_STYLE_HASH = "sha256-Y/8t1dAKa3ay+RZEiEFEDr8dFiQhpaFvYXXUfT3p6ZU="
-CONTENT_SECURITY_POLICY = (
-    "default-src 'none'; script-src 'self' https://telegram.org; "
-    f"style-src 'self' '{WAVESURFER_STYLE_HASH}'; "
-    "img-src 'self'; media-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; "
-    "frame-ancestors https://web.telegram.org"
-)
-SECURITY_HEADERS = {
-    "Content-Security-Policy": CONTENT_SECURITY_POLICY,
-    "X-Content-Type-Options": "nosniff",
-    "Referrer-Policy": "no-referrer",
-}
 IMMUTABLE_CACHE = "public, max-age=31536000, immutable"
 MAX_BODY_BYTES = 16 * 1024
 # 300 lines of Cyrillic and the JSON around them are about 55 KiB; the ceiling leaves room
 LYRICS_MAX_BODY_BYTES = 96 * 1024
 LYRICS_BODY_PATH = re.compile(r"/api/posts/\d+/lyrics")
 BODY_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+
+def content_security_policy(ingest_origin: str | None = None) -> str:
+    """the browser reports to Sentry from the page itself, so only the ingest host joins `connect-src`."""
+    connect_sources = "'self'" if ingest_origin is None else f"'self' {ingest_origin}"
+    return (
+        "default-src 'none'; script-src 'self' https://telegram.org; "
+        f"style-src 'self' '{WAVESURFER_STYLE_HASH}'; "
+        f"img-src 'self'; media-src 'self'; connect-src {connect_sources}; base-uri 'none'; form-action 'none'; "
+        "frame-ancestors https://web.telegram.org"
+    )
+
+
+CONTENT_SECURITY_POLICY = content_security_policy()
+
+
+def security_headers(ingest_origin: str | None) -> dict[str, str]:
+    return {
+        "Content-Security-Policy": content_security_policy(ingest_origin),
+        "X-Content-Type-Options": "nosniff",
+        "Referrer-Policy": "no-referrer",
+    }
+
+
+def with_sentry_tag(index_html: str, dsn: str, environment: str, release: str | None) -> str:
+    """the one tag the browser reads its DSN from; `html.escape` keeps a value inside its attribute."""
+    release_attribute = "" if release is None else f' data-release="{html.escape(release)}"'
+    tag = (
+        f'<meta name="sentry-dsn" content="{html.escape(dsn)}" data-environment="{html.escape(environment)}"'
+        f"{release_attribute}>"
+    )
+    return index_html.replace("</head>", f"{tag}</head>", 1)
 
 
 def create_webapp(
@@ -75,11 +98,14 @@ def create_webapp(
     app.state.webapp_public_url = settings.webapp_public_url
     register_error_handlers(app)
 
+    ingest_origin = frontend_ingest_origin(settings.sentry_frontend_dsn)
+    headers = security_headers(ingest_origin)
+
     @app.middleware("http")
     async def harden(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
         rejection = reject_oversized_body(request)
         response = rejection if rejection is not None else await call_next(request)
-        for name, value in SECURITY_HEADERS.items():
+        for name, value in headers.items():
             response.headers[name] = value
         response.headers.setdefault("Cache-Control", "no-store")
         return response
@@ -91,7 +117,16 @@ def create_webapp(
         index_file = static_directory / "index.html"
         if not index_file.is_file():
             return error_response(503, "frontend_missing", "Інтерфейс ще не зібрано.")
-        return FileResponse(index_file, media_type="text/html; charset=utf-8")
+        if ingest_origin is None or settings.sentry_frontend_dsn is None:
+            return FileResponse(index_file, media_type="text/html; charset=utf-8")
+
+        tagged_html = with_sentry_tag(
+            index_file.read_text(encoding="utf-8"),
+            settings.sentry_frontend_dsn.get_secret_value(),
+            settings.sentry_environment,
+            settings.sentry_release,
+        )
+        return Response(tagged_html, media_type="text/html; charset=utf-8")
 
     @app.get("/assets/{asset_path:path}", include_in_schema=False)
     async def asset(asset_path: str) -> Response:

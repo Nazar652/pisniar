@@ -4,9 +4,14 @@ handler `configure_logging()` installed at import time — taking JSON output an
 
 from __future__ import annotations
 
+import ast
 import logging
+from pathlib import Path
+from unittest.mock import MagicMock
 
+import pytest
 from celery.app.log import Logging
+from celery.signals import celeryd_init
 
 from pisniar.logging import configure_logging
 from pisniar.worker.celery_app import (
@@ -76,3 +81,26 @@ def test_tasks_have_both_a_soft_and_a_hard_time_limit() -> None:
     assert app.conf.task_soft_time_limit == TASK_SOFT_TIME_LIMIT_SECONDS
     assert app.conf.task_time_limit == TASK_TIME_LIMIT_SECONDS
     assert TASK_SOFT_TIME_LIMIT_SECONDS < TASK_TIME_LIMIT_SECONDS
+
+
+def test_error_reporting_starts_when_the_worker_does_and_not_when_the_module_is_imported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`celery inspect ping` imports `worker.tasks` every ten seconds and must not initialise the SDK; the handler on
+    `celeryd_init` runs in the main process, before the pool forks."""
+    from pisniar.worker import tasks
+
+    receivers = [reference() for _, reference in celeryd_init.receivers]
+    assert tasks.init_error_reporting in receivers
+
+    top_level_calls = [
+        node.value.func.id
+        for node in ast.parse(Path(tasks.__file__).read_text(encoding="utf-8")).body
+        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name)
+    ]
+    assert "init_sentry" not in top_level_calls
+
+    initialiser = MagicMock()
+    monkeypatch.setattr(tasks, "init_sentry", initialiser)
+    tasks.init_error_reporting(sender="worker@host", instance=None, conf=None, options={})
+    initialiser.assert_called_once_with(tasks.settings)

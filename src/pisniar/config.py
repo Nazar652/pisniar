@@ -83,6 +83,12 @@ class Settings(BaseSettings):
     # optional: sources refuse data-centre IPs, and httpx, requests and yt-dlp read this variable from the environment
     # themselves, while Telegram's aiohttp ignores it. It is a field only so that redaction knows the value.
     https_proxy: SecretStr | None = None
+    # both optional: no DSN, no reporting. The backend DSN is a credential; the Mini App one is public by design (the
+    # browser receives it) and so is not redacted.
+    sentry_dsn: SecretStr | None = None
+    sentry_frontend_dsn: SecretStr | None = None
+    sentry_environment: str = "dev"
+    sentry_release: str | None = None
     itunes_country: str = "UA"
     # both a hit and a `{"found": false}` go stale after an hour, so `/retry` can recover a release song.link has not
     # indexed yet.
@@ -123,6 +129,14 @@ class Settings(BaseSettings):
     def split_admin_ids(cls, value: object) -> object:
         if isinstance(value, str):
             return [item.strip() for item in value.split(",") if item.strip()]
+        return value
+
+    @field_validator("sentry_dsn", "sentry_frontend_dsn", "sentry_release", mode="before")
+    @classmethod
+    def treat_blank_as_unset(cls, value: object) -> object:
+        """an empty `SENTRY_DSN=` in `.env` means "off", not an invalid DSN."""
+        if isinstance(value, str) and not value.strip():
+            return None
         return value
 
     @field_validator("database_url")
@@ -206,6 +220,8 @@ def redaction_secrets(settings: Settings) -> list[str]:
         proxy_url = settings.https_proxy.get_secret_value()
         secrets.append(proxy_url)
         secrets.extend(url_password_forms(proxy_url))
+    if settings.sentry_dsn is not None:
+        secrets.append(settings.sentry_dsn.get_secret_value())
     return secrets
 
 

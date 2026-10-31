@@ -18,6 +18,7 @@ from pisniar.channel import warn_if_alerts_share_the_channel
 from pisniar.config import get_settings, redaction_secrets
 from pisniar.db.session import LOCK_TIMEOUT_MS, build_engine, build_session_factory
 from pisniar.logging import configure_logging, get_logger
+from pisniar.sentry import init_sentry
 from pisniar.telegram.client import build_bot
 from pisniar.telegram.menu import configure_admin_menu_buttons
 from pisniar.worker.celery_app import build_celery_app
@@ -43,6 +44,7 @@ async def run() -> None:
         log_level=settings.log_level,
         secrets=redaction_secrets(settings),
     )
+    init_sentry(settings)
     warn_if_alerts_share_the_channel(settings.channel_id, settings.alert_chat_id)
 
     bot = build_bot(settings)

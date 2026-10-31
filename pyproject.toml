@@ -13,6 +13,7 @@ dependencies = [
     "pydantic-settings>=2.5,<3",
     "redis>=5.0,<6",
     "requests>=2.34.2,<3",
+    "sentry-sdk>=2.73,<3",
     "sqlalchemy[asyncio]>=2.0.54,<3",
     "structlog>=24.4,<25",
     "uvicorn[standard]>=0.30,<1",

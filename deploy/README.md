@@ -110,7 +110,8 @@ from these; editing `.env` by hand is overwritten by the next deploy.
 | `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET` | |
 | `REDIS_PASSWORD`, `POSTGRES_PASSWORD` | `openssl rand -hex 24` each (hex only: the database URL embeds it) |
 | `WEBAPP_PUBLIC_URL`, `MUSICBRAINZ_CONTACT` | `https://pisniar.<tailnet>.ts.net`, a contact address |
-| `OUTBOUND_PROXY` | residential proxy, type Sticky, `http://user:password@host:port`; written to `.env` as `HTTPS_PROXY`. YouTube and Genius refuse Hetzner's IPs, so without it downloads and Genius fail. Every outside request but Telegram uses it, so an empty balance stops resolves and downloads |
+| `OUTBOUND_PROXY` | residential proxy, type Sticky, `http://user:password@host:port`; written to `.env` as `HTTPS_PROXY`. YouTube and Genius refuse Hetzner's IPs, so without it downloads and Genius fail. Every outside request but Telegram and Sentry uses it, so an empty balance stops resolves and downloads |
+| `SENTRY_DSN`, `SENTRY_FRONTEND_DSN` | optional, from sentry.io: a Python project for the backend and a Vue project for the Mini App (set its Allowed Domains to the Funnel host: the DSN is public at `/`). Empty means no reporting. Release is the image sha and environment is `production`, both set by `compose.prod.yml` |
 | `TS_AUTHKEY` | first registration only (section 7) |
 
 | Variables (tuning, optional; empty means the default) | |

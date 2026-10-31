@@ -113,7 +113,7 @@ def test_dependencies_are_pinned_exactly() -> None:
 
     assert versions
     assert all(re.fullmatch(r"\d+\.\d+\.\d+", version) for version in versions.values())
-    assert set(package["dependencies"]) == {"vue", "openapi-fetch", "wavesurfer.js"}
+    assert set(package["dependencies"]) == {"vue", "openapi-fetch", "wavesurfer.js", "@sentry/vue"}
 
 
 def test_the_csp_style_hash_names_the_wavesurfer_version_in_package_json() -> None:

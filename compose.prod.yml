@@ -3,6 +3,8 @@
 
 x-prod-environment: &prod-environment
   DATABASE_URL: postgresql+asyncpg://pisniar:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/pisniar
+  SENTRY_ENVIRONMENT: production
+  SENTRY_RELEASE: ${PISNIAR_IMAGE_TAG:?set PISNIAR_IMAGE_TAG to the image sha}
 
 x-bot-image: &bot-image ghcr.io/nazar652/pisniar-bot:${PISNIAR_IMAGE_TAG:?set PISNIAR_IMAGE_TAG to the image sha}
 x-worker-image: &worker-image ghcr.io/nazar652/pisniar-worker:${PISNIAR_IMAGE_TAG:?set PISNIAR_IMAGE_TAG to the image sha}

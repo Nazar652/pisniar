@@ -31,7 +31,14 @@ pytestmark = pytest.mark.skipif(
 
 PROD_RESTARTED_SERVICES = ["postgres", "redis", "bot", "worker", "worker-render", "webapp"]
 DATABASE_SERVICES = ["migrate", "bot", "worker", "worker-render", "webapp"]
-SECRET_KEYS_BEYOND_REQUIRED = {"TS_AUTHKEY", "WEBAPP_PUBLIC_URL", "MUSICBRAINZ_CONTACT", "OUTBOUND_PROXY"}
+SECRET_KEYS_BEYOND_REQUIRED = {
+    "TS_AUTHKEY",
+    "WEBAPP_PUBLIC_URL",
+    "MUSICBRAINZ_CONTACT",
+    "OUTBOUND_PROXY",
+    "SENTRY_DSN",
+    "SENTRY_FRONTEND_DSN",
+}
 FAKE_VALUES = {
     "BOT_TOKEN": "111111111:fake-bot-token-value",
     "ADMIN_IDS": "111111111,222222222",
@@ -136,6 +143,37 @@ def test_the_database_url_carries_the_generated_password_in_every_service(
     assert "pisniar:pisniar@" not in PROD_FILE.read_text(encoding="utf-8")
     assert prod["services"]["postgres"]["environment"]["POSTGRES_PASSWORD"].startswith("${POSTGRES_PASSWORD:?")
     assert "DATABASE_URL" in compose["services"]["bot"]["environment"]
+
+
+def test_every_service_reports_the_image_sha_as_the_sentry_release(prod: dict[str, Any]) -> None:
+    for name in DATABASE_SERVICES:
+        environment = prod["services"][name]["environment"]
+        assert environment["SENTRY_ENVIRONMENT"] == "production"
+        assert environment["SENTRY_RELEASE"] == "${PISNIAR_IMAGE_TAG:?set PISNIAR_IMAGE_TAG to the image sha}"
+
+
+def test_the_sentry_dsns_are_runtime_secrets_never_a_build_input(deploy_workflow: dict[Any, Any]) -> None:
+    step = ssh_step(deploy_workflow)
+
+    assert step["env"]["SENTRY_DSN"] == "${{ secrets.SENTRY_DSN }}"
+    assert step["env"]["SENTRY_FRONTEND_DSN"] == "${{ secrets.SENTRY_FRONTEND_DSN }}"
+    for build_input in (REPOSITORY_ROOT / "Dockerfile", CI_WORKFLOW):
+        assert "SENTRY" not in build_input.read_text(encoding="utf-8")
+
+
+def test_write_env_writes_the_sentry_dsns_and_prints_neither(tmp_path: Path) -> None:
+    dsns = {
+        "SENTRY_DSN": "https://fakebackendkey@o1.ingest.sentry.io/1",
+        "SENTRY_FRONTEND_DSN": "https://fakepublickey@o1.ingest.sentry.io/2",
+    }
+
+    result = run_write_env(tmp_path, {**FAKE_VALUES, **dsns})
+
+    assert result.returncode == 0
+    env_lines = (tmp_path / ".env").read_text(encoding="utf-8").splitlines()
+    for key, value in dsns.items():
+        assert f"{key}='{value}'" in env_lines
+    assert "fake" not in result.stdout + result.stderr
 
 
 def test_the_grace_period_outlasts_the_task_hard_limit(prod: dict[str, Any]) -> None:

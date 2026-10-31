@@ -19,6 +19,7 @@
     "check:bundle": "node scripts/check-bundle.ts dist-check"
   },
   "dependencies": {
+    "@sentry/vue": "11.10.0",
     "openapi-fetch": "0.17.0",
     "vue": "3.5.43",
     "wavesurfer.js": "7.12.12"

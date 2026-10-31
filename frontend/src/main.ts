@@ -1,5 +1,6 @@
 import { createApp } from 'vue'
 import App from './App.vue'
+import { installSentry } from './sentry/install'
 import './styles/base.css'
 
 async function start(): Promise<void> {
@@ -8,7 +9,9 @@ async function start(): Promise<void> {
     const { installDevShim } = await import('./dev/shim')
     presetToken = installDevShim(window)
   }
-  createApp(App, presetToken === undefined ? {} : { presetToken }).mount('#app')
+  const app = createApp(App, presetToken === undefined ? {} : { presetToken })
+  installSentry(app, document)
+  app.mount('#app')
 }
 
 void start()

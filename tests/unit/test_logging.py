@@ -5,6 +5,9 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
+from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 import structlog.testing
@@ -17,6 +20,7 @@ from pisniar.logging import (
     make_redact_secrets_processor,
     redact_secrets_in_text,
     register_runtime_secret,
+    report_error_to_sentry,
 )
 
 
@@ -175,3 +179,149 @@ def test_redact_secrets_in_text_scrubs_configured_and_runtime_secrets(
 
 def test_redact_secrets_in_text_leaves_an_innocent_message_alone() -> None:
     assert redact_secrets_in_text("нічого таємного", ["db-password"]) == "нічого таємного"
+
+
+@pytest.fixture
+def sentry_capture(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
+    """one mock for both capture calls, so a test sees which of them the processor chose."""
+    capture = MagicMock()
+    monkeypatch.setattr(pisniar_logging.sentry_sdk, "capture_exception", capture.exception)
+    monkeypatch.setattr(pisniar_logging.sentry_sdk, "capture_message", capture.message)
+    return capture
+
+
+def foreign_record(name: str) -> logging.LogRecord:
+    return logging.LogRecord(name, logging.ERROR, __file__, 1, "message", None, None)
+
+
+def raised() -> BaseException:
+    try:
+        raise ValueError("boom")
+    except ValueError as error:
+        return error
+
+
+def run_processor(**fields: Any) -> None:
+    report_error_to_sentry(None, "error", {"event": "something_failed", **fields})
+
+
+@pytest.mark.parametrize("level", ["debug", "info", "warning"])
+def test_a_line_below_error_is_never_reported(sentry_capture: MagicMock, level: str) -> None:
+    error = raised()
+
+    run_processor(level=level, exc_info=error)
+
+    assert sentry_capture.mock_calls == []
+
+
+def test_our_own_error_line_without_an_exception_is_reported_as_a_message(sentry_capture: MagicMock) -> None:
+    run_processor(level="error")
+
+    sentry_capture.message.assert_called_once_with("something_failed", level="error")
+    sentry_capture.exception.assert_not_called()
+
+
+def test_our_own_critical_line_is_reported(sentry_capture: MagicMock) -> None:
+    run_processor(level="critical")
+
+    sentry_capture.message.assert_called_once()
+
+
+def test_our_own_error_line_with_an_exception_is_reported_as_that_exception(sentry_capture: MagicMock) -> None:
+    error = raised()
+
+    run_processor(level="error", exc_info=error)
+
+    sentry_capture.exception.assert_called_once_with(error)
+    sentry_capture.message.assert_not_called()
+
+
+def test_exc_info_true_resolves_the_exception_being_handled(sentry_capture: MagicMock) -> None:
+    try:
+        raise ValueError("boom")
+    except ValueError:
+        run_processor(level="error", exc_info=True)
+
+    exception_type, exception, traceback = sentry_capture.exception.call_args.args[0]
+    assert (exception_type, str(exception)) == (ValueError, "boom")
+    assert traceback is not None
+
+
+def test_exc_info_true_outside_a_handler_is_a_message(sentry_capture: MagicMock) -> None:
+    run_processor(level="error", exc_info=True)
+
+    sentry_capture.message.assert_called_once()
+    sentry_capture.exception.assert_not_called()
+
+
+def test_an_exc_info_tuple_is_reported_as_given(sentry_capture: MagicMock) -> None:
+    error = raised()
+    exc_info = (type(error), error, error.__traceback__)
+
+    run_processor(level="error", exc_info=exc_info)
+
+    sentry_capture.exception.assert_called_once_with(exc_info)
+
+
+def test_a_third_party_error_line_with_an_exception_is_reported(sentry_capture: MagicMock) -> None:
+    error = raised()
+
+    run_processor(
+        level="error", exc_info=(type(error), error, error.__traceback__), _record=foreign_record("uvicorn.error")
+    )
+
+    sentry_capture.exception.assert_called_once()
+
+
+def test_a_third_party_error_line_without_an_exception_is_not_reported(sentry_capture: MagicMock) -> None:
+    run_processor(level="error", _record=foreign_record("aiogram.event"))
+
+    assert sentry_capture.mock_calls == []
+
+
+def test_the_sdk_own_error_lines_are_never_reported(sentry_capture: MagicMock) -> None:
+    error = raised()
+
+    run_processor(level="error", exc_info=error, _record=foreign_record("sentry_sdk.errors"))
+
+    assert sentry_capture.mock_calls == []
+
+
+def test_the_processor_passes_the_event_dict_on_unchanged(sentry_capture: MagicMock) -> None:
+    event_dict = {"event": "x", "level": "error", "exc_info": raised(), "post_id": 7}
+    before = dict(event_dict)
+
+    assert report_error_to_sentry(None, "error", event_dict) is event_dict
+    assert event_dict == before
+
+
+def test_the_processor_runs_before_the_traceback_is_rendered(
+    sentry_capture: MagicMock, preserve_root_logging_state: None
+) -> None:
+    """`format_exc_info` pops `exc_info`: a processor after it would see a string and report a bare message."""
+    configure_logging(log_format="json", log_level="INFO", secrets=[])
+    processors = structlog.get_config()["processors"]
+
+    assert processors.index(report_error_to_sentry) < processors.index(structlog.processors.format_exc_info)
+
+
+@pytest.mark.parametrize(
+    "emit",
+    [
+        pytest.param(lambda: get_logger("pisniar.test").error("own_failure"), id="own_structlog_line"),
+        pytest.param(
+            lambda: logging.getLogger("uvicorn.error").error("third_party_failure", exc_info=raised()),
+            id="third_party_stdlib_line",
+        ),
+    ],
+)
+def test_each_line_is_reported_once_through_the_real_pipeline(
+    sentry_capture: MagicMock,
+    preserve_root_logging_state: None,
+    emit: Callable[[], None],
+) -> None:
+    configure_logging(log_format="json", log_level="INFO", secrets=[])
+
+    emit()
+
+    assert len(sentry_capture.mock_calls) == 1

@@ -48,6 +48,33 @@ def test_admin_allowlist_carries_the_configured_admin_ids(dispatcher: Dispatcher
     assert middleware.admin_ids == frozenset({ADMIN_ID})
 
 
+async def serve_briefly() -> None:
+    await asyncio.sleep(0.05)
+
+
+def patch_run_collaborators(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
+    """everything `run()` touches replaced, so it can be driven to its end; returns the fake dispatcher."""
+    fake_dispatcher = MagicMock()
+    fake_dispatcher.start_polling = AsyncMock()
+    fake_server = MagicMock()
+    fake_server.serve = serve_briefly
+    fake_engine = MagicMock()
+    fake_engine.dispose = AsyncMock()
+
+    monkeypatch.setattr(bot_main, "configure_logging", MagicMock())
+    monkeypatch.setattr(bot_main, "warn_if_alerts_share_the_channel", MagicMock())
+    monkeypatch.setattr(bot_main, "build_bot", MagicMock())
+    monkeypatch.setattr(bot_main, "configure_admin_menu_buttons", AsyncMock())
+    monkeypatch.setattr(bot_main, "build_engine", MagicMock(return_value=fake_engine))
+    monkeypatch.setattr(bot_main, "build_session_factory", MagicMock())
+    monkeypatch.setattr(bot_main, "build_celery_app", MagicMock())
+    monkeypatch.setattr(bot_main, "build_dispatcher", MagicMock(return_value=fake_dispatcher))
+    monkeypatch.setattr(bot_main, "create_app", MagicMock())
+    monkeypatch.setattr(bot_main.uvicorn, "Server", MagicMock(return_value=fake_server))
+    monkeypatch.setattr(bot_main.uvicorn, "Config", MagicMock())
+    return fake_dispatcher
+
+
 async def test_the_menu_buttons_are_set_before_polling_starts_and_never_block_it(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -65,28 +92,22 @@ async def test_the_menu_buttons_are_set_before_polling_starts_and_never_block_it
     async def record_polling(*arguments: object, **keyword_arguments: object) -> None:
         order.append("polling")
 
-    async def serve_briefly() -> None:
-        await asyncio.sleep(0.05)
-
-    fake_dispatcher = MagicMock()
+    fake_dispatcher = patch_run_collaborators(monkeypatch)
     fake_dispatcher.start_polling = record_polling
-    fake_server = MagicMock()
-    fake_server.serve = serve_briefly
-    fake_engine = MagicMock()
-    fake_engine.dispose = AsyncMock()
-
-    monkeypatch.setattr(bot_main, "configure_logging", MagicMock())
-    monkeypatch.setattr(bot_main, "warn_if_alerts_share_the_channel", MagicMock())
-    monkeypatch.setattr(bot_main, "build_bot", MagicMock())
     monkeypatch.setattr(bot_main, "configure_admin_menu_buttons", record_menu)
-    monkeypatch.setattr(bot_main, "build_engine", MagicMock(return_value=fake_engine))
-    monkeypatch.setattr(bot_main, "build_session_factory", MagicMock())
-    monkeypatch.setattr(bot_main, "build_celery_app", MagicMock())
-    monkeypatch.setattr(bot_main, "build_dispatcher", MagicMock(return_value=fake_dispatcher))
-    monkeypatch.setattr(bot_main, "create_app", MagicMock())
-    monkeypatch.setattr(bot_main.uvicorn, "Server", MagicMock(return_value=fake_server))
-    monkeypatch.setattr(bot_main.uvicorn, "Config", MagicMock())
 
     await bot_main.run()
 
     assert order == ["menu", "polling"]
+
+
+async def test_error_reporting_starts_right_after_logging_is_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+    order: list[str] = []
+    patch_run_collaborators(monkeypatch)
+    monkeypatch.setattr(bot_main, "configure_logging", lambda **keywords: order.append("logging"))
+    monkeypatch.setattr(bot_main, "init_sentry", lambda settings: order.append("sentry"))
+    monkeypatch.setattr(bot_main, "warn_if_alerts_share_the_channel", lambda *arguments: order.append("channel"))
+
+    await bot_main.run()
+
+    assert order == ["logging", "sentry", "channel"]

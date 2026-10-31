@@ -326,3 +326,29 @@ def test_the_redis_password_is_redacted_from_a_message_and_a_traceback(
     parsed = json.loads(output)
     assert REDACTED_PLACEHOLDER in parsed["event"]
     assert REDACTED_PLACEHOLDER in parsed["exception"]
+
+
+def test_sentry_is_off_by_default_and_for_blank_values() -> None:
+    assert build_settings().sentry_dsn is None
+    assert build_settings(sentry_dsn="", sentry_frontend_dsn="  ", sentry_release="").sentry_frontend_dsn is None
+    assert build_settings(sentry_release="").sentry_release is None
+    assert build_settings().sentry_environment == "dev"
+
+
+def test_the_test_environment_never_carries_a_sentry_dsn() -> None:
+    """`tests/conftest.py` blanks them, so a real DSN in `.env` cannot reach a test."""
+    ambient = Settings()
+
+    assert ambient.sentry_dsn is None
+    assert ambient.sentry_frontend_dsn is None
+
+
+def test_redaction_secrets_covers_the_backend_dsn_but_not_the_public_one() -> None:
+    backend = "https://backendkey@o1.ingest.sentry.io/1"
+    settings = build_settings(sentry_dsn=backend, sentry_frontend_dsn="https://publickey@o1.ingest.sentry.io/2")
+
+    secrets = redaction_secrets(settings)
+
+    assert backend in secrets
+    assert "https://publickey@o1.ingest.sentry.io/2" not in secrets
+    assert "backendkey" not in repr(settings)

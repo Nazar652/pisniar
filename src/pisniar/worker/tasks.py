@@ -17,7 +17,7 @@ import httpx
 from aiogram import Bot
 from aiogram.exceptions import TelegramAPIError
 from celery.exceptions import SoftTimeLimitExceeded
-from celery.signals import task_postrun, task_prerun
+from celery.signals import celeryd_init, task_postrun, task_prerun
 from sqlalchemy import func, select, text
 from sqlalchemy.dialects.postgresql import Insert as PostgresInsert
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
@@ -52,6 +52,7 @@ from pisniar.resolve.types import (
     ResolvedTrack,
 )
 from pisniar.resolve.urls import UrlKind, classify_url
+from pisniar.sentry import init_sentry
 from pisniar.telegram.client import build_bot
 from pisniar.telegram.draft import deliver_draft
 from pisniar.telegram.keyboards import published_keyboard
@@ -140,6 +141,13 @@ async def task_session_factory(
         yield build_session_factory(engine)
     finally:
         await engine.dispose()
+
+
+# in the main process before the pool forks, so the children inherit the client; `celery inspect ping` imports this
+# module but never starts a worker, and so never reaches it.
+@celeryd_init.connect
+def init_error_reporting(**kwargs: Any) -> None:
+    init_sentry(settings)
 
 
 # clears correlation ids around every task, not just `ping` — a stale

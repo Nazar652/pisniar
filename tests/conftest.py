@@ -7,11 +7,15 @@ import logging
 import os
 import socket
 from collections.abc import Collection, Iterator
+from functools import partial
 from typing import Any
 
 import pytest
+import sentry_sdk
 import structlog
 from celery import Celery
+from sentry_sdk.envelope import Envelope
+from sentry_sdk.transport import Transport
 
 pytest_plugins = ["pytester"]
 
@@ -30,6 +34,9 @@ os.environ.setdefault("HTTP_PORT", "8080")
 os.environ.setdefault("SPOTIFY_CLIENT_ID", "test-spotify-client-id")
 os.environ.setdefault("SPOTIFY_CLIENT_SECRET", "test-spotify-client-secret-not-real")
 os.environ.setdefault("ITUNES_COUNTRY", "UA")
+# not `setdefault`: a real DSN from `.env` or a container environment must never reach a test
+os.environ["SENTRY_DSN"] = ""
+os.environ["SENTRY_FRONTEND_DSN"] = ""
 
 
 @pytest.fixture
@@ -47,6 +54,24 @@ def preserve_root_logging_state() -> Iterator[None]:
         structlog.configure(**original_structlog_config)
         root_logger.handlers = original_handlers
         root_logger.setLevel(original_level)
+
+
+@pytest.fixture
+def sent_sentry_events(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[Any]]:
+    """the real SDK with a transport that keeps events in memory, so nothing leaves the process; the client is dropped
+    afterwards."""
+    events: list[Any] = []
+
+    class MemoryTransport(Transport):
+        def capture_envelope(self, envelope: Envelope) -> None:
+            events.extend(item.payload.json for item in envelope.items if item.type == "event")
+
+    monkeypatch.setattr(sentry_sdk, "init", partial(sentry_sdk.init, transport=MemoryTransport()))
+    try:
+        yield events
+    finally:
+        sentry_sdk.get_client().close()
+        sentry_sdk.get_global_scope().set_client(None)
 
 
 class OutsideAccessError(RuntimeError):

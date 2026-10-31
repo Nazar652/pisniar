@@ -11,6 +11,7 @@ import sys
 from collections.abc import Callable, Iterable, MutableMapping
 from typing import Any, Literal, cast
 
+import sentry_sdk
 import structlog
 import structlog.typing
 
@@ -81,6 +82,52 @@ def make_redact_secrets_processor(secrets: Iterable[str]) -> EventDictProcessor:
     return redact_secrets
 
 
+SENTRY_LEVELS = frozenset({"error", "critical"})
+SENTRY_TAG_FIELDS = ("post_id", "track_id", "update_id", "celery_task_id", "user_id")
+NON_CONTEXT_FIELDS = frozenset({"exc_info", "_record", "_from_structlog"})
+
+
+def exception_of(exc_info: object) -> BaseException | tuple[Any, Any, Any] | None:
+    """the exception behind `exc_info` in any of the three shapes structlog and stdlib hand over."""
+    if exc_info is True:
+        exc_info = sys.exc_info()
+    if isinstance(exc_info, BaseException):
+        return exc_info
+    if isinstance(exc_info, tuple) and exc_info[0] is not None:
+        return cast(tuple[Any, Any, Any], exc_info)
+    return None
+
+
+def report_error_to_sentry(
+    logger: Any,
+    method_name: str,
+    event_dict: MutableMapping[str, Any],
+) -> MutableMapping[str, Any]:
+    """one capture per ERROR line: our own lines always, a third party's only with an exception. Placed before
+    `format_exc_info`, which would consume the traceback; a no-op until `init_sentry` ran."""
+    if event_dict.get("level") not in SENTRY_LEVELS:
+        return event_dict
+
+    foreign_record = event_dict.get("_record")
+    exception = exception_of(event_dict.get("exc_info"))
+    if foreign_record is not None and (foreign_record.name.startswith("sentry_sdk") or exception is None):
+        return event_dict
+
+    with sentry_sdk.new_scope() as scope:
+        if foreign_record is None:
+            scope.set_tag("log_event", str(event_dict.get("event")))
+        for field in SENTRY_TAG_FIELDS:
+            if event_dict.get(field) is not None:
+                scope.set_tag(field, str(event_dict[field]))
+        scope.set_context("log", {key: value for key, value in event_dict.items() if key not in NON_CONTEXT_FIELDS})
+
+        if exception is not None:
+            sentry_sdk.capture_exception(exception)
+        else:
+            sentry_sdk.capture_message(str(event_dict.get("event")), level="error")
+    return event_dict
+
+
 def configure_logging(
     *,
     log_format: Literal["json", "console"] = "json",
@@ -94,6 +141,7 @@ def configure_logging(
         structlog.stdlib.add_log_level,
         structlog.processors.TimeStamper(fmt="iso", utc=True),
         structlog.processors.StackInfoRenderer(),
+        report_error_to_sentry,
         structlog.processors.format_exc_info,
         make_redact_secrets_processor(secrets),
     ]
